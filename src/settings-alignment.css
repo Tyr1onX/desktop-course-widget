@@ -1,0 +1,31 @@
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.settings-nav__button {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: flex-start;
+  line-height: 1.25;
+}
+
+.field label {
+  display: flex;
+  min-height: 18px;
+  align-items: center;
+  line-height: 18px;
+}
+
+.field input {
+  line-height: 1.2;
+}
+
+.status-badge,
+.summary-item,
+.app-mark__icon {
+  line-height: 1;
+}

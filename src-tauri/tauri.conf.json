@@ -1,0 +1,85 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "桌面课表",
+  "version": "0.1.0",
+  "identifier": "com.coursewidget.desktop",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://127.0.0.1:1420/widget.html",
+    "beforeDevCommand": "npm run web:dev -- --host 127.0.0.1 --port 1420",
+    "beforeBuildCommand": "npm run web:build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "课程组件",
+        "url": "widget.html",
+        "width": 392,
+        "height": 460,
+        "minWidth": 392,
+        "minHeight": 160,
+        "maxWidth": 392,
+        "maxHeight": 740,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "fullscreen": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "skipTaskbar": true,
+        "alwaysOnTop": false,
+        "alwaysOnBottom": true,
+        "visible": false,
+        "zoomHotkeysEnabled": false
+      },
+      {
+        "label": "settings",
+        "title": "课表与设置",
+        "url": "settings.html",
+        "width": 900,
+        "height": 680,
+        "minWidth": 820,
+        "minHeight": 560,
+        "resizable": true,
+        "maximizable": false,
+        "minimizable": true,
+        "fullscreen": false,
+        "decorations": true,
+        "transparent": false,
+        "shadow": true,
+        "skipTaskbar": false,
+        "alwaysOnTop": false,
+        "alwaysOnBottom": false,
+        "visible": false,
+        "center": true,
+        "zoomHotkeysEnabled": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "publisher": "Tyr1onX",
+    "copyright": "Copyright © 2026 Tyr1onX",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    },
+    "android": {
+      "debugApplicationIdSuffix": ".debug"
+    }
+  }
+}

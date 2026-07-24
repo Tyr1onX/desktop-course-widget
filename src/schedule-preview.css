@@ -1,0 +1,278 @@
+.schedule-preview[hidden] {
+  display: none;
+}
+
+.schedule-preview {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+
+.schedule-preview__backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(31, 42, 64, 0.42);
+  backdrop-filter: blur(8px);
+}
+
+.schedule-preview__panel {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  width: min(1120px, calc(100vw - 36px));
+  height: min(900px, calc(100vh - 36px));
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid rgba(129, 148, 177, 0.34);
+  border-radius: 24px;
+  background: #f8fbff;
+  box-shadow: 0 28px 90px rgba(29, 42, 68, 0.28);
+}
+
+.schedule-preview__header,
+.schedule-preview__toolbar,
+.schedule-preview__footer {
+  padding-right: 24px;
+  padding-left: 24px;
+}
+
+.schedule-preview__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding-top: 22px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #e3e9f2;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.schedule-preview__eyebrow {
+  margin: 0 0 6px;
+  color: #0a78eb;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.schedule-preview__header h2 {
+  margin: 0;
+  color: #172033;
+  font-size: 24px;
+}
+
+.schedule-preview__header p:not(.schedule-preview__eyebrow) {
+  margin: 7px 0 0;
+  color: #6f7d94;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.schedule-preview__close {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  place-items: center;
+  border: 1px solid #d9e1ec;
+  border-radius: 12px;
+  color: #5b687e;
+  font-size: 25px;
+  line-height: 1;
+  background: #f7f9fc;
+}
+
+.schedule-preview__close:hover {
+  background: #eef3f9;
+}
+
+.schedule-preview__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #e7ecf3;
+}
+
+.schedule-preview__week-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #536078;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.schedule-preview__week-label select {
+  height: 40px;
+  padding: 0 34px 0 12px;
+  border: 1px solid #d8e0eb;
+  border-radius: 11px;
+  color: #243047;
+  background: white;
+}
+
+.schedule-preview__count {
+  margin-left: auto;
+  color: #718098;
+  font-size: 13px;
+}
+
+.schedule-preview__scroll {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 16px 20px 20px;
+  scrollbar-gutter: stable both-edges;
+}
+
+.schedule-preview__grid {
+  display: grid;
+  grid-template-columns: 64px repeat(7, minmax(112px, 1fr));
+  grid-template-rows: 42px repeat(10, 64px);
+  min-width: 900px;
+  min-height: 682px;
+  overflow: hidden;
+  border: 1px solid #dfe6ef;
+  border-radius: 16px;
+  background: white;
+}
+
+.schedule-preview__corner,
+.schedule-preview__day,
+.schedule-preview__section {
+  position: sticky;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  color: #66748b;
+  font-size: 12px;
+  font-weight: 750;
+  background: #f3f7fc;
+}
+
+.schedule-preview__corner,
+.schedule-preview__day {
+  top: 0;
+  border-bottom: 1px solid #dfe6ef;
+}
+
+.schedule-preview__corner,
+.schedule-preview__section {
+  left: 0;
+}
+
+.schedule-preview__corner {
+  z-index: 6;
+}
+
+.schedule-preview__section {
+  border-top: 1px solid #e8edf4;
+}
+
+.schedule-preview__day,
+.schedule-preview__cell {
+  border-left: 1px solid #e5eaf1;
+}
+
+.schedule-preview__cell {
+  border-top: 1px solid #e8edf4;
+  background: #fcfdff;
+}
+
+.schedule-preview__course {
+  z-index: 2;
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  margin: 4px;
+  padding: 8px;
+  overflow: hidden;
+  border: 1px solid hsl(var(--course-hue) 72% 78%);
+  border-radius: 10px;
+  color: hsl(var(--course-hue) 42% 25%);
+  background: linear-gradient(145deg, hsl(var(--course-hue) 88% 95%), hsl(var(--course-hue) 82% 91%));
+  box-shadow: 0 4px 12px hsl(var(--course-hue) 42% 40% / 0.12);
+}
+
+.schedule-preview__entry {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.schedule-preview__entry + .schedule-preview__entry {
+  padding-top: 6px;
+  border-top: 1px solid hsl(var(--course-hue) 54% 70% / 0.55);
+}
+
+.schedule-preview__entry strong {
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+}
+
+.schedule-preview__location,
+.schedule-preview__sections {
+  overflow: hidden;
+  font-size: 10px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.schedule-preview__location--empty {
+  opacity: 0.58;
+}
+
+.schedule-preview__sections {
+  margin-top: auto;
+  opacity: 0.72;
+}
+
+.schedule-preview__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding-top: 14px;
+  padding-bottom: 16px;
+  border-top: 1px solid #e3e9f2;
+  color: #78859a;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+@media (max-width: 760px) {
+  .schedule-preview {
+    padding: 8px;
+  }
+
+  .schedule-preview__panel {
+    width: calc(100vw - 16px);
+    height: calc(100vh - 16px);
+    border-radius: 18px;
+  }
+
+  .schedule-preview__header,
+  .schedule-preview__toolbar,
+  .schedule-preview__footer {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .schedule-preview__toolbar {
+    flex-wrap: wrap;
+  }
+
+  .schedule-preview__count {
+    width: 100%;
+    margin-left: 0;
+  }
+}
