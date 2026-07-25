@@ -1,0 +1,64 @@
+name: Apply updater foundation
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: windows-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install updater dependencies
+        run: npm install @tauri-apps/plugin-updater@^2.10.1 @tauri-apps/plugin-process@^2
+
+      - name: Apply updater implementation
+        run: python scripts/apply-updater-foundation.py
+
+      - name: Refresh Rust lockfile
+        run: cargo generate-lockfile --manifest-path src-tauri/Cargo.toml
+
+      - name: Validate web build
+        run: npm run web:build
+
+      - name: Validate Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+
+      - name: Check diff
+        shell: pwsh
+        run: git diff --check
+
+      - name: Commit generated implementation
+        shell: pwsh
+        run: |
+          git rm .github/workflows/bootstrap-updater.yml
+          git rm .github/workflows/apply-updater-foundation.yml
+          git rm scripts/apply-updater-foundation.py
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add package.json package-lock.json settings.html src src-tauri .github/workflows/release.yml docs/UPDATER_SETUP.md
+          git commit -m "feat: add signed in-app update flow"
+          git push origin HEAD:${{ github.head_ref }}
