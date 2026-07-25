@@ -711,11 +711,9 @@ function dataSurfaceMarkup(): string {
   }).join('')
   return surfaceShell('课表与数据', `
     <div class="surface-scroll simple-surface">
-      <div class="surface-intro"><h3>我的课表</h3><p>可以切换、编辑或删除课表；桌面组件始终使用标记为“当前”的课表。</p></div>
       <div class="schedule-records">${items}</div>
       <div class="data-card">
         <h3>本地数据</h3>
-        <p>课表、设置和自动备份都保存在应用本地目录。</p>
         <button class="secondary-button" type="button" data-action="open-data-location">打开数据位置</button>
       </div>
       <p class="surface-message" role="status">${escapeHtml(surfaceMessage)}</p>
