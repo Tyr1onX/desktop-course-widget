@@ -1,0 +1,82 @@
+.side-surface .schedule-records {
+  gap: 8px;
+  margin-top: 0;
+}
+
+.side-surface .schedule-record {
+  padding: 12px 13px;
+}
+
+.side-surface .schedule-record.is-active .record-delete,
+.side-surface .record-delete:disabled {
+  display: none;
+}
+
+.side-surface .data-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 12px 13px;
+  border: 1px solid #e6e9ed;
+  border-radius: 10px;
+  background: #fafbfc;
+}
+
+.side-surface .data-card h3 {
+  font-size: 13px;
+  font-weight: 620;
+}
+
+.side-surface .data-card .secondary-button {
+  min-height: 31px;
+  margin-top: 0;
+  padding-inline: 10px;
+  font-size: 11px;
+}
+
+.schedule-editor {
+  gap: 16px;
+}
+
+.schedule-editor .surface-intro {
+  display: none;
+}
+
+.schedule-editor .schedule-editor-form {
+  gap: 12px;
+}
+
+.schedule-editor .schedule-metadata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.schedule-editor .schedule-metadata div {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: #f5f6f8;
+}
+
+.schedule-editor .schedule-metadata span {
+  font-size: 11px;
+}
+
+.schedule-editor .schedule-metadata strong {
+  font-size: 12px;
+}
+
+.schedule-editor .editor-note {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.surface-actions .danger-button:disabled {
+  visibility: hidden;
+}

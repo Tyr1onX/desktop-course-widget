@@ -20,6 +20,8 @@
     "dialog:default",
     "schedule-catalog:allow-list-schedules",
     "schedule-catalog:allow-get-active-schedule",
+    "schedule-catalog:allow-get-schedule",
+    "schedule-catalog:allow-update-schedule",
     "schedule-catalog:allow-activate-schedule",
     "schedule-catalog:allow-delete-schedule",
     "schedule-catalog:allow-create-schedule-from-import",
