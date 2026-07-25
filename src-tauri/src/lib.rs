@@ -1,6 +1,7 @@
-pub mod excel_import;
 mod app_settings;
+pub mod excel_import;
 mod schedule_apply;
+mod schedule_catalog;
 mod schedule_store;
 
 use std::{
@@ -11,10 +12,10 @@ use std::{
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager, PhysicalPosition, WindowEvent,
+    AppHandle, Emitter, Listener, Manager, PhysicalPosition, WindowEvent,
 };
 use tauri_plugin_autostart::ManagerExt;
-use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+use tauri_plugin_dialog::DialogExt;
 
 struct RuntimeState {
     quitting: AtomicBool,
@@ -126,6 +127,9 @@ fn show_main_window(app: &AppHandle) -> tauri::Result<()> {
     }
 
     window.show()?;
+    if let Err(error) = app.emit("widget:visibility-changed", ()) {
+        eprintln!("[widget] could not refresh the tray visibility label: {error}");
+    }
     if let Err(error) = app.emit("widget:shown", ()) {
         eprintln!("[widget] could not request an immediate frontend time sync: {error}");
     }
@@ -133,7 +137,11 @@ fn show_main_window(app: &AppHandle) -> tauri::Result<()> {
 }
 
 fn hide_main_window(app: &AppHandle) -> tauri::Result<()> {
-    main_window(app)?.hide()
+    main_window(app)?.hide()?;
+    if let Err(error) = app.emit("widget:visibility-changed", ()) {
+        eprintln!("[widget] could not refresh the tray visibility label: {error}");
+    }
+    Ok(())
 }
 
 fn show_settings_window(app: &AppHandle) -> tauri::Result<()> {
@@ -224,23 +232,35 @@ fn toggle_autostart<R: tauri::Runtime>(app: &AppHandle<R>, menu_item: &CheckMenu
     }
 }
 
+fn sync_toggle_widget_menu_item<R: tauri::Runtime>(app: &AppHandle<R>, menu_item: &MenuItem<R>) {
+    let visible = app
+        .get_webview_window("main")
+        .and_then(|window| window.is_visible().ok())
+        .unwrap_or(false);
+    let text = if visible {
+        "隐藏组件"
+    } else {
+        "显示组件"
+    };
+    if let Err(error) = menu_item.set_text(text) {
+        eprintln!("[widget] could not update tray visibility label: {error}");
+    }
+}
+
 fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
-    let show = MenuItem::with_id(app, "show-widget", "显示组件", true, None::<&str>)?;
-    let hide = MenuItem::with_id(app, "hide-widget", "隐藏组件", true, None::<&str>)?;
-    let settings = MenuItem::with_id(
+    let initial_toggle_text = if onboarding_completed(app.handle()) {
+        "隐藏组件"
+    } else {
+        "显示组件"
+    };
+    let toggle_widget = MenuItem::with_id(
         app,
-        "open-settings",
-        "课表与设置…",
+        "toggle-widget",
+        initial_toggle_text,
         true,
         None::<&str>,
     )?;
-    let open_location = MenuItem::with_id(
-        app,
-        "open-schedule-location",
-        "打开课表位置",
-        true,
-        None::<&str>,
-    )?;
+    let settings = MenuItem::with_id(app, "open-settings", "课表与设置…", true, None::<&str>)?;
     let autostart = CheckMenuItem::with_id(
         app,
         "toggle-autostart",
@@ -252,23 +272,26 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let quit = MenuItem::with_id(app, "quit-application", "退出程序", true, None::<&str>)?;
     let separator_one = PredefinedMenuItem::separator(app)?;
     let separator_two = PredefinedMenuItem::separator(app)?;
-    let separator_three = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(
         app,
         &[
-            &show,
-            &hide,
-            &separator_one,
+            &toggle_widget,
             &settings,
-            &open_location,
-            &separator_two,
+            &separator_one,
             &autostart,
-            &separator_three,
+            &separator_two,
             &quit,
         ],
     )?;
-    let autostart_menu_item = autostart.clone();
 
+    let visibility_app = app.handle().clone();
+    let visibility_menu_item = toggle_widget.clone();
+    app.listen("widget:visibility-changed", move |_| {
+        sync_toggle_widget_menu_item(&visibility_app, &visibility_menu_item);
+    });
+
+    let autostart_menu_item = autostart.clone();
+    let tray_toggle_menu_item = toggle_widget.clone();
     let _tray = TrayIconBuilder::with_id("course-widget-tray")
         .icon(
             app.default_window_icon()
@@ -279,14 +302,9 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id().as_ref() {
-            "show-widget" => {
-                if let Err(error) = show_primary_experience(app) {
-                    eprintln!("[widget] tray show failed: {error}");
-                }
-            }
-            "hide-widget" => {
-                if let Err(error) = hide_main_window(app) {
-                    eprintln!("[widget] tray hide failed: {error}");
+            "toggle-widget" => {
+                if let Err(error) = toggle_main_window(app) {
+                    eprintln!("[widget] tray toggle failed: {error}");
                 }
             }
             "open-settings" => {
@@ -294,22 +312,11 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
                     eprintln!("[settings] tray show failed: {error}");
                 }
             }
-            "open-schedule-location" => {
-                if let Err(error) = schedule_store::open_schedule_directory(app) {
-                    show_message(
-                        app,
-                        "打开课表位置失败",
-                        "无法打开课表文件夹。请稍后重试。",
-                        MessageDialogKind::Error,
-                    );
-                    eprintln!("[schedule] open location failed: {error}");
-                }
-            }
             "toggle-autostart" => toggle_autostart(app, &autostart_menu_item),
             "quit-application" => quit_application(app),
             _ => {}
         })
-        .on_tray_icon_event(|tray, event| {
+        .on_tray_icon_event(move |tray, event| {
             if let TrayIconEvent::Click {
                 button: MouseButton::Left,
                 button_state: MouseButtonState::Up,
@@ -319,19 +326,18 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
                 if let Err(error) = toggle_main_window(tray.app_handle()) {
                     eprintln!("[widget] tray toggle failed: {error}");
                 }
+            } else if let TrayIconEvent::Click {
+                button: MouseButton::Right,
+                button_state: MouseButtonState::Down,
+                ..
+            } = event
+            {
+                sync_toggle_widget_menu_item(tray.app_handle(), &tray_toggle_menu_item);
             }
         })
         .build(app)?;
 
     Ok(())
-}
-
-fn show_message(app: &AppHandle, title: &str, message: &str, kind: MessageDialogKind) {
-    app.dialog()
-        .message(message)
-        .title(title)
-        .kind(kind)
-        .show(|_| {});
 }
 
 #[tauri::command]
@@ -505,8 +511,8 @@ fn intercept_settings_close(app: &AppHandle, event: &WindowEvent) {
     if let WindowEvent::CloseRequested { api, .. } = event {
         if !app.state::<RuntimeState>().quitting.load(Ordering::SeqCst) {
             api.prevent_close();
-            if let Err(error) = hide_settings_window(app) {
-                eprintln!("[settings] close hide failed: {error}");
+            if let Err(error) = app.emit("settings:close-requested", ()) {
+                eprintln!("[settings] close request emit failed: {error}");
             }
         }
     }
@@ -532,6 +538,7 @@ pub fn run() {
                 .with_state_flags(tauri_plugin_window_state::StateFlags::POSITION)
                 .build(),
         )
+        .plugin(schedule_catalog::init())
         .setup(|app| {
             let had_schedule_before_start = schedule_store::resolve_schedule_path(app.handle())
                 .map(|path| path.exists())
@@ -539,16 +546,14 @@ pub fn run() {
             if let Err(error) = schedule_store::ensure_schedule_storage(app.handle()) {
                 eprintln!("[schedule] startup storage failed: {error}");
             }
-            let onboarding_completed = match app_settings::ensure_app_settings(
-                app.handle(),
-                had_schedule_before_start,
-            ) {
-                Ok(settings) => settings.onboarding_completed,
-                Err(error) => {
-                    eprintln!("[settings] startup storage failed: {error}");
-                    true
-                }
-            };
+            let onboarding_completed =
+                match app_settings::ensure_app_settings(app.handle(), had_schedule_before_start) {
+                    Ok(settings) => settings.onboarding_completed,
+                    Err(error) => {
+                        eprintln!("[settings] startup storage failed: {error}");
+                        true
+                    }
+                };
 
             setup_tray(app)?;
 

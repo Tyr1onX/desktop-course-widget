@@ -1,5 +1,6 @@
 import scheduleData from './data/schedule.json'
 import { isTauri } from '@tauri-apps/api/core'
+import { emit } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 
 type Scenario = 'current' | 'between' | 'ended' | 'empty' | 'before' | 'browsing'
@@ -385,10 +386,12 @@ export function createWidget(options: WidgetOptions, onNavigate?: () => void) {
   widget.querySelector<HTMLButtonElement>('[data-hide]')?.addEventListener('click', () => {
     if (hideRequested || !isTauri()) return
     hideRequested = true
-    void getCurrentWindow().hide().catch((error: unknown) => {
-      hideRequested = false
-      console.error('[widget-close] hide failed', error)
-    })
+    void getCurrentWindow().hide()
+      .then(() => emit('widget:visibility-changed'))
+      .catch((error: unknown) => {
+        hideRequested = false
+        console.error('[widget-close] hide failed', error)
+      })
   })
 
   const dragSurface = widget.querySelector<HTMLElement>('.widget-drag-surface')

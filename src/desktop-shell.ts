@@ -1,3 +1,4 @@
+import { emit } from '@tauri-apps/api/event'
 import { LogicalSize, getCurrentWindow } from '@tauri-apps/api/window'
 
 const VERTICAL_SAFE_AREA = 32
@@ -63,6 +64,7 @@ export async function startDesktopShell(app: HTMLDivElement) {
   const showWidget = async () => {
     try {
       await appWindow.show()
+      await emit('widget:visibility-changed').catch((error: unknown) => console.error('[desktop-shell] tray visibility sync failed', error))
       console.info('[desktop-shell] widget shown after initial render')
     } catch (error) {
       console.error('[desktop-shell] window show failed', error)
