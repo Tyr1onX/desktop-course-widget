@@ -7,6 +7,11 @@
   padding: 12px 13px;
 }
 
+.side-surface .schedule-record.is-active .record-delete,
+.side-surface .record-delete:disabled {
+  display: none;
+}
+
 .side-surface .data-card {
   display: flex;
   align-items: center;
