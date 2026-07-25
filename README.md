@@ -2,7 +2,7 @@
 
 一个面向 Windows 的本地桌面课表组件。它可以导入学校教务系统导出的 `.xlsx` 课表，在桌面显示当天课程，并通过独立设置窗口管理多张课表、课程与作息时间。
 
-> 当前开发版本：`v0.3.0`。最新可下载安装版本仍为 `v0.2.0`；不同学校的 Excel 格式可能存在差异，欢迎通过 Issue 反馈经过隐私处理的样例结构和报错信息。
+> 当前开发版本：`v0.3.0`。最新可下载安装版本为 `v0.3.0`；不同学校的 Excel 格式可能存在差异，欢迎通过 Issue 反馈经过隐私处理的样例结构和报错信息。
 
 ## 功能
 
@@ -25,12 +25,12 @@
 
 ## 下载与安装
 
-1. 打开 [桌面课表 v0.2.0 发布页](https://github.com/Tyr1onX/desktop-course-widget/releases/tag/v0.2.0)。
+1. 打开 [桌面课表 v0.3.0 发布页](https://github.com/Tyr1onX/desktop-course-widget/releases/tag/v0.3.0)。
 2. 在页面下方展开 **Assets**。
 3. 下载 Windows 安装程序：
 
    ```text
-   桌面课表_0.2.0_x64-setup.exe
+   桌面课表_0.3.0_x64-setup.exe
    ```
 
    不需要下载 `Source code (zip)` 或 `Source code (tar.gz)`，它们是源代码压缩包，不能直接安装。
@@ -43,13 +43,13 @@
 安装包 SHA256：
 
 ```text
-6802E0619336F480165C353B25B9C8546A4C2B120A42B836C1F845D3660CCD0C
+4A54A97C9DC0799098D123FFA0BA5AE253FE6557E1E8067968706A62404B99B6
 ```
 
 需要校验安装包时，可在安装包所在目录打开 PowerShell：
 
 ```powershell
-Get-FileHash ".\桌面课表_0.2.0_x64-setup.exe" -Algorithm SHA256
+Get-FileHash ".\桌面课表_0.3.0_x64-setup.exe" -Algorithm SHA256
 ```
 
 ## 首次使用
