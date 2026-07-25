@@ -1,6 +1,6 @@
 [package]
 name = "desktop-course-widget"
-version = "0.2.0"
+version = "0.3.0"
 description = "A local-first Windows desktop course schedule widget"
 authors = ["Tyr1onX"]
 license = "MIT"

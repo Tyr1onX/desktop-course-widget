@@ -3,13 +3,17 @@ name: Validate
 on:
   push:
     branches:
-      - agent/settings-schedule-workspace
+      - main
   pull_request:
     branches:
       - main
 
 permissions:
   contents: read
+
+concurrency:
+  group: validate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-and-test:
@@ -28,6 +32,9 @@ jobs:
 
       - name: Install web dependencies
         run: npm ci
+
+      - name: Check release version consistency
+        run: npm run check:version
 
       - name: Build web interface
         id: web_build
