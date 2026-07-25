@@ -1,0 +1,77 @@
+name: Release Windows app
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate updater secrets
+        shell: pwsh
+        env:
+          TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:TAURI_UPDATER_PUBLIC_KEY)) { throw 'Missing TAURI_UPDATER_PUBLIC_KEY' }
+          if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) { throw 'Missing TAURI_SIGNING_PRIVATE_KEY' }
+
+      - name: Create release updater configuration
+        shell: pwsh
+        env:
+          TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+        run: |
+          $config = @{
+            bundle = @{ createUpdaterArtifacts = $true }
+            plugins = @{
+              updater = @{
+                pubkey = $env:TAURI_UPDATER_PUBLIC_KEY
+                endpoints = @('https://github.com/Tyr1onX/desktop-course-widget/releases/latest/download/latest.json')
+                windows = @{ installMode = 'passive' }
+              }
+            }
+          }
+          $config | ConvertTo-Json -Depth 8 | Set-Content src-tauri/tauri.release.conf.json -Encoding utf8
+
+      - name: Build and create draft release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: v__VERSION__
+          releaseName: '桌面课表 v__VERSION__'
+          releaseBody: |
+            Windows 安装包与应用内更新文件由 GitHub Actions 自动构建。
+
+            发布前请补充本版本更新说明，并确认从上一公开版本升级后课表与设置仍然保留。
+          releaseDraft: true
+          prerelease: false
+          updaterJsonPreferNsis: true
+          args: --config src-tauri/tauri.release.conf.json
