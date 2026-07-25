@@ -112,6 +112,7 @@ npm run web:dev
 质量检查：
 
 ```powershell
+npm run check:version
 npm run web:build
 cargo test --manifest-path src-tauri/Cargo.toml --lib
 ```
