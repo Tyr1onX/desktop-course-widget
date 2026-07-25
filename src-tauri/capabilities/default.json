@@ -29,6 +29,8 @@
     "schedule-catalog:allow-delete-course",
     "schedule-catalog:allow-read-autostart",
     "schedule-catalog:allow-set-autostart",
-    "schedule-catalog:allow-open-data-location"
+    "schedule-catalog:allow-open-data-location",
+    "updater:default",
+    "process:allow-restart"
   ]
 }
