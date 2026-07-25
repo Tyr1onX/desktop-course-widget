@@ -10,6 +10,7 @@ use tauri::{AppHandle, Manager};
 use crate::excel_import::types::SectionTime;
 
 const SETTINGS_FILE: &str = "settings.json";
+const MAX_LESSONS: usize = 24;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -138,8 +139,8 @@ fn write_atomic(path: &PathBuf, settings: &AppSettings) -> Result<(), String> {
 
 fn normalize_lesson_times(mut lesson_times: Vec<SectionTime>) -> Result<Vec<SectionTime>, String> {
     lesson_times.sort_by_key(|item| item.section);
-    if lesson_times.len() != 10 {
-        return Err("作息时间必须完整包含第 1～10 节".into());
+    if lesson_times.is_empty() || lesson_times.len() > MAX_LESSONS {
+        return Err(format!("作息时间必须包含 1～{MAX_LESSONS} 节"));
     }
 
     for (index, item) in lesson_times.iter().enumerate() {
@@ -183,14 +184,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn accepts_complete_lesson_times() {
+    fn accepts_dynamic_contiguous_lesson_times() {
         assert_eq!(normalize_lesson_times(default_lesson_times()).unwrap().len(), 10);
+        assert_eq!(
+            normalize_lesson_times(default_lesson_times().into_iter().take(6).collect())
+                .unwrap()
+                .len(),
+            6
+        );
     }
 
     #[test]
-    fn rejects_missing_or_reversed_lesson_times() {
+    fn rejects_empty_missing_or_reversed_lesson_times() {
+        assert!(normalize_lesson_times(vec![]).is_err());
+
         let mut missing = default_lesson_times();
-        missing.pop();
+        missing.remove(4);
         assert!(normalize_lesson_times(missing).is_err());
 
         let mut reversed = default_lesson_times();

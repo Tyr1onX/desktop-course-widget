@@ -16,6 +16,17 @@
     "core:window:allow-start-dragging",
     "core:window:allow-hide",
     "core:event:default",
-    "window-state:default"
+    "window-state:default",
+    "dialog:default",
+    "schedule-catalog:allow-list-schedules",
+    "schedule-catalog:allow-get-active-schedule",
+    "schedule-catalog:allow-activate-schedule",
+    "schedule-catalog:allow-delete-schedule",
+    "schedule-catalog:allow-create-schedule-from-import",
+    "schedule-catalog:allow-save-course",
+    "schedule-catalog:allow-delete-course",
+    "schedule-catalog:allow-read-autostart",
+    "schedule-catalog:allow-set-autostart",
+    "schedule-catalog:allow-open-data-location"
   ]
 }

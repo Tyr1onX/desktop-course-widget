@@ -1,9 +1,65 @@
 import { invoke } from '@tauri-apps/api/core'
-import { mountImportConfirmation } from './import-confirmation'
-import { mountSchedulePreview, type PreviewCourse } from './schedule-preview'
+import { listen } from '@tauri-apps/api/event'
+import { getCurrentWindow } from '@tauri-apps/api/window'
+import scheduleData from './data/schedule.json'
 import './settings.css'
-import './settings-alignment.css'
-import './settings-window-fixes.css'
+
+type Parity = 'all' | 'odd' | 'even'
+type Surface = 'course' | 'import' | 'times' | 'data' | 'help' | 'about' | null
+
+type LessonTime = {
+  section: number
+  start: string
+  end: string
+}
+
+type AppSettings = {
+  schemaVersion: number
+  onboardingCompleted: boolean
+  lessonTimes: LessonTime[]
+  equalDuration: boolean
+}
+
+type CatalogCourse = {
+  id: string
+  name: string
+  color: string
+  teacher: string
+  weekday: number
+  start: string
+  end: string
+  location: string
+  weeks: number[]
+  parity: Parity
+}
+
+type CatalogSchedule = {
+  id: string
+  name: string
+  semesterStart: string
+  semesterEnd?: string | null
+  courses: CatalogCourse[]
+}
+
+type ScheduleSummary = {
+  id: string
+  name: string
+  semesterStart: string
+  semesterEnd?: string | null
+  courseCount: number
+  active: boolean
+}
+
+type ExcelCourse = {
+  code?: string | null
+  name: string
+  weekday: number
+  startSection: number
+  endSection: number
+  weeks: number[]
+  parity: string
+  location?: string | null
+}
 
 type ExcelImportPreview = {
   fileName: string
@@ -12,338 +68,1170 @@ type ExcelImportPreview = {
   highestWeek: number
   locationCount: number
   warnings: string[]
-  courses: PreviewCourse[]
+  courses: ExcelCourse[]
 }
 
-type SectionTime = {
-  section: number
-  start: string
-  end: string
+type DraftSlot = {
+  key: string
+  weekday: number
+  startSection: number
+  endSection: number
+  startWeek: number
+  endWeek: number
+  parity: Parity
+  customWeeks: boolean
+  selectedWeeks: number[]
+  location: string
+  teacher: string
 }
 
-type ApplyImportedScheduleResult = {
-  courseCount: number
-  missingLocationCount: number
-  warnings: string[]
+type CourseDraft = {
+  courseId?: string
+  name: string
+  color: string
+  slots: DraftSlot[]
 }
 
-const isDesktopRuntime = '__TAURI_INTERNALS__' in window
-const runtimeNote = isDesktopRuntime
-  ? 'Excel 课表会直接在本机解析，不会上传。应用新课表前会自动备份旧课表。'
-  : '当前是浏览器界面预览版，不会修改正式课表。桌面应用中会在本机解析所选文件。'
-const runtimeBadge = isDesktopRuntime ? '桌面窗口' : '界面预览'
-const importHint = isDesktopRuntime
-  ? '选择后会立即在本机解析并显示真实摘要，不会上传文件。'
-  : '当前仅做界面预览，桌面应用中会调用本机 Excel 解析器。'
+type SaveCourseRequest = {
+  courseId?: string
+  name: string
+  color: string
+  slots: Array<{
+    weekday: number
+    start: string
+    end: string
+    weeks: number[]
+    parity: Parity
+    location: string
+    teacher: string
+  }>
+}
 
-const defaultLessonTimes = [
-  { lesson: 1, start: '08:00', end: '08:45' },
-  { lesson: 2, start: '08:55', end: '09:40' },
-  { lesson: 3, start: '10:00', end: '10:45' },
-  { lesson: 4, start: '10:55', end: '11:40' },
-  { lesson: 5, start: '13:30', end: '14:15' },
-  { lesson: 6, start: '14:25', end: '15:10' },
-  { lesson: 7, start: '15:30', end: '16:15' },
-  { lesson: 8, start: '16:25', end: '17:10' },
-  { lesson: 9, start: '18:00', end: '18:45' },
-  { lesson: 10, start: '18:55', end: '19:40' },
+type PositionedCourse = {
+  course: CatalogCourse
+  startIndex: number
+  endIndex: number
+  lane: number
+  laneCount: number
+}
+
+const desktopRuntime = '__TAURI_INTERNALS__' in window
+const plugin = (command: string) => `plugin:schedule-catalog|${command}`
+const weekdays = ['一', '二', '三', '四', '五', '六', '日']
+const weekdayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+const palette = ['#CFE1FF', '#D8EBCF', '#F8D8D2', '#E5D9F7', '#F9E3B7', '#CFE9E8', '#F2D6E6', '#D9E1F2', '#E4E7C9', '#F4DCC5']
+const rowHeight = 66
+const defaultLessonTimes: LessonTime[] = [
+  { section: 1, start: '08:00', end: '08:45' },
+  { section: 2, start: '08:55', end: '09:40' },
+  { section: 3, start: '10:00', end: '10:45' },
+  { section: 4, start: '10:55', end: '11:40' },
+  { section: 5, start: '13:30', end: '14:15' },
+  { section: 6, start: '14:25', end: '15:10' },
+  { section: 7, start: '15:30', end: '16:15' },
+  { section: 8, start: '16:25', end: '17:10' },
+  { section: 9, start: '18:00', end: '18:45' },
+  { section: 10, start: '18:55', end: '19:40' },
 ]
 
-const timeGroups = [
-  { label: '上午', lessons: defaultLessonTimes.slice(0, 4) },
-  { label: '下午', lessons: defaultLessonTimes.slice(4, 8) },
-  { label: '晚上', lessons: defaultLessonTimes.slice(8) },
-]
+const app = document.querySelector<HTMLDivElement>('#app')!
 
-const timeEditorMarkup = timeGroups
-  .map(
-    (group) => `
-      <section class="time-group" aria-label="${group.label}作息">
-        <div class="time-group__title">${group.label}</div>
-        <div class="time-editor__header" aria-hidden="true">
-          <span>节次</span><span>开始</span><span>结束</span>
-        </div>
-        ${group.lessons
-          .map(
-            (item) => `
-              <div class="time-editor__row" data-time-row="${item.lesson}">
-                <strong>第 ${item.lesson} 节</strong>
-                <input class="time-input" type="time" data-time-role="start" data-lesson="${item.lesson}" value="${item.start}" aria-label="第 ${item.lesson} 节开始时间" />
-                <input class="time-input" type="time" data-time-role="end" data-lesson="${item.lesson}" value="${item.end}" aria-label="第 ${item.lesson} 节结束时间" />
-              </div>
-            `,
-          )
-          .join('')}
-      </section>
-    `,
-  )
-  .join('')
+let schedule = browserSchedule()
+let summaries: ScheduleSummary[] = [summaryFromSchedule(schedule, true)]
+let settings: AppSettings = {
+  schemaVersion: 1,
+  onboardingCompleted: true,
+  lessonTimes: structuredClone(defaultLessonTimes),
+  equalDuration: false,
+}
+let currentWeek = initialWeek(schedule)
+let surface: Surface = null
+let menuOpen = false
+let scheduleMenuOpen = false
+let selectedCourseId: string | null = null
+let courseDraft: CourseDraft | null = null
+let initialDraftSnapshot = ''
+let importPreview: ExcelImportPreview | null = null
+let surfaceMessage = ''
+let autostartEnabled = false
+let timeDraft = structuredClone(settings.lessonTimes)
+let timeEqualDuration = settings.equalDuration
 
-const app = document.querySelector<HTMLDivElement>('#app')
-
-if (!app) {
-  throw new Error('找不到设置页面根节点 #app')
+function browserSchedule(): CatalogSchedule {
+  const source = scheduleData as {
+    semesterStart: string
+    semesterEnd?: string
+    courses: Array<Omit<CatalogCourse, 'id' | 'color'>>
+  }
+  const ids = new Map<string, string>()
+  return {
+    id: 'browser-sample',
+    name: '示例课表',
+    semesterStart: source.semesterStart,
+    semesterEnd: source.semesterEnd,
+    courses: source.courses.map((course, index) => {
+      const key = course.name.trim()
+      const id = ids.get(key) ?? `sample-course-${ids.size + 1}`
+      ids.set(key, id)
+      return { ...course, id, color: palette[index % palette.length] }
+    }),
+  }
 }
 
-app.innerHTML = `
-  <main class="settings-shell">
-    <aside class="settings-sidebar" aria-label="设置导航">
-      <div class="app-mark">
-        <div class="app-mark__icon" aria-hidden="true">课</div>
-        <div>
-          <p class="app-mark__title">桌面课表</p>
-          <p class="app-mark__caption">课表与设置</p>
-        </div>
-      </div>
-
-      <nav class="settings-nav" role="tablist" aria-label="设置页面">
-        <button class="settings-nav__button" type="button" role="tab" aria-selected="true" data-panel-target="schedule">课表</button>
-        <button class="settings-nav__button" type="button" role="tab" aria-selected="false" data-panel-target="times">作息时间</button>
-        <button class="settings-nav__button" type="button" role="tab" aria-selected="false" data-panel-target="help">使用帮助</button>
-      </nav>
-
-      <p class="sidebar-note">${runtimeNote}</p>
-    </aside>
-
-    <section class="settings-content">
-      <header class="page-header">
-        <div>
-          <h1 id="page-title">课表</h1>
-          <p id="page-description">导入学校导出的 Excel 课表，并确认学期信息。</p>
-        </div>
-        <span class="status-badge">${runtimeBadge}</span>
-      </header>
-
-      <section class="settings-panel is-active" data-panel="schedule" aria-labelledby="page-title">
-        <div class="card-grid" id="schedule-card-grid">
-          <article class="card card--wide">
-            <p class="card__eyebrow">推荐方式</p>
-            <h2>导入 Excel 课表</h2>
-            <p>在学校教务系统中导出课表文件，然后选择 .xlsx 文件。姓名、学号和教师信息不会保留。</p>
-
-            <div class="import-zone">
-              <strong id="file-name">选择一份 .xlsx 课表</strong>
-              <p>${importHint}</p>
-              <input class="file-input" id="excel-file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
-              <div class="button-row button-row--centered">
-                <button class="button button--primary" id="select-excel" type="button">选择 Excel 文件</button>
-                <button class="button button--secondary" id="json-import" type="button">高级：导入 JSON</button>
-              </div>
-            </div>
-            <p class="inline-message" id="import-message" role="status"></p>
-          </article>
-
-          <article class="card">
-            <p class="card__eyebrow">学期信息</p>
-            <h2>确认第一教学周</h2>
-            <p>Excel 通常只能识别学期名称，第一周星期一需要由你确认。</p>
-            <div class="field-grid">
-              <div class="field">
-                <label for="semester-name">学期名称</label>
-                <input id="semester-name" value="2026-2027 学年第一学期" />
-              </div>
-              <div class="field">
-                <label for="first-week">第一周星期一</label>
-                <input id="first-week" type="date" value="2026-09-07" />
-              </div>
-            </div>
-          </article>
-
-          <article class="card">
-            <p class="card__eyebrow">识别结果</p>
-            <h2>课表摘要</h2>
-            <div class="summary-list">
-              <div class="summary-item"><span>已识别安排</span><strong id="summary-arrangements">—</strong></div>
-              <div class="summary-item"><span>最高教学周</span><strong id="summary-highest-week">—</strong></div>
-              <div class="summary-item"><span>地点信息</span><strong id="summary-locations">—</strong></div>
-            </div>
-          </article>
-
-          <article class="card card--wide">
-            <p class="card__eyebrow">快速导入</p>
-            <h2>直接应用，按需检查</h2>
-            <p>解析成功后可以直接应用。地点缺失不会阻止导入；需要时再打开预览或手动补充。</p>
-            <div class="button-row">
-              <button class="button button--primary" id="apply-schedule" type="button" disabled>直接应用课表</button>
-              <button class="button button--secondary" id="preview-schedule" type="button" disabled>查看课表预览</button>
-              <button class="button button--secondary" id="review-arrangements" type="button" disabled>检查课程安排</button>
-              <button class="button button--secondary" id="open-location" type="button">打开课表位置</button>
-            </div>
-            <p class="inline-message" id="schedule-message" role="status"></p>
-          </article>
-        </div>
-      </section>
-
-      <section class="settings-panel" data-panel="times" aria-labelledby="page-title">
-        <article class="card card--wide">
-          <div class="time-panel-heading">
-            <div>
-              <p class="card__eyebrow">默认作息</p>
-              <h2>逐节设置上课时间</h2>
-              <p>上午、下午和晚上只用于分组显示，不会把两节课绑定在一起。每一节都能单独调整开始和结束时间。</p>
-            </div>
-            <label class="check-option" for="equal-duration">
-              <input id="equal-duration" type="checkbox" />
-              <span>每节课时长相同</span>
-            </label>
-          </div>
-
-          <div class="time-editor">${timeEditorMarkup}</div>
-
-          <div class="button-row">
-            <button class="button button--primary" id="save-times" type="button">保存作息时间</button>
-            <button class="button button--secondary" id="restore-times" type="button">恢复默认</button>
-          </div>
-          <p class="inline-message" id="times-message" role="status"></p>
-        </article>
-      </section>
-
-      <section class="settings-panel" data-panel="help" aria-labelledby="page-title">
-        <div class="help-stack">
-          <article class="help-item">
-            <h2>如何导出课表</h2>
-            <p>打开学校常用的教务系统课表页面，寻找“导出”“下载”或“Excel”等入口，优先保存为 .xlsx 文件。</p>
-          </article>
-          <article class="help-item">
-            <h2>关闭后课表去哪了</h2>
-            <p>关闭桌面组件只会隐藏到系统托盘。点击托盘图标可重新显示，只有“退出程序”才会结束进程。</p>
-          </article>
-          <article class="help-item">
-            <h2>优先向 AI 求助</h2>
-            <p>遇到导入失败、课程缺失或显示异常时，建议先把报错文字和经过隐私处理的截图发给 AI。上传前遮住姓名、学号和教师信息，不要提供教务账号、密码、Cookie 或验证码。</p>
-            <div class="button-row">
-              <button class="button button--secondary" id="copy-help" type="button">复制 AI 求助模板</button>
-            </div>
-            <p class="inline-message" id="help-message" role="status"></p>
-          </article>
-        </div>
-      </section>
-    </section>
-  </main>
-`
-
-const pageCopy: Record<string, { title: string; description: string }> = {
-  schedule: {
-    title: '课表',
-    description: '导入学校导出的 Excel 课表，并确认学期信息。',
-  },
-  times: {
-    title: '作息时间',
-    description: '逐节检查和调整每一节课的开始、结束时间。',
-  },
-  help: {
-    title: '使用帮助',
-    description: '了解导入、托盘行为和安全求助方式。',
-  },
+function summaryFromSchedule(value: CatalogSchedule, active: boolean): ScheduleSummary {
+  return {
+    id: value.id,
+    name: value.name,
+    semesterStart: value.semesterStart,
+    semesterEnd: value.semesterEnd,
+    courseCount: new Set(value.courses.map((course) => course.id)).size,
+    active,
+  }
 }
 
-const title = document.querySelector<HTMLHeadingElement>('#page-title')
-const description = document.querySelector<HTMLParagraphElement>('#page-description')
-const tabs = document.querySelectorAll<HTMLButtonElement>('[data-panel-target]')
-const panels = document.querySelectorAll<HTMLElement>('[data-panel]')
-const excelFile = document.querySelector<HTMLInputElement>('#excel-file')
-const selectExcelButton = document.querySelector<HTMLButtonElement>('#select-excel')
-const applyScheduleButton = document.querySelector<HTMLButtonElement>('#apply-schedule')
-const previewScheduleButton = document.querySelector<HTMLButtonElement>('#preview-schedule')
-const reviewArrangementsButton = document.querySelector<HTMLButtonElement>('#review-arrangements')
-const fileName = document.querySelector<HTMLElement>('#file-name')
-const semesterName = document.querySelector<HTMLInputElement>('#semester-name')
-const firstWeek = document.querySelector<HTMLInputElement>('#first-week')
-const summaryArrangements = document.querySelector<HTMLElement>('#summary-arrangements')
-const summaryHighestWeek = document.querySelector<HTMLElement>('#summary-highest-week')
-const summaryLocations = document.querySelector<HTMLElement>('#summary-locations')
-const scheduleCardGrid = document.querySelector<HTMLElement>('#schedule-card-grid')
-let currentExcelPreview: ExcelImportPreview | null = null
+function parseLocalDate(value: string): Date {
+  const [year, month, day] = value.split('-').map(Number)
+  return new Date(year, month - 1, day)
+}
 
-const schedulePreview = mountSchedulePreview()
-const importConfirmation = scheduleCardGrid
-  ? mountImportConfirmation(scheduleCardGrid, ({ courses, locationCount, missingCount }) => {
-      if (!currentExcelPreview) return
-      currentExcelPreview = {
-        ...currentExcelPreview,
-        courses,
-        locationCount,
-      }
-      schedulePreview.setData(courses, currentExcelPreview.highestWeek)
-      if (summaryLocations) summaryLocations.textContent = `${locationCount} 项有效`
-      if (reviewArrangementsButton) {
-        reviewArrangementsButton.textContent = missingCount > 0 ? `补充缺失地点（${missingCount}）` : '检查课程安排'
-      }
+function addDays(value: Date, days: number): Date {
+  const result = new Date(value.getFullYear(), value.getMonth(), value.getDate())
+  result.setDate(result.getDate() + days)
+  return result
+}
+
+function dateKey(value: Date): string {
+  const year = value.getFullYear()
+  const month = String(value.getMonth() + 1).padStart(2, '0')
+  const day = String(value.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function initialWeek(value: CatalogSchedule): number {
+  const start = parseLocalDate(value.semesterStart)
+  const now = new Date()
+  const week = Math.floor((new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() - start.getTime()) / 604_800_000) + 1
+  return clamp(week, 1, maximumWeek(value))
+}
+
+function maximumWeek(value: CatalogSchedule): number {
+  return Math.max(1, ...value.courses.flatMap((course) => course.weeks))
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value))
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;')
+}
+
+function timeToMinutes(value: string): number {
+  const [hours, minutes] = value.split(':').map(Number)
+  return hours * 60 + minutes
+}
+
+function lessonIndexForStart(value: string): number {
+  const exact = settings.lessonTimes.findIndex((item) => item.start === value)
+  if (exact >= 0) return exact
+  const target = timeToMinutes(value)
+  const next = settings.lessonTimes.findIndex((item) => timeToMinutes(item.start) >= target)
+  return next >= 0 ? next : settings.lessonTimes.length - 1
+}
+
+function lessonIndexForEnd(value: string): number {
+  const exact = settings.lessonTimes.findIndex((item) => item.end === value)
+  if (exact >= 0) return exact
+  const target = timeToMinutes(value)
+  let match = 0
+  settings.lessonTimes.forEach((item, index) => {
+    if (timeToMinutes(item.end) <= target) match = index
+  })
+  return match
+}
+
+function weekDates(): Date[] {
+  const start = addDays(parseLocalDate(schedule.semesterStart), (currentWeek - 1) * 7)
+  return Array.from({ length: 7 }, (_, index) => addDays(start, index))
+}
+
+function isCourseVisible(course: CatalogCourse): boolean {
+  if (!course.weeks.includes(currentWeek)) return false
+  if (course.parity === 'odd' && currentWeek % 2 === 0) return false
+  if (course.parity === 'even' && currentWeek % 2 === 1) return false
+  return true
+}
+
+function positionCourses(courses: CatalogCourse[]): PositionedCourse[] {
+  const source = courses
+    .map((course) => ({
+      course,
+      startIndex: lessonIndexForStart(course.start),
+      endIndex: lessonIndexForEnd(course.end),
+    }))
+    .sort((left, right) => left.startIndex - right.startIndex || left.endIndex - right.endIndex)
+  const result: PositionedCourse[] = []
+  let cursor = 0
+
+  while (cursor < source.length) {
+    const cluster = [source[cursor]]
+    let clusterEnd = source[cursor].endIndex
+    let nextIndex = cursor + 1
+    while (nextIndex < source.length && source[nextIndex].startIndex <= clusterEnd) {
+      cluster.push(source[nextIndex])
+      clusterEnd = Math.max(clusterEnd, source[nextIndex].endIndex)
+      nextIndex += 1
+    }
+
+    const laneEnds: number[] = []
+    const assigned = cluster.map((item) => {
+      let lane = laneEnds.findIndex((end) => end < item.startIndex)
+      if (lane < 0) lane = laneEnds.length
+      laneEnds[lane] = item.endIndex
+      return { ...item, lane }
     })
-  : null
+    const laneCount = Math.max(1, laneEnds.length)
+    result.push(...assigned.map((item) => ({ ...item, laneCount })))
+    cursor = nextIndex
+  }
 
-for (const tab of tabs) {
-  tab.addEventListener('click', () => {
-    const target = tab.dataset.panelTarget
-    if (!target || !pageCopy[target]) return
+  return result
+}
 
-    for (const item of tabs) {
-      item.setAttribute('aria-selected', String(item === tab))
+function render(): void {
+  app.innerHTML = `
+    <main class="settings-app${surface ? ' has-surface' : ''}">
+      <header class="schedule-toolbar">
+        <div class="schedule-selector-wrap">
+          <button
+            class="schedule-selector"
+            type="button"
+            data-action="toggle-schedule-menu"
+            aria-label="切换课表，当前为 ${escapeHtml(schedule.name)}"
+            aria-expanded="${scheduleMenuOpen}"
+          >
+            <span class="schedule-selector-copy">
+              <span>当前课表</span>
+              <strong title="${escapeHtml(schedule.name)}">${escapeHtml(schedule.name)}</strong>
+            </span>
+            <span class="schedule-selector-chevron" aria-hidden="true"></span>
+          </button>
+          ${scheduleMenuOpen ? scheduleMenuMarkup() : ''}
+        </div>
+        <div class="week-switcher" aria-label="教学周切换">
+          <button class="icon-button week-button" type="button" data-action="previous-week" aria-label="上一教学周">‹</button>
+          <span class="week-label">第 ${currentWeek} 教学周</span>
+          <button class="icon-button week-button" type="button" data-action="next-week" aria-label="下一教学周">›</button>
+        </div>
+        <div class="toolbar-actions">
+          <button class="icon-button toolbar-button" type="button" data-action="add-course" aria-label="新增课程">＋</button>
+          <button class="icon-button toolbar-button" type="button" data-action="toggle-menu" aria-label="更多设置" aria-expanded="${menuOpen}">⋯</button>
+          ${menuOpen ? menuMarkup() : ''}
+        </div>
+      </header>
+      <section class="schedule-stage">
+        ${scheduleMarkup()}
+        ${surface ? '<div class="schedule-dimmer" aria-hidden="true"></div>' : ''}
+        ${surfaceMarkup()}
+      </section>
+      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    </main>
+  `
+  bindEvents()
+}
+
+function menuMarkup(): string {
+  return `
+    <div class="more-menu" role="menu">
+      <button type="button" role="menuitem" data-open-surface="times"><span>作息时间</span></button>
+      <div class="menu-separator"></div>
+      <button type="button" role="menuitemcheckbox" aria-checked="${autostartEnabled}" data-action="toggle-autostart">
+        <span>开机启动</span><span class="menu-check">${autostartEnabled ? '✓' : ''}</span>
+      </button>
+      <div class="menu-separator"></div>
+      <button type="button" role="menuitem" data-open-surface="help"><span>使用帮助</span></button>
+      <button type="button" role="menuitem" data-open-surface="about"><span>关于</span></button>
+    </div>
+  `
+}
+
+function scheduleMenuMarkup(): string {
+  const items = summaries.map((item) => `
+    <button
+      class="schedule-menu-item${item.active ? ' is-active' : ''}"
+      type="button"
+      role="menuitemradio"
+      aria-checked="${item.active}"
+      ${item.active ? 'data-action="close-schedule-menu"' : `data-activate-schedule="${escapeHtml(item.id)}"`}
+    >
+      <span class="schedule-menu-item-copy">
+        <strong>${escapeHtml(item.name)}</strong>
+        <span>${item.courseCount} 门课程 · ${escapeHtml(item.semesterStart)}</span>
+      </span>
+      <span class="schedule-menu-check">${item.active ? '✓' : ''}</span>
+    </button>
+  `).join('')
+  return `
+    <div class="schedule-menu" role="menu" aria-label="切换课表">
+      <header><strong>切换课表</strong><span>${summaries.length} 份</span></header>
+      <div class="schedule-menu-list">${items}</div>
+      <div class="menu-separator"></div>
+      <button class="schedule-menu-command" type="button" role="menuitem" data-open-surface="import">导入新课表</button>
+      <button class="schedule-menu-command" type="button" role="menuitem" data-open-surface="data">管理课表与数据</button>
+    </div>
+  `
+}
+
+function scheduleMarkup(): string {
+  const dates = weekDates()
+  const today = dateKey(new Date())
+  const month = dates[0].getMonth() + 1
+  const bodyHeight = settings.lessonTimes.length * rowHeight
+  const visible = schedule.courses.filter(isCourseVisible)
+
+  const headers = dates.map((date, index) => {
+    const current = dateKey(date) === today
+    return `
+      <div class="day-heading${current ? ' is-today' : ''}">
+        <span>${weekdays[index]}</span>
+        <strong>${date.getDate()}</strong>
+      </div>
+    `
+  }).join('')
+
+  const timeLabels = settings.lessonTimes.map((item) => `
+    <div class="lesson-label" style="height:${rowHeight}px">
+      <strong>${item.section}</strong>
+      <span>${item.start}</span>
+    </div>
+  `).join('')
+
+  const dayColumns = Array.from({ length: 7 }, (_, dayIndex) => {
+    const dayCourses = visible.filter((course) => course.weekday === dayIndex + 1)
+    const cards = positionCourses(dayCourses).map(({ course, startIndex, endIndex, lane, laneCount }) => {
+      const height = (endIndex - startIndex + 1) * rowHeight - 6
+      const top = startIndex * rowHeight + 3
+      const width = 100 / laneCount
+      const singleLesson = startIndex === endIndex
+      const selected = selectedCourseId === course.id
+      return `
+        <button
+          class="course-card${selected ? ' is-selected' : ''}"
+          type="button"
+          data-course-id="${escapeHtml(course.id)}"
+          style="--course-color:${escapeHtml(course.color)};top:${top}px;height:${height}px;left:calc(${lane * width}% + 3px);width:calc(${width}% - 6px)"
+          aria-label="编辑 ${escapeHtml(course.name)}"
+        >
+          <strong>${escapeHtml(course.name)}</strong>
+          ${singleLesson || !course.location ? '' : `<span>${escapeHtml(course.location)}</span>`}
+        </button>
+      `
+    }).join('')
+    return `<div class="day-column" style="height:${bodyHeight}px">${cards}</div>`
+  }).join('')
+
+  const empty = visible.length === 0
+    ? `<div class="week-empty">第 ${currentWeek} 教学周没有课程</div>`
+    : ''
+
+  return `
+    <div class="schedule-scroll">
+      <div class="schedule-head">
+        <div class="month-heading"><strong>${month}</strong><span>月</span></div>
+        ${headers}
+      </div>
+      <div class="schedule-body" style="--lesson-count:${settings.lessonTimes.length};--row-height:${rowHeight}px">
+        <div class="lesson-column">${timeLabels}</div>
+        ${dayColumns}
+        ${empty}
+      </div>
+    </div>
+  `
+}
+
+function surfaceMarkup(): string {
+  if (!surface) return ''
+  if (surface === 'course') return courseSurfaceMarkup()
+  if (surface === 'import') return importSurfaceMarkup()
+  if (surface === 'times') return timesSurfaceMarkup()
+  if (surface === 'data') return dataSurfaceMarkup()
+  if (surface === 'help') return helpSurfaceMarkup()
+  return aboutSurfaceMarkup()
+}
+
+function surfaceShell(title: string, content: string, wide = false): string {
+  return `
+    <aside class="side-surface${wide ? ' side-surface--wide' : ''}" aria-label="${escapeHtml(title)}">
+      <header class="surface-header">
+        <h2>${escapeHtml(title)}</h2>
+        <button class="icon-button surface-close" type="button" data-action="close-surface" aria-label="关闭">×</button>
+      </header>
+      ${content}
+    </aside>
+  `
+}
+
+function courseSurfaceMarkup(): string {
+  if (!courseDraft) return ''
+  const editing = Boolean(courseDraft.courseId)
+  const maxWeek = Math.max(maximumWeek(schedule), 20)
+  const slots = courseDraft.slots.map((slot, index) => slotMarkup(slot, index, maxWeek)).join('')
+  return surfaceShell(editing ? '编辑课程' : '新增课程', `
+    <div class="surface-scroll course-form">
+      <label class="field field--full">
+        <span>课程名称</span>
+        <input id="course-name" value="${escapeHtml(courseDraft.name)}" maxlength="160" placeholder="输入课程名称" />
+      </label>
+      <fieldset class="color-field">
+        <legend>课程颜色</legend>
+        <div class="color-options">
+          ${palette.map((color) => `<button class="color-swatch${courseDraft?.color === color ? ' is-active' : ''}" type="button" data-color="${color}" style="--swatch:${color}" aria-label="选择颜色 ${color}"></button>`).join('')}
+        </div>
+      </fieldset>
+      <div class="section-heading">
+        <div><h3>上课时间</h3><p>一门课程可以添加多个时间段。</p></div>
+      </div>
+      <div class="slot-list">${slots}</div>
+      <button class="text-button add-slot" type="button" data-action="add-slot">＋ 添加时间段</button>
+      <p class="surface-message" role="status">${escapeHtml(surfaceMessage)}</p>
+    </div>
+    <footer class="surface-actions">
+      ${editing ? '<button class="danger-button" type="button" data-action="delete-course">删除课程</button>' : '<span></span>'}
+      <div class="action-group">
+        <button class="secondary-button" type="button" data-action="cancel-course">取消</button>
+        <button class="primary-button" type="button" data-action="save-course">${editing ? '保存修改' : '保存课程'}</button>
+      </div>
+    </footer>
+  `, true)
+}
+
+function slotMarkup(slot: DraftSlot, index: number, maxWeek: number): string {
+  const lessonOptions = settings.lessonTimes.map((item) => `<option value="${item.section}">${item.section}</option>`).join('')
+  const weekButtons = Array.from({ length: maxWeek }, (_, offset) => offset + 1).map((week) => `
+    <button class="week-chip${slot.selectedWeeks.includes(week) ? ' is-selected' : ''}" type="button" data-slot-week="${slot.key}:${week}">${week}</button>
+  `).join('')
+  return `
+    <section class="slot-card" data-slot-key="${slot.key}">
+      <header>
+        <strong>时间段 ${index + 1}</strong>
+        ${courseDraft && courseDraft.slots.length > 1 ? `<button class="slot-remove" type="button" data-remove-slot="${slot.key}" aria-label="删除时间段 ${index + 1}">×</button>` : ''}
+      </header>
+      <div class="form-grid">
+        <label class="field">
+          <span>星期</span>
+          <select data-slot-field="weekday" data-slot="${slot.key}">
+            ${weekdayLabels.map((label, day) => `<option value="${day + 1}"${slot.weekday === day + 1 ? ' selected' : ''}>${label}</option>`).join('')}
+          </select>
+        </label>
+        <div class="field section-range">
+          <span>节次</span>
+          <div>
+            <select data-slot-field="startSection" data-slot="${slot.key}">${lessonOptions.replace(`value="${slot.startSection}"`, `value="${slot.startSection}" selected`)}</select>
+            <span>至</span>
+            <select data-slot-field="endSection" data-slot="${slot.key}">${lessonOptions.replace(`value="${slot.endSection}"`, `value="${slot.endSection}" selected`)}</select>
+          </div>
+        </div>
+        <label class="field">
+          <span>起始周</span>
+          <input type="number" min="1" max="30" value="${slot.startWeek}" data-slot-field="startWeek" data-slot="${slot.key}" />
+        </label>
+        <label class="field">
+          <span>结束周</span>
+          <input type="number" min="1" max="30" value="${slot.endWeek}" data-slot-field="endWeek" data-slot="${slot.key}" />
+        </label>
+        <label class="field field--full">
+          <span>重复</span>
+          <select data-slot-field="parity" data-slot="${slot.key}">
+            <option value="all"${slot.parity === 'all' ? ' selected' : ''}>每周</option>
+            <option value="odd"${slot.parity === 'odd' ? ' selected' : ''}>单周</option>
+            <option value="even"${slot.parity === 'even' ? ' selected' : ''}>双周</option>
+          </select>
+        </label>
+        <label class="field field--full">
+          <span>地点</span>
+          <input value="${escapeHtml(slot.location)}" data-slot-field="location" data-slot="${slot.key}" placeholder="选填" maxlength="160" />
+        </label>
+        <label class="field field--full">
+          <span>老师</span>
+          <input value="${escapeHtml(slot.teacher)}" data-slot-field="teacher" data-slot="${slot.key}" placeholder="选填" maxlength="160" />
+        </label>
+      </div>
+      <button class="custom-weeks-toggle" type="button" data-toggle-weeks="${slot.key}">${slot.customWeeks ? '收起自定义周次' : '展开自定义周次'}</button>
+      ${slot.customWeeks ? `
+        <div class="custom-weeks">
+          <div class="week-chip-grid">${weekButtons}</div>
+          <div class="custom-week-actions">
+            <button type="button" data-week-action="all:${slot.key}">全选</button>
+            <button type="button" data-week-action="clear:${slot.key}">清空</button>
+          </div>
+        </div>
+      ` : ''}
+    </section>
+  `
+}
+
+function importSurfaceMarkup(): string {
+  const preview = importPreview
+  return surfaceShell('导入新课表', `
+    <div class="surface-scroll simple-surface">
+      <div class="surface-intro">
+        <h3>从 Excel 创建独立课表</h3>
+        <p>每次导入都会新建一份课表并自动切换过去，已有课表不会被覆盖。</p>
+      </div>
+      <button class="import-picker" type="button" data-action="choose-excel">
+        <strong>${escapeHtml(preview?.fileName ?? '选择一份 .xlsx 课表')}</strong>
+        <span>${desktopRuntime ? '文件只在本机解析，不会上传' : '浏览器预览中不会读取本机文件'}</span>
+      </button>
+      ${preview ? `
+        <div class="import-summary">
+          <div><span>课程安排</span><strong>${preview.arrangements} 项</strong></div>
+          <div><span>最高教学周</span><strong>${preview.highestWeek} 周</strong></div>
+          <div><span>有效地点</span><strong>${preview.locationCount} 项</strong></div>
+        </div>
+        <label class="field field--full"><span>课表名称</span><input id="import-name" value="${escapeHtml(preview.detectedTermText ?? preview.fileName.replace(/\.xlsx$/i, ''))}" /></label>
+        <label class="field field--full"><span>第一周星期一</span><input id="import-first-week" type="date" value="${schedule.semesterStart}" /></label>
+        ${preview.warnings.length ? `<p class="warning-note">解析器给出了 ${preview.warnings.length} 条提示，创建后可继续检查课程。</p>` : ''}
+      ` : ''}
+      <p class="surface-message" role="status">${escapeHtml(surfaceMessage)}</p>
+    </div>
+    <footer class="surface-actions surface-actions--end">
+      <button class="primary-button" type="button" data-action="create-imported-schedule"${preview ? '' : ' disabled'}>创建并启用课表</button>
+    </footer>
+  `)
+}
+
+function timesSurfaceMarkup(): string {
+  const rows = timeDraft.map((item) => `
+    <div class="time-row">
+      <strong>${item.section}</strong>
+      <label><span>开始</span><input type="time" value="${item.start}" data-time-start="${item.section}" /></label>
+      <label><span>结束</span><input type="time" value="${item.end}" data-time-end="${item.section}" /></label>
+    </div>
+  `).join('')
+  return surfaceShell('作息时间', `
+    <div class="surface-scroll simple-surface">
+      <div class="surface-intro"><h3>逐节设置时间</h3><p>课表显示多少节由这里的节次数量决定。</p></div>
+      <label class="switch-row"><span>每节课时长相同</span><input id="equal-duration" type="checkbox"${timeEqualDuration ? ' checked' : ''} /></label>
+      <div class="time-list">${rows}</div>
+      <div class="inline-actions">
+        <button class="secondary-button" type="button" data-action="add-lesson">＋ 添加节次</button>
+        <button class="secondary-button" type="button" data-action="remove-lesson"${timeDraft.length <= 1 ? ' disabled' : ''}>删除末节</button>
+      </div>
+      <button class="text-button" type="button" data-action="restore-times">恢复默认作息</button>
+      <p class="surface-message" role="status">${escapeHtml(surfaceMessage)}</p>
+    </div>
+    <footer class="surface-actions surface-actions--end"><button class="primary-button" type="button" data-action="save-times">保存作息时间</button></footer>
+  `)
+}
+
+function dataSurfaceMarkup(): string {
+  const items = summaries.map((item) => `
+    <article class="schedule-record${item.active ? ' is-active' : ''}">
+      <div>
+        <div class="record-title"><strong>${escapeHtml(item.name)}</strong>${item.active ? '<span>当前</span>' : ''}</div>
+        <p>${escapeHtml(item.semesterStart)} · ${item.courseCount} 门课程</p>
+      </div>
+      <div class="record-actions">
+        ${item.active ? '' : `<button type="button" data-activate-schedule="${escapeHtml(item.id)}">启用</button>`}
+        <button class="record-delete" type="button" data-delete-schedule="${escapeHtml(item.id)}"${summaries.length <= 1 ? ' disabled title="至少保留一份课表"' : ''}>删除</button>
+      </div>
+    </article>
+  `).join('')
+  return surfaceShell('课表与数据', `
+    <div class="surface-scroll simple-surface">
+      <div class="surface-intro"><h3>我的课表</h3><p>切换课表后，桌面组件会立即使用所选课表。</p></div>
+      <div class="schedule-records">${items}</div>
+      <div class="data-card">
+        <h3>本地数据</h3>
+        <p>课表、设置和自动备份都保存在应用本地目录。</p>
+        <button class="secondary-button" type="button" data-action="open-data-location">打开数据位置</button>
+      </div>
+      <p class="surface-message" role="status">${escapeHtml(surfaceMessage)}</p>
+    </div>
+  `)
+}
+
+function helpSurfaceMarkup(): string {
+  return surfaceShell('使用帮助', `
+    <div class="surface-scroll simple-surface help-list">
+      <section><h3>查看其他教学周</h3><p>点击顶部左右箭头切换教学周。星期栏会同步显示对应日期。</p></section>
+      <section><h3>新增或修改课程</h3><p>点击右上角“＋”新增课程；点击课程块后可在右侧修改多个上课时间段。</p></section>
+      <section><h3>管理多份课表</h3><p>点击左上角当前课表名称即可快速切换；也可进入“课表与数据”删除课表。</p></section>
+      <section><h3>关闭桌面组件</h3><p>关闭组件只会隐藏到系统托盘；右键托盘图标可以重新显示或退出。</p></section>
+    </div>
+  `)
+}
+
+function aboutSurfaceMarkup(): string {
+  return surfaceShell('关于', `
+    <div class="surface-scroll simple-surface about-panel">
+      <div class="about-icon">课</div>
+      <h3>桌面课表</h3>
+      <p>Windows 本地桌面课表组件</p>
+      <span>版本 0.2.0</span>
+      <p class="about-note">课表数据仅保存在本机，不会上传到服务器。</p>
+    </div>
+  `)
+}
+
+function bindEvents(): void {
+  document.querySelector('[data-action="toggle-menu"]')?.addEventListener('click', () => {
+    scheduleMenuOpen = false
+    menuOpen = !menuOpen
+    render()
+  })
+  document.querySelector('[data-action="toggle-schedule-menu"]')?.addEventListener('click', () => {
+    menuOpen = false
+    scheduleMenuOpen = !scheduleMenuOpen
+    render()
+  })
+  document.querySelector('[data-action="close-schedule-menu"]')?.addEventListener('click', () => {
+    scheduleMenuOpen = false
+    render()
+  })
+  document.querySelector('[data-action="add-course"]')?.addEventListener('click', () => openNewCourse())
+  document.querySelector('[data-action="previous-week"]')?.addEventListener('click', () => changeWeek(-1))
+  document.querySelector('[data-action="next-week"]')?.addEventListener('click', () => changeWeek(1))
+  document.querySelector<HTMLElement>('.schedule-scroll')?.addEventListener('click', (event) => {
+    if (scheduleMenuOpen || menuOpen) {
+      scheduleMenuOpen = false
+      menuOpen = false
+      render()
+      return
     }
+    if (!surface) return
+    const target = event.target as HTMLElement
+    if (target.closest('[data-course-id]')) return
+    closeSurface('backdrop')
+  })
+  document.querySelector('[data-action="close-surface"]')?.addEventListener('click', () => closeSurface('explicit'))
 
-    for (const panel of panels) {
-      panel.classList.toggle('is-active', panel.dataset.panel === target)
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-open-surface]')) {
+    button.addEventListener('click', () => openSurface(button.dataset.openSurface as Exclude<Surface, 'course' | null>))
+  }
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-course-id]')) {
+    button.addEventListener('click', () => openExistingCourse(button.dataset.courseId ?? ''))
+  }
+
+  document.querySelector('[data-action="toggle-autostart"]')?.addEventListener('click', () => void toggleAutostart())
+  bindCourseEvents()
+  bindImportEvents()
+  bindTimeEvents()
+  bindDataEvents()
+}
+
+function changeWeek(delta: number): void {
+  if (!canLeaveCourse('切换教学周')) return
+  scheduleMenuOpen = false
+  menuOpen = false
+  currentWeek = clamp(currentWeek + delta, 1, maximumWeek(schedule))
+  selectedCourseId = null
+  render()
+}
+
+function openSurface(next: Exclude<Surface, 'course' | null>): void {
+  if (!canLeaveCourse('打开其他设置')) return
+  surface = next
+  menuOpen = false
+  scheduleMenuOpen = false
+  selectedCourseId = null
+  surfaceMessage = ''
+  if (next === 'times') {
+    timeDraft = structuredClone(settings.lessonTimes)
+    timeEqualDuration = settings.equalDuration
+  }
+  render()
+}
+
+function closeSurface(reason: 'backdrop' | 'explicit'): void {
+  if (surface === 'course' && draftDirty()) {
+    if (reason === 'backdrop') return
+    if (!window.confirm('放弃未保存的修改？')) return
+  }
+  surface = null
+  selectedCourseId = null
+  courseDraft = null
+  initialDraftSnapshot = ''
+  surfaceMessage = ''
+  render()
+}
+
+function canLeaveCourse(action: string): boolean {
+  if (surface !== 'course' || !draftDirty()) return true
+  return window.confirm(`${action}会放弃当前未保存的修改，是否继续？`)
+}
+
+function draftDirty(): boolean {
+  return Boolean(courseDraft && JSON.stringify(courseDraft) !== initialDraftSnapshot)
+}
+
+function createSlot(source?: DraftSlot): DraftSlot {
+  if (source) return { ...structuredClone(source), key: crypto.randomUUID() }
+  return {
+    key: crypto.randomUUID(),
+    weekday: 1,
+    startSection: settings.lessonTimes[0]?.section ?? 1,
+    endSection: settings.lessonTimes[Math.min(1, settings.lessonTimes.length - 1)]?.section ?? 1,
+    startWeek: 1,
+    endWeek: maximumWeek(schedule),
+    parity: 'all',
+    customWeeks: false,
+    selectedWeeks: rangeWeeks(1, maximumWeek(schedule), 'all'),
+    location: '',
+    teacher: '',
+  }
+}
+
+function openNewCourse(): void {
+  if (!canLeaveCourse('新增课程')) return
+  selectedCourseId = null
+  courseDraft = { name: '', color: palette[nextColorIndex()], slots: [createSlot()] }
+  initialDraftSnapshot = JSON.stringify(courseDraft)
+  surface = 'course'
+  menuOpen = false
+  scheduleMenuOpen = false
+  surfaceMessage = ''
+  render()
+}
+
+function nextColorIndex(): number {
+  const counts = palette.map((color) => schedule.courses.filter((course) => course.color === color).length)
+  return counts.indexOf(Math.min(...counts))
+}
+
+function openExistingCourse(courseId: string): void {
+  if (!courseId || (selectedCourseId === courseId && surface === 'course')) return
+  if (!canLeaveCourse('切换课程')) return
+  selectedCourseId = courseId
+  const courses = schedule.courses.filter((course) => course.id === courseId)
+  const first = courses[0]
+  if (!first) return
+  courseDraft = {
+    courseId,
+    name: first.name,
+    color: first.color,
+    slots: courses.map((course) => draftSlotFromCourse(course)),
+  }
+  initialDraftSnapshot = JSON.stringify(courseDraft)
+  surface = 'course'
+  menuOpen = false
+  scheduleMenuOpen = false
+  surfaceMessage = ''
+  render()
+}
+
+function draftSlotFromCourse(course: CatalogCourse): DraftSlot {
+  const startSection = settings.lessonTimes[lessonIndexForStart(course.start)]?.section ?? 1
+  const endSection = settings.lessonTimes[lessonIndexForEnd(course.end)]?.section ?? startSection
+  const startWeek = Math.min(...course.weeks)
+  const endWeek = Math.max(...course.weeks)
+  const expected = rangeWeeks(startWeek, endWeek, course.parity)
+  return {
+    key: crypto.randomUUID(),
+    weekday: course.weekday,
+    startSection,
+    endSection,
+    startWeek,
+    endWeek,
+    parity: course.parity,
+    customWeeks: expected.join(',') !== course.weeks.join(','),
+    selectedWeeks: [...course.weeks],
+    location: course.location,
+    teacher: course.teacher,
+  }
+}
+
+function rangeWeeks(start: number, end: number, parity: Parity): number[] {
+  const weeks: number[] = []
+  for (let week = start; week <= end; week += 1) {
+    if (parity === 'all' || (parity === 'odd' ? week % 2 === 1 : week % 2 === 0)) weeks.push(week)
+  }
+  return weeks
+}
+
+function bindCourseEvents(): void {
+  if (surface !== 'course' || !courseDraft) return
+  document.querySelector<HTMLInputElement>('#course-name')?.addEventListener('input', (event) => {
+    if (courseDraft) courseDraft.name = (event.currentTarget as HTMLInputElement).value
+  })
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-color]')) {
+    button.addEventListener('click', () => {
+      if (!courseDraft) return
+      courseDraft.color = button.dataset.color ?? palette[0]
+      render()
+    })
+  }
+  for (const input of document.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-slot-field]')) {
+    input.addEventListener('input', () => updateSlotField(input))
+  }
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-remove-slot]')) {
+    button.addEventListener('click', () => {
+      if (!courseDraft) return
+      courseDraft.slots = courseDraft.slots.filter((slot) => slot.key !== button.dataset.removeSlot)
+      render()
+    })
+  }
+  document.querySelector('[data-action="add-slot"]')?.addEventListener('click', () => {
+    if (!courseDraft) return
+    courseDraft.slots.push(createSlot(courseDraft.slots.at(-1)))
+    render()
+  })
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-toggle-weeks]')) {
+    button.addEventListener('click', () => {
+      const slot = findSlot(button.dataset.toggleWeeks)
+      if (!slot) return
+      slot.customWeeks = !slot.customWeeks
+      if (slot.customWeeks && slot.selectedWeeks.length === 0) slot.selectedWeeks = rangeWeeks(slot.startWeek, slot.endWeek, slot.parity)
+      render()
+    })
+  }
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-slot-week]')) {
+    button.addEventListener('click', () => {
+      const [key, value] = (button.dataset.slotWeek ?? '').split(':')
+      const slot = findSlot(key)
+      const week = Number(value)
+      if (!slot || !week) return
+      slot.selectedWeeks = slot.selectedWeeks.includes(week)
+        ? slot.selectedWeeks.filter((item) => item !== week)
+        : [...slot.selectedWeeks, week].sort((left, right) => left - right)
+      render()
+    })
+  }
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-week-action]')) {
+    button.addEventListener('click', () => {
+      const [action, key] = (button.dataset.weekAction ?? '').split(':')
+      const slot = findSlot(key)
+      if (!slot) return
+      slot.selectedWeeks = action === 'all' ? Array.from({ length: Math.max(maximumWeek(schedule), 20) }, (_, index) => index + 1) : []
+      render()
+    })
+  }
+  document.querySelector('[data-action="cancel-course"]')?.addEventListener('click', () => closeSurface('explicit'))
+  document.querySelector('[data-action="save-course"]')?.addEventListener('click', () => void saveCourse())
+  document.querySelector('[data-action="delete-course"]')?.addEventListener('click', () => void deleteCourse())
+}
+
+function findSlot(key?: string): DraftSlot | undefined {
+  return courseDraft?.slots.find((slot) => slot.key === key)
+}
+
+function updateSlotField(input: HTMLInputElement | HTMLSelectElement): void {
+  const slot = findSlot(input.dataset.slot)
+  const field = input.dataset.slotField
+  if (!slot || !field) return
+  if (field === 'weekday') slot.weekday = Number(input.value)
+  if (field === 'startSection') slot.startSection = Number(input.value)
+  if (field === 'endSection') slot.endSection = Number(input.value)
+  if (field === 'startWeek') slot.startWeek = clamp(Number(input.value), 1, 30)
+  if (field === 'endWeek') slot.endWeek = clamp(Number(input.value), 1, 30)
+  if (field === 'parity') slot.parity = input.value as Parity
+  if (field === 'location') slot.location = input.value
+  if (field === 'teacher') slot.teacher = input.value
+  if (['startWeek', 'endWeek', 'parity'].includes(field) && !slot.customWeeks) {
+    slot.selectedWeeks = rangeWeeks(slot.startWeek, slot.endWeek, slot.parity)
+  }
+}
+
+function buildCourseRequest(): SaveCourseRequest {
+  if (!courseDraft) throw new Error('没有可保存的课程')
+  const name = courseDraft.name.trim()
+  if (!name) throw new Error('请填写课程名称')
+  if (courseDraft.slots.length === 0) throw new Error('至少需要一个上课时间段')
+  return {
+    courseId: courseDraft.courseId,
+    name,
+    color: courseDraft.color,
+    slots: courseDraft.slots.map((slot, index) => {
+      if (slot.endSection < slot.startSection) throw new Error(`时间段 ${index + 1} 的结束节次不能早于开始节次`)
+      const start = settings.lessonTimes.find((item) => item.section === slot.startSection)
+      const end = settings.lessonTimes.find((item) => item.section === slot.endSection)
+      if (!start || !end) throw new Error(`时间段 ${index + 1} 的节次不存在`)
+      const weeks = slot.customWeeks ? slot.selectedWeeks : rangeWeeks(slot.startWeek, slot.endWeek, slot.parity)
+      if (weeks.length === 0) throw new Error(`时间段 ${index + 1} 至少选择一个教学周`)
+      return {
+        weekday: slot.weekday,
+        start: start.start,
+        end: end.end,
+        weeks,
+        parity: slot.customWeeks ? 'all' : slot.parity,
+        location: slot.location.trim(),
+        teacher: slot.teacher.trim(),
+      }
+    }),
+  }
+}
+
+async function saveCourse(): Promise<void> {
+  try {
+    const request = buildCourseRequest()
+    if (desktopRuntime) {
+      schedule = await invoke<CatalogSchedule>(plugin('save_course'), { request })
+      summaries = await invoke<ScheduleSummary[]>(plugin('list_schedules'))
+    } else {
+      const id = request.courseId ?? `browser-${Date.now()}`
+      schedule.courses = schedule.courses.filter((course) => course.id !== request.courseId)
+      schedule.courses.push(...request.slots.map((slot) => ({ ...slot, id, name: request.name, color: request.color })))
+      summaries = [summaryFromSchedule(schedule, true)]
     }
+    selectedCourseId = request.courseId ?? schedule.courses.at(-1)?.id ?? null
+    surface = null
+    courseDraft = null
+    initialDraftSnapshot = ''
+    render()
+    showToast('已保存')
+  } catch (error) {
+    surfaceMessage = errorText(error)
+    render()
+  }
+}
 
-    if (title) title.textContent = pageCopy[target].title
-    if (description) description.textContent = pageCopy[target].description
-    document.querySelector('.settings-content')?.scrollTo({ top: 0 })
+async function deleteCourse(): Promise<void> {
+  if (!courseDraft?.courseId || !window.confirm('确定删除这门课程及其全部上课时间段吗？')) return
+  try {
+    if (desktopRuntime) {
+      schedule = await invoke<CatalogSchedule>(plugin('delete_course'), { courseId: courseDraft.courseId })
+      summaries = await invoke<ScheduleSummary[]>(plugin('list_schedules'))
+    } else {
+      const remaining = schedule.courses.filter((course) => course.id !== courseDraft?.courseId)
+      if (remaining.length === 0) throw new Error('示例模式暂不允许删除最后一门课程')
+      schedule.courses = remaining
+      summaries = [summaryFromSchedule(schedule, true)]
+    }
+    surface = null
+    selectedCourseId = null
+    courseDraft = null
+    render()
+    showToast('课程已删除')
+  } catch (error) {
+    surfaceMessage = errorText(error)
+    render()
+  }
+}
+
+function bindImportEvents(): void {
+  document.querySelector('[data-action="choose-excel"]')?.addEventListener('click', () => void chooseExcel())
+  document.querySelector('[data-action="create-imported-schedule"]')?.addEventListener('click', () => void createImportedSchedule())
+}
+
+async function chooseExcel(): Promise<void> {
+  if (!desktopRuntime) {
+    surfaceMessage = '浏览器预览不会读取本机文件，请在桌面应用中测试。'
+    render()
+    return
+  }
+  surfaceMessage = '等待选择或解析…'
+  render()
+  try {
+    importPreview = await invoke<ExcelImportPreview | null>('choose_and_parse_excel')
+    surfaceMessage = importPreview ? '解析完成，请确认课表名称和第一周日期。' : '已取消选择。'
+  } catch (error) {
+    surfaceMessage = `解析失败：${errorText(error)}`
+  }
+  render()
+}
+
+async function createImportedSchedule(): Promise<void> {
+  if (!importPreview) return
+  const name = document.querySelector<HTMLInputElement>('#import-name')?.value.trim() ?? ''
+  const firstWeekMonday = document.querySelector<HTMLInputElement>('#import-first-week')?.value ?? ''
+  try {
+    if (!name) throw new Error('请填写课表名称')
+    if (!firstWeekMonday) throw new Error('请确认第一周星期一')
+    if (desktopRuntime) {
+      await invoke(plugin('create_schedule_from_import'), {
+        request: {
+          name,
+          firstWeekMonday,
+          courses: importPreview.courses,
+          times: settings.lessonTimes,
+          equalDuration: settings.equalDuration,
+        },
+      })
+      await reloadDesktopState()
+    }
+    importPreview = null
+    surface = null
+    currentWeek = initialWeek(schedule)
+    render()
+    showToast('新课表已创建并启用')
+  } catch (error) {
+    surfaceMessage = errorText(error)
+    render()
+  }
+}
+
+function bindTimeEvents(): void {
+  for (const input of document.querySelectorAll<HTMLInputElement>('[data-time-start]')) {
+    input.addEventListener('input', () => {
+      const section = Number(input.dataset.timeStart)
+      const item = timeDraft.find((value) => value.section === section)
+      if (!item) return
+      item.start = input.value
+      if (timeEqualDuration) applyEqualDuration()
+    })
+  }
+  for (const input of document.querySelectorAll<HTMLInputElement>('[data-time-end]')) {
+    input.addEventListener('input', () => {
+      const section = Number(input.dataset.timeEnd)
+      const item = timeDraft.find((value) => value.section === section)
+      if (!item) return
+      item.end = input.value
+      if (timeEqualDuration && section === 1) applyEqualDuration()
+    })
+  }
+  document.querySelector<HTMLInputElement>('#equal-duration')?.addEventListener('change', (event) => {
+    timeEqualDuration = (event.currentTarget as HTMLInputElement).checked
+    if (timeEqualDuration) applyEqualDuration()
+    render()
+  })
+  document.querySelector('[data-action="add-lesson"]')?.addEventListener('click', () => {
+    if (timeDraft.length >= 24) return
+    const last = timeDraft.at(-1) ?? { section: 0, start: '08:00', end: '08:45' }
+    const duration = Math.max(1, timeToMinutes(last.end) - timeToMinutes(last.start))
+    const startMinutes = Math.min(23 * 60, timeToMinutes(last.end) + 10)
+    timeDraft.push({ section: last.section + 1, start: minutesToTime(startMinutes), end: minutesToTime(Math.min(23 * 60 + 59, startMinutes + duration)) })
+    render()
+  })
+  document.querySelector('[data-action="remove-lesson"]')?.addEventListener('click', () => {
+    if (timeDraft.length > 1) timeDraft.pop()
+    render()
+  })
+  document.querySelector('[data-action="restore-times"]')?.addEventListener('click', () => {
+    timeDraft = structuredClone(defaultLessonTimes)
+    timeEqualDuration = false
+    render()
+  })
+  document.querySelector('[data-action="save-times"]')?.addEventListener('click', () => void saveTimes())
+}
+
+function applyEqualDuration(): void {
+  const first = timeDraft[0]
+  if (!first) return
+  const duration = timeToMinutes(first.end) - timeToMinutes(first.start)
+  if (duration <= 0) return
+  timeDraft.forEach((item) => {
+    item.end = minutesToTime(Math.min(23 * 60 + 59, timeToMinutes(item.start) + duration))
   })
 }
 
-function showMessage(selector: string, message: string): void {
-  const target = document.querySelector<HTMLElement>(selector)
-  if (target) target.textContent = message
+function minutesToTime(total: number): string {
+  const safe = clamp(total, 0, 23 * 60 + 59)
+  return `${String(Math.floor(safe / 60)).padStart(2, '0')}:${String(safe % 60).padStart(2, '0')}`
 }
 
-function missingLocationCount(preview: ExcelImportPreview): number {
-  return preview.courses.filter((course) => !course.location?.trim()).length
-}
-
-function resetImportSummary(): void {
-  currentExcelPreview = null
-  schedulePreview.clear()
-  importConfirmation?.clear()
-  if (applyScheduleButton) applyScheduleButton.disabled = true
-  if (previewScheduleButton) previewScheduleButton.disabled = true
-  if (reviewArrangementsButton) {
-    reviewArrangementsButton.disabled = true
-    reviewArrangementsButton.textContent = '检查课程安排'
+async function saveTimes(): Promise<void> {
+  try {
+    for (const item of timeDraft) {
+      if (timeToMinutes(item.end) <= timeToMinutes(item.start)) throw new Error(`第 ${item.section} 节结束时间必须晚于开始时间`)
+    }
+    if (desktopRuntime) {
+      settings = await invoke<AppSettings>('save_lesson_times', {
+        request: { times: timeDraft, equalDuration: timeEqualDuration },
+      })
+    } else {
+      settings = { ...settings, lessonTimes: structuredClone(timeDraft), equalDuration: timeEqualDuration }
+    }
+    surface = null
+    render()
+    showToast('作息时间已保存')
+  } catch (error) {
+    surfaceMessage = errorText(error)
+    render()
   }
-  if (summaryArrangements) summaryArrangements.textContent = '—'
-  if (summaryHighestWeek) summaryHighestWeek.textContent = '—'
-  if (summaryLocations) summaryLocations.textContent = '—'
-  showMessage('#schedule-message', '')
 }
 
-function applyImportPreview(preview: ExcelImportPreview): void {
-  currentExcelPreview = preview
-  schedulePreview.setData(preview.courses, preview.highestWeek)
-  importConfirmation?.setCourses(preview.courses)
-  if (applyScheduleButton) applyScheduleButton.disabled = false
-  if (previewScheduleButton) previewScheduleButton.disabled = false
-  if (reviewArrangementsButton) reviewArrangementsButton.disabled = false
-  if (fileName) fileName.textContent = preview.fileName
-  if (summaryArrangements) summaryArrangements.textContent = `${preview.arrangements} 项`
-  if (summaryHighestWeek) summaryHighestWeek.textContent = `${preview.highestWeek} 周`
-  if (summaryLocations) summaryLocations.textContent = `${preview.locationCount} 项有效`
-  if (semesterName && preview.detectedTermText) semesterName.value = preview.detectedTermText
-
-  const missingCount = missingLocationCount(preview)
-  if (reviewArrangementsButton) {
-    reviewArrangementsButton.textContent = missingCount > 0 ? `补充缺失地点（${missingCount}）` : '检查课程安排'
+function bindDataEvents(): void {
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-activate-schedule]')) {
+    button.addEventListener('click', () => void activateSchedule(button.dataset.activateSchedule ?? ''))
   }
-  const warningSuffix = preview.warnings.length > 0 ? `，另有 ${preview.warnings.length} 条解析提示` : ''
-  showMessage('#import-message', `解析完成：识别 ${preview.arrangements} 项课程安排${warningSuffix}。`)
-  showMessage(
-    '#schedule-message',
-    missingCount > 0
-      ? `发现 ${missingCount} 项地点未填写，不影响使用。可以直接应用，也可以先补充。`
-      : '课表信息完整，可以直接应用。',
-  )
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-delete-schedule]')) {
+    button.addEventListener('click', () => void deleteSchedule(button.dataset.deleteSchedule ?? ''))
+  }
+  document.querySelector('[data-action="open-data-location"]')?.addEventListener('click', () => void openDataLocation())
 }
 
-function errorMessage(error: unknown): string {
+async function activateSchedule(id: string): Promise<void> {
+  if (!id || !canLeaveCourse('切换课表')) return
+  try {
+    if (desktopRuntime) {
+      schedule = await invoke<CatalogSchedule>(plugin('activate_schedule'), { scheduleId: id })
+      summaries = await invoke<ScheduleSummary[]>(plugin('list_schedules'))
+    }
+    currentWeek = initialWeek(schedule)
+    surface = null
+    menuOpen = false
+    scheduleMenuOpen = false
+    render()
+    showToast('已切换课表')
+  } catch (error) {
+    surfaceMessage = errorText(error)
+    render()
+  }
+}
+
+async function deleteSchedule(id: string): Promise<void> {
+  const item = summaries.find((value) => value.id === id)
+  if (!item || !window.confirm(`确定删除课表“${item.name}”吗？`)) return
+  try {
+    if (desktopRuntime) {
+      schedule = await invoke<CatalogSchedule>(plugin('delete_schedule'), { scheduleId: id })
+      summaries = await invoke<ScheduleSummary[]>(plugin('list_schedules'))
+    }
+    currentWeek = initialWeek(schedule)
+    render()
+    showToast('课表已删除')
+  } catch (error) {
+    surfaceMessage = errorText(error)
+    render()
+  }
+}
+
+async function openDataLocation(): Promise<void> {
+  try {
+    if (!desktopRuntime) throw new Error('浏览器预览无法打开本机目录')
+    await invoke(plugin('open_data_location'))
+  } catch (error) {
+    surfaceMessage = errorText(error)
+    render()
+  }
+}
+
+async function toggleAutostart(): Promise<void> {
+  try {
+    if (!desktopRuntime) {
+      autostartEnabled = !autostartEnabled
+    } else {
+      autostartEnabled = await invoke<boolean>(plugin('set_autostart'), { enabled: !autostartEnabled })
+    }
+    render()
+  } catch (error) {
+    menuOpen = false
+    render()
+    showToast(errorText(error))
+  }
+}
+
+async function reloadDesktopState(): Promise<void> {
+  const [active, list, appSettings, startup] = await Promise.all([
+    invoke<CatalogSchedule>(plugin('get_active_schedule')),
+    invoke<ScheduleSummary[]>(plugin('list_schedules')),
+    invoke<AppSettings>('read_app_settings'),
+    invoke<boolean>(plugin('read_autostart')),
+  ])
+  schedule = active
+  summaries = list
+  settings = appSettings
+  autostartEnabled = startup
+  timeDraft = structuredClone(settings.lessonTimes)
+  timeEqualDuration = settings.equalDuration
+}
+
+function errorText(error: unknown): string {
   if (error instanceof Error) return error.message
   if (typeof error === 'string') return error
   try {
@@ -353,218 +1241,63 @@ function errorMessage(error: unknown): string {
   }
 }
 
-async function chooseDesktopExcel(): Promise<void> {
-  if (!selectExcelButton) return
+function showToast(message: string): void {
+  const toast = document.querySelector<HTMLElement>('#toast')
+  if (!toast) return
+  toast.textContent = message
+  toast.classList.add('is-visible')
+  window.setTimeout(() => toast.classList.remove('is-visible'), 1800)
+}
 
-  selectExcelButton.disabled = true
-  selectExcelButton.textContent = '等待选择或解析…'
-  resetImportSummary()
-  showMessage('#import-message', '请选择 .xlsx 课表；选定后会立即在本机解析。')
+window.addEventListener('keydown', (event) => {
+  const target = event.target as HTMLElement | null
+  const typing = target?.matches('input, select, textarea') ?? false
+  if (event.key === 'Escape' && surface) {
+    closeSurface('explicit')
+  } else if (event.key === 'Escape' && (scheduleMenuOpen || menuOpen)) {
+    scheduleMenuOpen = false
+    menuOpen = false
+    render()
+  }
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'n') {
+    event.preventDefault()
+    openNewCourse()
+  }
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's' && surface === 'course') {
+    event.preventDefault()
+    void saveCourse()
+  }
+  if (!typing && !event.ctrlKey && !event.metaKey && event.key === 'ArrowLeft') changeWeek(-1)
+  if (!typing && !event.ctrlKey && !event.metaKey && event.key === 'ArrowRight') changeWeek(1)
+})
 
+async function handleSettingsCloseRequest(): Promise<void> {
+  if (surface === 'course' && draftDirty() && !window.confirm('放弃未保存的修改？')) return
+  surface = null
+  menuOpen = false
+  scheduleMenuOpen = false
+  selectedCourseId = null
+  courseDraft = null
+  initialDraftSnapshot = ''
+  surfaceMessage = ''
+  render()
+  await getCurrentWindow().hide()
+}
+
+async function initialize(): Promise<void> {
+  render()
+  if (!desktopRuntime) return
   try {
-    const preview = await invoke<ExcelImportPreview | null>('choose_and_parse_excel')
-    if (!preview) {
-      showMessage('#import-message', '已取消选择，没有修改任何课表数据。')
-      return
-    }
-    applyImportPreview(preview)
+    await listen('settings:close-requested', () => {
+      void handleSettingsCloseRequest()
+    })
+    await reloadDesktopState()
+    currentWeek = initialWeek(schedule)
   } catch (error) {
-    showMessage('#import-message', `解析失败：${errorMessage(error)}`)
-  } finally {
-    selectExcelButton.disabled = false
-    selectExcelButton.textContent = '选择 Excel 文件'
+    console.error('[settings] initialization failed', error)
+    showToast(`读取课表失败：${errorText(error)}`)
   }
+  render()
 }
 
-selectExcelButton?.addEventListener('click', () => {
-  if (isDesktopRuntime) {
-    void chooseDesktopExcel()
-  } else {
-    excelFile?.click()
-  }
-})
-
-excelFile?.addEventListener('change', () => {
-  const file = excelFile.files?.[0]
-  if (!file) return
-
-  resetImportSummary()
-  if (fileName) fileName.textContent = file.name
-  showMessage('#import-message', '浏览器预览无法解析本机文件，请在桌面应用中测试。')
-})
-
-function timeToMinutes(value: string): number | null {
-  const [hours, minutes] = value.split(':').map(Number)
-  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null
-  return hours * 60 + minutes
-}
-
-function minutesToTime(totalMinutes: number): string {
-  const normalized = Math.max(0, Math.min(totalMinutes, 23 * 60 + 59))
-  const hours = Math.floor(normalized / 60)
-  const minutes = normalized % 60
-  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
-}
-
-function commonDuration(): number | null {
-  const firstStart = document.querySelector<HTMLInputElement>('[data-time-role="start"][data-lesson="1"]')
-  const firstEnd = document.querySelector<HTMLInputElement>('[data-time-role="end"][data-lesson="1"]')
-  if (!firstStart || !firstEnd) return null
-
-  const start = timeToMinutes(firstStart.value)
-  const end = timeToMinutes(firstEnd.value)
-  if (start === null || end === null || end <= start) return null
-  return end - start
-}
-
-function applyCommonDuration(): void {
-  const duration = commonDuration()
-  if (duration === null) {
-    showMessage('#times-message', '请先填写有效的第 1 节开始和结束时间。')
-    return
-  }
-
-  for (const startInput of document.querySelectorAll<HTMLInputElement>('[data-time-role="start"]')) {
-    const lesson = startInput.dataset.lesson
-    const endInput = document.querySelector<HTMLInputElement>(`[data-time-role="end"][data-lesson="${lesson}"]`)
-    const start = timeToMinutes(startInput.value)
-    if (endInput && start !== null) endInput.value = minutesToTime(start + duration)
-  }
-}
-
-function collectLessonTimes(): SectionTime[] {
-  return defaultLessonTimes.map((item) => {
-    const startInput = document.querySelector<HTMLInputElement>(`[data-time-role="start"][data-lesson="${item.lesson}"]`)
-    const endInput = document.querySelector<HTMLInputElement>(`[data-time-role="end"][data-lesson="${item.lesson}"]`)
-    const start = startInput?.value ?? ''
-    const end = endInput?.value ?? ''
-    const startMinutes = timeToMinutes(start)
-    const endMinutes = timeToMinutes(end)
-    if (startMinutes === null || endMinutes === null || endMinutes <= startMinutes) {
-      throw new Error(`第 ${item.lesson} 节的作息时间无效`)
-    }
-    return { section: item.lesson, start, end }
-  })
-}
-
-const equalDuration = document.querySelector<HTMLInputElement>('#equal-duration')
-
-equalDuration?.addEventListener('change', () => {
-  if (equalDuration.checked) {
-    applyCommonDuration()
-    showMessage('#times-message', '已统一每节课时长；仍可分别调整每一节的开始时间。')
-  } else {
-    showMessage('#times-message', '已关闭统一时长，每一节的开始和结束时间都可以独立调整。')
-  }
-})
-
-for (const input of document.querySelectorAll<HTMLInputElement>('.time-input')) {
-  input.addEventListener('change', () => {
-    if (!equalDuration?.checked) return
-
-    if (input.dataset.timeRole === 'end' && input.dataset.lesson !== '1') {
-      applyCommonDuration()
-      return
-    }
-
-    applyCommonDuration()
-  })
-}
-
-document.querySelector('#json-import')?.addEventListener('click', () => {
-  showMessage('#import-message', 'JSON 导入将作为高级兼容入口保留在设置页中。')
-})
-
-applyScheduleButton?.addEventListener('click', () => {
-  void (async () => {
-    if (!currentExcelPreview) {
-      showMessage('#schedule-message', '请先选择并成功解析一份 Excel 课表。')
-      return
-    }
-    if (!isDesktopRuntime) {
-      showMessage('#schedule-message', '浏览器预览不会写入正式课表，请在桌面应用中测试。')
-      return
-    }
-    if (!firstWeek?.value) {
-      showMessage('#schedule-message', '请先确认第一周星期一。')
-      return
-    }
-
-    applyScheduleButton.disabled = true
-    applyScheduleButton.textContent = '正在应用…'
-    try {
-      const result = await invoke<ApplyImportedScheduleResult>('apply_imported_schedule', {
-        request: {
-          firstWeekMonday: firstWeek.value,
-          courses: currentExcelPreview.courses,
-          times: collectLessonTimes(),
-        },
-      })
-      const missingCopy = result.missingLocationCount > 0 ? `，其中 ${result.missingLocationCount} 项地点留空` : ''
-      const warningCopy = result.warnings.length > 0 ? `，另有 ${result.warnings.length} 条时间冲突提示` : ''
-      showMessage(
-        '#schedule-message',
-        `应用成功：${result.courseCount} 项安排已写入，旧课表已备份，桌面组件已刷新${missingCopy}${warningCopy}。`,
-      )
-    } catch (error) {
-      showMessage('#schedule-message', `应用失败：${errorMessage(error)}`)
-    } finally {
-      applyScheduleButton.disabled = false
-      applyScheduleButton.textContent = '直接应用课表'
-    }
-  })()
-})
-
-previewScheduleButton?.addEventListener('click', () => {
-  if (!currentExcelPreview || !schedulePreview.open()) {
-    showMessage('#schedule-message', '请先选择并成功解析一份 Excel 课表。')
-  }
-})
-
-reviewArrangementsButton?.addEventListener('click', () => {
-  if (!currentExcelPreview) {
-    showMessage('#schedule-message', '请先选择并成功解析一份 Excel 课表。')
-    return
-  }
-  importConfirmation?.focus()
-})
-
-document.querySelector('#open-location')?.addEventListener('click', () => {
-  showMessage(
-    '#schedule-message',
-    isDesktopRuntime
-      ? '当前可使用托盘菜单“打开课表位置”。设置页按钮将在后续直接连接。'
-      : '浏览器预览无法打开本机目录，桌面应用中会接入该功能。',
-  )
-})
-
-document.querySelector('#save-times')?.addEventListener('click', () => {
-  showMessage('#times-message', '当前作息会在应用课表时使用；独立保存将在后续接入。')
-})
-
-document.querySelector('#restore-times')?.addEventListener('click', () => {
-  for (const item of defaultLessonTimes) {
-    const startInput = document.querySelector<HTMLInputElement>(`[data-time-role="start"][data-lesson="${item.lesson}"]`)
-    const endInput = document.querySelector<HTMLInputElement>(`[data-time-role="end"][data-lesson="${item.lesson}"]`)
-    if (startInput) startInput.value = item.start
-    if (endInput) endInput.value = item.end
-  }
-  if (equalDuration) equalDuration.checked = false
-  showMessage('#times-message', '已恢复默认的逐节作息时间。')
-})
-
-const helpText = [
-  '我正在使用桌面课表组件，遇到了课表导入或显示问题。',
-  '请根据我提供的报错文字和界面截图，判断最可能的原因，并一次只给我一个排查步骤。',
-  '我已经遮住姓名、学号和教师信息，也不会提供教务账号、密码、Cookie 或验证码。',
-  '问题现象：',
-].join('\n')
-
-document.querySelector('#copy-help')?.addEventListener('click', async () => {
-  try {
-    await navigator.clipboard.writeText(helpText)
-    showMessage('#help-message', 'AI 求助模板已复制。')
-  } catch {
-    showMessage('#help-message', '当前环境未允许复制，请手动选择说明文字。')
-  }
-})
+void initialize()

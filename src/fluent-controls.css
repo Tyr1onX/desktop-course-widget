@@ -1,0 +1,301 @@
+/*
+ * Fluent icon-control layer.
+ * Icon geometry follows Microsoft Fluent System Icons (Regular, 20px), MIT licensed.
+ * This file intentionally overrides legacy Unicode-glyph controls without changing behavior.
+ */
+
+:root {
+  --fluent-control-size: 36px;
+  --fluent-control-radius: 8px;
+  --fluent-control-fg: #323130;
+  --fluent-control-hover: rgba(0, 0, 0, 0.055);
+  --fluent-control-pressed: rgba(0, 0, 0, 0.095);
+  --fluent-focus: #0f6cbd;
+  --fluent-mask-chevron-left: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M12.3534 15.8537C12.1585 16.0493 11.8419 16.0499 11.6463 15.855L6.16178 10.39C5.94607 10.1751 5.94607 9.82574 6.16178 9.6108L11.6463 4.14582C11.8419 3.9509 12.1585 3.95147 12.3534 4.14708C12.5483 4.34269 12.5477 4.65927 12.3521 4.85418L7.18753 10.0004L12.3521 15.1466C12.5477 15.3415 12.5483 15.6581 12.3534 15.8537Z'/%3E%3C/svg%3E");
+  --fluent-mask-chevron-right: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M7.64582 4.14708C7.84073 3.95147 8.15731 3.9509 8.35292 4.14582L13.8374 9.6108C14.0531 9.82574 14.0531 10.1751 13.8374 10.39L8.35292 15.855C8.15731 16.0499 7.84073 16.0493 7.64582 15.8537C7.4509 15.6581 7.45147 15.3415 7.64708 15.1466L12.8117 10.0004L7.64708 4.85418C7.45147 4.65927 7.4509 4.34269 7.64582 4.14708Z'/%3E%3C/svg%3E");
+  --fluent-mask-chevron-down: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M4.14708 7.64662C4.34269 7.4517 4.65927 7.45227 4.85418 7.64788L10.0004 12.8125L15.1466 7.64788C15.3415 7.45227 15.6581 7.4517 15.8537 7.64662C16.0493 7.84153 16.0499 8.15811 15.855 8.35372L10.39 13.8382C10.1751 14.0539 9.82574 14.0539 9.6108 13.8382L4.14582 8.35372C3.9509 8.15811 3.95147 7.84153 4.14708 7.64662Z'/%3E%3C/svg%3E");
+  --fluent-mask-add: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M10 2.5C10.2761 2.5 10.5 2.72386 10.5 3V9.5H17C17.2761 9.5 17.5 9.72386 17.5 10C17.5 10.2761 17.2761 10.5 17 10.5H10.5V17C10.5 17.2761 10.2761 17.5 10 17.5C9.72386 17.5 9.5 17.2761 9.5 17V10.5H3C2.72386 10.5 2.5 10.2761 2.5 10C2.5 9.72386 2.72386 9.5 3 9.5H9.5V3C9.5 2.72386 9.72386 2.5 10 2.5Z'/%3E%3C/svg%3E");
+  --fluent-mask-more: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M6.25 10C6.25 10.6904 5.69036 11.25 5 11.25C4.30964 11.25 3.75 10.6904 3.75 10C3.75 9.30964 4.30964 8.75 5 8.75C5.69036 8.75 6.25 9.30964 6.25 10ZM11.25 10C11.25 10.6904 10.6904 11.25 10 11.25C9.30964 11.25 8.75 10.6904 8.75 10C8.75 9.30964 9.30964 8.75 10 8.75C10.6904 8.75 11.25 9.30964 11.25 10ZM15 11.25C15.6904 11.25 16.25 10.6904 16.25 10C16.25 9.30964 15.6904 8.75 15 8.75C14.3096 8.75 13.75 9.30964 13.75 10C13.75 10.6904 14.3096 11.25 15 11.25Z'/%3E%3C/svg%3E");
+  --fluent-mask-dismiss: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M4.08859 4.21569L4.14645 4.14645C4.32001 3.97288 4.58944 3.9536 4.78431 4.08859L4.85355 4.14645L10 9.293L15.1464 4.14645C15.32 3.97288 15.5894 3.9536 15.7843 4.08859L15.8536 4.14645C16.0271 4.32001 16.0464 4.58944 15.9114 4.78431L15.8536 4.85355L10.707 10L15.8536 15.1464C16.0271 15.32 16.0464 15.5894 15.9114 15.7843L15.8536 15.8536C15.68 16.0271 15.4106 16.0464 15.2157 15.9114L15.1464 15.8536L10 10.707L4.85355 15.8536C4.67999 16.0271 4.41056 16.0464 4.21569 15.9114L4.14645 15.8536C3.97288 15.68 3.9536 15.4106 4.08859 15.2157L4.14645 15.1464L9.293 10L4.14645 4.85355C3.97288 4.67999 3.9536 4.41056 4.08859 4.21569L4.14645 4.14645L4.08859 4.21569Z'/%3E%3C/svg%3E");
+  --fluent-mask-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M3.37371 10.1678C3.19025 9.96143 2.87421 9.94284 2.66782 10.1263C2.46143 10.3098 2.44284 10.6258 2.6263 10.8322L6.6263 15.3322C6.81743 15.5472 7.15013 15.557 7.35356 15.3536L17.8536 4.85355C18.0488 4.65829 18.0488 4.34171 17.8536 4.14645C17.6583 3.95118 17.3417 3.95118 17.1465 4.14645L7.02141 14.2715L3.37371 10.1678Z'/%3E%3C/svg%3E");
+  --fluent-mask-calendar-today: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M14.5 3C15.8807 3 17 4.11929 17 5.5V14.5C17 15.8807 15.8807 17 14.5 17H11.5V16H14.5C15.3284 16 16 15.3284 16 14.5V7H4V14.5C4 15.3284 4.67157 16 5.5 16H8.5V17H5.5C4.11929 17 3 15.8807 3 14.5V5.5C3 4.11929 4.11929 3 5.5 3H14.5ZM14.5 4H5.5C4.67157 4 4 4.67157 4 5.5V6H16V5.5C16 4.67157 15.3284 4 14.5 4ZM11 9C11 9.55228 10.5523 10 10 10C9.44772 10 9 9.55228 9 9C9 8.44772 9.44772 8 10 8C10.5523 8 11 8.44772 11 9ZM11.8841 14.0701C11.7073 14.2822 11.392 14.3109 11.1799 14.1341L10.5 13.5675V17.5C10.5 17.7762 10.2761 18 10 18C9.72386 18 9.5 17.7762 9.5 17.5V13.5675L8.82007 14.1341C8.60794 14.3109 8.29265 14.2822 8.11587 14.0701C7.93909 13.858 7.96775 13.5427 8.17989 13.3659L9.67989 12.1159C9.86531 11.9614 10.1347 11.9614 10.3201 12.1159L11.8201 13.3659C12.0322 13.5427 12.0609 13.858 11.8841 14.0701Z'/%3E%3C/svg%3E");
+}
+
+/* Shared icon-button mechanics */
+.icon-button,
+.slot-remove,
+.date-nav button,
+.widget-close {
+  position: relative !important;
+  display: inline-grid !important;
+  place-items: center !important;
+  padding: 0 !important;
+  border: 0 !important;
+  color: var(--fluent-control-fg) !important;
+  background: transparent !important;
+  font-size: 0 !important;
+  line-height: 0 !important;
+  transition: background-color 100ms ease, color 100ms ease, transform 80ms ease, opacity 100ms ease !important;
+}
+
+.icon-button::before,
+.slot-remove::before,
+.date-nav button::before,
+.widget-close::before,
+.menu-check:not(:empty)::before,
+.add-slot::before {
+  display: block;
+  width: 20px;
+  height: 20px;
+  content: "";
+  background: currentColor;
+  -webkit-mask: var(--fluent-icon-mask) center / contain no-repeat;
+  mask: var(--fluent-icon-mask) center / contain no-repeat;
+  pointer-events: none;
+}
+
+.icon-button:hover,
+.slot-remove:hover,
+.date-nav button:hover,
+.widget-close:hover {
+  background: var(--fluent-control-hover) !important;
+}
+
+.icon-button:active,
+.slot-remove:active,
+.date-nav button:active,
+.widget-close:active {
+  background: var(--fluent-control-pressed) !important;
+  transform: scale(0.96) !important;
+}
+
+.icon-button:focus-visible,
+.slot-remove:focus-visible,
+.date-nav button:focus-visible,
+.widget-close:focus-visible,
+.more-menu button:focus-visible,
+.add-slot:focus-visible {
+  outline: 2px solid var(--fluent-focus) !important;
+  outline-offset: 2px !important;
+}
+
+/* Settings toolbar and editor controls */
+.icon-button {
+  width: var(--fluent-control-size) !important;
+  height: var(--fluent-control-size) !important;
+  border-radius: var(--fluent-control-radius) !important;
+}
+
+.week-switcher {
+  display: grid !important;
+  grid-template-columns: var(--fluent-control-size) 132px var(--fluent-control-size) !important;
+  align-items: center !important;
+  gap: 4px !important;
+}
+
+.week-label {
+  display: grid !important;
+  place-items: center !important;
+  width: 132px !important;
+  min-width: 132px !important;
+  height: var(--fluent-control-size) !important;
+  padding: 0 !important;
+  text-align: center !important;
+  line-height: 1 !important;
+  transform: translateY(-1px);
+}
+
+.toolbar-actions {
+  align-items: center !important;
+  gap: 4px !important;
+}
+
+[data-action="previous-week"] { --fluent-icon-mask: var(--fluent-mask-chevron-left); }
+[data-action="next-week"] { --fluent-icon-mask: var(--fluent-mask-chevron-right); }
+[data-action="add-course"] { --fluent-icon-mask: var(--fluent-mask-add); }
+[data-action="toggle-menu"] { --fluent-icon-mask: var(--fluent-mask-more); }
+[data-action="close-surface"],
+[data-remove-slot] { --fluent-icon-mask: var(--fluent-mask-dismiss); }
+
+.surface-close {
+  color: #424242 !important;
+}
+
+.slot-remove {
+  width: 28px !important;
+  height: 28px !important;
+  border-radius: 6px !important;
+  color: #616161 !important;
+}
+
+.slot-remove::before {
+  width: 16px;
+  height: 16px;
+}
+
+.slot-remove:hover {
+  color: #c42b1c !important;
+  background: rgba(196, 43, 28, 0.08) !important;
+}
+
+.menu-check {
+  display: inline-grid !important;
+  width: 20px !important;
+  height: 20px !important;
+  place-items: center !important;
+  color: var(--fluent-focus) !important;
+  font-size: 0 !important;
+}
+
+.menu-check:not(:empty) { --fluent-icon-mask: var(--fluent-mask-check); }
+.menu-check:not(:empty)::before { width: 16px; height: 16px; }
+
+.add-slot {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  min-height: 32px !important;
+  padding: 0 10px !important;
+  border-radius: 6px !important;
+  font-size: 0 !important;
+  line-height: 1 !important;
+}
+
+.add-slot { --fluent-icon-mask: var(--fluent-mask-add); }
+.add-slot::before { width: 16px; height: 16px; }
+.add-slot::after { content: "添加时间段"; font-size: 12px; line-height: 1.4; }
+.add-slot:hover { background: rgba(15, 108, 189, 0.08) !important; }
+.add-slot:active { background: rgba(15, 108, 189, 0.13) !important; }
+
+.more-menu {
+  border-radius: 8px !important;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.14), 0 0 2px rgba(0, 0, 0, 0.12) !important;
+}
+
+.more-menu button {
+  border-radius: 4px !important;
+  transition: background-color 100ms ease !important;
+}
+
+.more-menu button:active { background: rgba(0, 0, 0, 0.08) !important; }
+
+/* Empty state and timetable typography polish */
+.schedule-body {
+  min-height: max(calc(var(--lesson-count) * var(--row-height)), calc(100vh - var(--toolbar-height) - 62px)) !important;
+}
+
+.week-empty {
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  font-size: 0 !important;
+}
+
+.week-empty::after {
+  content: "本周暂无课程";
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.lesson-label {
+  gap: 7px !important;
+  line-height: normal !important;
+}
+
+.lesson-label span {
+  margin-top: 0 !important;
+  line-height: 1.2 !important;
+}
+
+.course-card {
+  gap: 7px !important;
+  padding: 8px !important;
+}
+
+.course-card strong {
+  width: 100% !important;
+  line-height: 1.45 !important;
+  text-align: center !important;
+}
+
+.course-card span {
+  width: 100% !important;
+  line-height: 1.4 !important;
+  text-align: center !important;
+}
+
+.schedule-scroll,
+.surface-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(96, 94, 92, 0.55) transparent;
+}
+
+.schedule-scroll::-webkit-scrollbar,
+.surface-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.schedule-scroll::-webkit-scrollbar-track,
+.surface-scroll::-webkit-scrollbar-track { background: transparent; }
+.schedule-scroll::-webkit-scrollbar-thumb,
+.surface-scroll::-webkit-scrollbar-thumb {
+  min-height: 44px;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: rgba(96, 94, 92, 0.55);
+  background-clip: padding-box;
+}
+.schedule-scroll::-webkit-scrollbar-thumb:hover,
+.surface-scroll::-webkit-scrollbar-thumb:hover { background: rgba(96, 94, 92, 0.72); background-clip: padding-box; }
+
+/* Desktop widget icon controls */
+.date-nav {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 0 !important;
+  padding: 2px !important;
+  border-radius: 9px !important;
+  background: rgba(255, 255, 255, 0.18) !important;
+}
+
+.date-nav button,
+.widget-close {
+  width: 28px !important;
+  height: 28px !important;
+  border-radius: 6px !important;
+  color: inherit !important;
+}
+
+.date-nav button::before,
+.widget-close::before {
+  width: 16px;
+  height: 16px;
+}
+
+.date-nav [data-nav="previous"] { --fluent-icon-mask: var(--fluent-mask-chevron-left); }
+.date-nav [data-nav="next"] { --fluent-icon-mask: var(--fluent-mask-chevron-right); }
+.date-nav [data-nav="today"] { --fluent-icon-mask: var(--fluent-mask-calendar-today); }
+.widget-close { --fluent-icon-mask: var(--fluent-mask-dismiss); }
+
+.widget-close {
+  opacity: 0.58 !important;
+}
+
+.widget-close:hover,
+.widget-close:focus-visible {
+  opacity: 1 !important;
+}
+
+.theme-dark {
+  --fluent-control-fg: #f5f5f5;
+  --fluent-control-hover: rgba(255, 255, 255, 0.10);
+  --fluent-control-pressed: rgba(255, 255, 255, 0.16);
+}
+
+.theme-dark .date-nav {
+  background: rgba(0, 0, 0, 0.12) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .icon-button,
+  .slot-remove,
+  .date-nav button,
+  .widget-close { transition: none !important; }
+}

@@ -1,0 +1,58 @@
+name: Validate
+
+on:
+  push:
+    branches:
+      - agent/settings-schedule-workspace
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install web dependencies
+        run: npm ci
+
+      - name: Build web interface
+        id: web_build
+        shell: pwsh
+        run: |
+          npm run web:build *>&1 | Tee-Object -FilePath web-build.log
+          "exit_code=$LASTEXITCODE" >> $env:GITHUB_OUTPUT
+          exit 0
+
+      - name: Upload web build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-build-log
+          path: web-build.log
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Fail when web build failed
+        if: steps.web_build.outputs.exit_code != '0'
+        shell: pwsh
+        run: exit 1
+
+      - name: Select stable Rust
+        run: rustup default stable
+
+      - name: Run Rust library tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
