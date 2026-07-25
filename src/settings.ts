@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import scheduleData from './data/schedule.json'
 import './settings.css'
@@ -1474,8 +1475,7 @@ async function initialize(): Promise<void> {
   render()
   if (!desktopRuntime) return
   try {
-    await getCurrentWindow().onCloseRequested((event) => {
-      event.preventDefault()
+    await listen('settings:close-requested', () => {
       void handleSettingsCloseRequest()
     })
     await reloadDesktopState()

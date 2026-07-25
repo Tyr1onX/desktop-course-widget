@@ -507,6 +507,16 @@ fn intercept_main_close(app: &AppHandle, event: &WindowEvent) {
     }
 }
 
+fn intercept_settings_close(app: &AppHandle, event: &WindowEvent) {
+    if let WindowEvent::CloseRequested { api, .. } = event {
+        if !app.state::<RuntimeState>().quitting.load(Ordering::SeqCst) {
+            api.prevent_close();
+            if let Err(error) = app.emit("settings:close-requested", ()) {
+                eprintln!("[settings] close request emit failed: {error}");
+            }
+        }
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -551,6 +561,9 @@ pub fn run() {
             main_window(app.handle())?
                 .on_window_event(move |event| intercept_main_close(&main_close_app, event));
 
+            let settings_close_app = app.handle().clone();
+            settings_window(app.handle())?
+                .on_window_event(move |event| intercept_settings_close(&settings_close_app, event));
 
             if onboarding_completed {
                 schedule_startup_safety_fallback(app);
