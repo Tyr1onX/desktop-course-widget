@@ -35,3 +35,48 @@
   padding-inline: 10px;
   font-size: 11px;
 }
+
+.schedule-editor {
+  gap: 16px;
+}
+
+.schedule-editor .surface-intro {
+  display: none;
+}
+
+.schedule-editor .schedule-editor-form {
+  gap: 12px;
+}
+
+.schedule-editor .schedule-metadata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.schedule-editor .schedule-metadata div {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: #f5f6f8;
+}
+
+.schedule-editor .schedule-metadata span {
+  font-size: 11px;
+}
+
+.schedule-editor .schedule-metadata strong {
+  font-size: 12px;
+}
+
+.schedule-editor .editor-note {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.surface-actions .danger-button:disabled {
+  visibility: hidden;
+}
