@@ -453,3 +453,16 @@ button { color: inherit; }
   line-height: 1.4;
   text-align: center;
 }
+
+
+/* Timetable management */
+.record-copy { min-width: 0; }
+.record-copy strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.schedule-editor { display: flex; flex-direction: column; gap: 20px; }
+.schedule-editor-form { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 12px; }
+.schedule-metadata { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.schedule-metadata div { display: flex; flex-direction: column; gap: 5px; padding: 13px 14px; border-radius: 10px; background: #f5f6f8; }
+.schedule-metadata span { color: var(--muted); font-size: 11px; }
+.schedule-metadata strong { font-size: 13px; font-weight: 650; }
+.editor-note { margin: -6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.danger-button:disabled { color: #b8bbc1; cursor: default; }

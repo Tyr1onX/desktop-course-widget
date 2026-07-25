@@ -1,11 +1,10 @@
 import { invoke } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import scheduleData from './data/schedule.json'
 import './settings.css'
 
 type Parity = 'all' | 'odd' | 'even'
-type Surface = 'course' | 'import' | 'times' | 'data' | 'help' | 'about' | null
+type Surface = 'course' | 'schedule' | 'import' | 'times' | 'data' | 'help' | 'about' | null
 
 type LessonTime = {
   section: number
@@ -92,6 +91,15 @@ type CourseDraft = {
   slots: DraftSlot[]
 }
 
+type ScheduleDraft = {
+  id: string
+  name: string
+  semesterStart: string
+  totalWeeks: number
+  courseCount: number
+  active: boolean
+}
+
 type SaveCourseRequest = {
   courseId?: string
   name: string
@@ -151,6 +159,8 @@ let scheduleMenuOpen = false
 let selectedCourseId: string | null = null
 let courseDraft: CourseDraft | null = null
 let initialDraftSnapshot = ''
+let scheduleDraft: ScheduleDraft | null = null
+let initialScheduleDraftSnapshot = ''
 let importPreview: ExcelImportPreview | null = null
 let surfaceMessage = ''
 let autostartEnabled = false
@@ -214,8 +224,21 @@ function initialWeek(value: CatalogSchedule): number {
   return clamp(week, 1, maximumWeek(value))
 }
 
-function maximumWeek(value: CatalogSchedule): number {
+function courseMaximumWeek(value: CatalogSchedule): number {
   return Math.max(1, ...value.courses.flatMap((course) => course.weeks))
+}
+
+function calendarWeekCount(semesterStart: string, semesterEnd?: string | null): number | null {
+  if (!semesterEnd) return null
+  const start = parseLocalDate(semesterStart)
+  const end = parseLocalDate(semesterEnd)
+  const days = Math.floor((end.getTime() - start.getTime()) / 86_400_000) + 1
+  if (!Number.isFinite(days) || days <= 0) return null
+  return clamp(Math.ceil(days / 7), 1, 30)
+}
+
+function maximumWeek(value: CatalogSchedule): number {
+  return Math.max(courseMaximumWeek(value), calendarWeekCount(value.semesterStart, value.semesterEnd) ?? 1)
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -316,7 +339,6 @@ function render(): void {
             aria-expanded="${scheduleMenuOpen}"
           >
             <span class="schedule-selector-copy">
-              <span>当前课表</span>
               <strong title="${escapeHtml(schedule.name)}">${escapeHtml(schedule.name)}</strong>
             </span>
             <span class="schedule-selector-chevron" aria-hidden="true"></span>
@@ -457,6 +479,7 @@ function scheduleMarkup(): string {
 function surfaceMarkup(): string {
   if (!surface) return ''
   if (surface === 'course') return courseSurfaceMarkup()
+  if (surface === 'schedule') return scheduleSurfaceMarkup()
   if (surface === 'import') return importSurfaceMarkup()
   if (surface === 'times') return timesSurfaceMarkup()
   if (surface === 'data') return dataSurfaceMarkup()
@@ -629,22 +652,66 @@ function timesSurfaceMarkup(): string {
   `)
 }
 
+function scheduleSurfaceMarkup(): string {
+  if (!scheduleDraft) return ''
+  const minimumWeeks = scheduleDraft.id === schedule.id ? courseMaximumWeek(schedule) : 1
+  return surfaceShell('编辑课表', `
+    <div class="surface-scroll simple-surface schedule-editor">
+      <div class="surface-intro">
+        <h3>课表信息</h3>
+        <p>教学周会根据第一周星期一自动计算，修改后不会改变课程本身的周次。</p>
+      </div>
+      <div class="schedule-editor-form">
+        <label class="field field--full">
+          <span>课表名称</span>
+          <input id="schedule-name" value="${escapeHtml(scheduleDraft.name)}" maxlength="80" placeholder="输入课表名称" />
+        </label>
+        <label class="field">
+          <span>第一周星期一</span>
+          <input id="schedule-semester-start" type="date" value="${escapeHtml(scheduleDraft.semesterStart)}" />
+        </label>
+        <label class="field">
+          <span>学期总周数</span>
+          <input id="schedule-total-weeks" type="number" min="${minimumWeeks}" max="30" value="${scheduleDraft.totalWeeks}" />
+        </label>
+      </div>
+      <div class="schedule-metadata">
+        <div><span>课程数量</span><strong>${scheduleDraft.courseCount} 门</strong></div>
+        <div><span>当前状态</span><strong>${scheduleDraft.active ? '正在使用' : '未启用'}</strong></div>
+      </div>
+      ${minimumWeeks > 1 ? `<p class="editor-note">该课表的课程已使用到第 ${minimumWeeks} 周，因此总周数不能更少。</p>` : ''}
+      <p class="surface-message" role="status">${escapeHtml(surfaceMessage)}</p>
+    </div>
+    <footer class="surface-actions">
+      <button class="danger-button" type="button" data-action="delete-edited-schedule"${summaries.length <= 1 ? ' disabled title="至少保留一份课表"' : ''}>删除课表</button>
+      <div class="action-group">
+        <button class="secondary-button" type="button" data-action="cancel-schedule">取消</button>
+        <button class="primary-button" type="button" data-action="save-schedule">保存修改</button>
+      </div>
+    </footer>
+  `)
+}
+
 function dataSurfaceMarkup(): string {
-  const items = summaries.map((item) => `
-    <article class="schedule-record${item.active ? ' is-active' : ''}">
-      <div>
-        <div class="record-title"><strong>${escapeHtml(item.name)}</strong>${item.active ? '<span>当前</span>' : ''}</div>
-        <p>${escapeHtml(item.semesterStart)} · ${item.courseCount} 门课程</p>
-      </div>
-      <div class="record-actions">
-        ${item.active ? '' : `<button type="button" data-activate-schedule="${escapeHtml(item.id)}">启用</button>`}
-        <button class="record-delete" type="button" data-delete-schedule="${escapeHtml(item.id)}"${summaries.length <= 1 ? ' disabled title="至少保留一份课表"' : ''}>删除</button>
-      </div>
-    </article>
-  `).join('')
+  const items = summaries.map((item) => {
+    const weeks = calendarWeekCount(item.semesterStart, item.semesterEnd)
+    return `
+      <article class="schedule-record${item.active ? ' is-active' : ''}">
+        <div class="record-copy">
+          <div class="record-title"><strong>${escapeHtml(item.name)}</strong>${item.active ? '<span>当前</span>' : ''}</div>
+          <p>${escapeHtml(item.semesterStart)} · ${weeks ? `${weeks} 周 · ` : ''}${item.courseCount} 门课程</p>
+        </div>
+        <div class="record-actions">
+          ${item.active ? '' : `<button type="button" data-activate-schedule="${escapeHtml(item.id)}">设为当前</button>`}
+          <button type="button" data-edit-schedule="${escapeHtml(item.id)}">编辑</button>
+          <button class="record-delete" type="button" data-delete-schedule="${escapeHtml(item.id)}"${summaries.length <= 1 ? ' disabled title="至少保留一份课表"' : ''}>删除</button>
+        </div>
+      </article>
+    `
+  }).join('')
   return surfaceShell('课表与数据', `
     <div class="surface-scroll simple-surface">
-      <div class="surface-intro"><h3>我的课表</h3><p>切换课表后，桌面组件会立即使用所选课表。</p></div>
+      <div class="surface-intro"><h3>我的课表</h3><p>可以切换、编辑或删除课表；桌面组件始终使用标记为“当前”的课表。</p></div>
       <div class="schedule-records">${items}</div>
       <div class="data-card">
         <h3>本地数据</h3>
@@ -720,6 +787,7 @@ function bindEvents(): void {
 
   document.querySelector('[data-action="toggle-autostart"]')?.addEventListener('click', () => void toggleAutostart())
   bindCourseEvents()
+  bindScheduleEvents()
   bindImportEvents()
   bindTimeEvents()
   bindDataEvents()
@@ -749,7 +817,7 @@ function openSurface(next: Exclude<Surface, 'course' | null>): void {
 }
 
 function closeSurface(reason: 'backdrop' | 'explicit'): void {
-  if (surface === 'course' && draftDirty()) {
+  if (hasUnsavedChanges()) {
     if (reason === 'backdrop') return
     if (!window.confirm('放弃未保存的修改？')) return
   }
@@ -757,17 +825,34 @@ function closeSurface(reason: 'backdrop' | 'explicit'): void {
   selectedCourseId = null
   courseDraft = null
   initialDraftSnapshot = ''
+  scheduleDraft = null
+  initialScheduleDraftSnapshot = ''
   surfaceMessage = ''
   render()
 }
 
 function canLeaveCourse(action: string): boolean {
-  if (surface !== 'course' || !draftDirty()) return true
+  if (!hasUnsavedChanges()) return true
   return window.confirm(`${action}会放弃当前未保存的修改，是否继续？`)
 }
 
+function hasUnsavedChanges(): boolean {
+  return draftDirty() || scheduleDraftDirty()
+}
+
 function draftDirty(): boolean {
-  return Boolean(courseDraft && JSON.stringify(courseDraft) !== initialDraftSnapshot)
+  return surface === 'course' && Boolean(courseDraft && JSON.stringify(courseDraft) !== initialDraftSnapshot)
+}
+
+function scheduleDraftDirty(): boolean {
+  if (surface !== 'schedule' || !scheduleDraft) return false
+  const currentDraft = {
+    ...scheduleDraft,
+    name: document.querySelector<HTMLInputElement>('#schedule-name')?.value ?? scheduleDraft.name,
+    semesterStart: document.querySelector<HTMLInputElement>('#schedule-semester-start')?.value ?? scheduleDraft.semesterStart,
+    totalWeeks: Number(document.querySelector<HTMLInputElement>('#schedule-total-weeks')?.value ?? scheduleDraft.totalWeeks),
+  }
+  return JSON.stringify(currentDraft) !== initialScheduleDraftSnapshot
 }
 
 function createSlot(source?: DraftSlot): DraftSlot {
@@ -1013,6 +1098,97 @@ async function deleteCourse(): Promise<void> {
   }
 }
 
+
+async function openScheduleEditor(id: string): Promise<void> {
+  if (!id || !canLeaveCourse('编辑课表')) return
+  try {
+    let target: CatalogSchedule
+    if (desktopRuntime) {
+      target = await invoke<CatalogSchedule>(plugin('get_schedule'), { scheduleId: id })
+    } else {
+      target = schedule
+    }
+    const summary = summaries.find((item) => item.id === id) ?? summaryFromSchedule(target, id === schedule.id)
+    scheduleDraft = {
+      id: target.id,
+      name: target.name,
+      semesterStart: target.semesterStart,
+      totalWeeks: maximumWeek(target),
+      courseCount: summary.courseCount,
+      active: summary.active,
+    }
+    initialScheduleDraftSnapshot = JSON.stringify(scheduleDraft)
+    surface = 'schedule'
+    selectedCourseId = null
+    courseDraft = null
+    initialDraftSnapshot = ''
+    menuOpen = false
+    scheduleMenuOpen = false
+    surfaceMessage = ''
+    render()
+  } catch (error) {
+    surfaceMessage = errorText(error)
+    render()
+  }
+}
+
+function bindScheduleEvents(): void {
+  if (surface !== 'schedule' || !scheduleDraft) return
+  document.querySelector<HTMLInputElement>('#schedule-name')?.addEventListener('input', (event) => {
+    if (scheduleDraft) scheduleDraft.name = (event.currentTarget as HTMLInputElement).value
+  })
+  document.querySelector<HTMLInputElement>('#schedule-semester-start')?.addEventListener('input', (event) => {
+    if (scheduleDraft) scheduleDraft.semesterStart = (event.currentTarget as HTMLInputElement).value
+  })
+  document.querySelector<HTMLInputElement>('#schedule-total-weeks')?.addEventListener('input', (event) => {
+    if (scheduleDraft) scheduleDraft.totalWeeks = clamp(Number((event.currentTarget as HTMLInputElement).value), 1, 30)
+  })
+  document.querySelector('[data-action="cancel-schedule"]')?.addEventListener('click', () => closeSurface('explicit'))
+  document.querySelector('[data-action="save-schedule"]')?.addEventListener('click', () => void saveSchedule())
+  document.querySelector('[data-action="delete-edited-schedule"]')?.addEventListener('click', () => {
+    if (scheduleDraft) void deleteSchedule(scheduleDraft.id)
+  })
+}
+
+async function saveSchedule(): Promise<void> {
+  if (!scheduleDraft) return
+  try {
+    const name = scheduleDraft.name.trim()
+    if (!name) throw new Error('请填写课表名称')
+    if (!scheduleDraft.semesterStart) throw new Error('请选择第一周星期一')
+    const minimumWeeks = scheduleDraft.id === schedule.id ? courseMaximumWeek(schedule) : 1
+    if (scheduleDraft.totalWeeks < minimumWeeks) throw new Error(`学期总周数不能少于 ${minimumWeeks} 周`)
+    const semesterEnd = dateKey(addDays(parseLocalDate(scheduleDraft.semesterStart), scheduleDraft.totalWeeks * 7 - 1))
+
+    if (desktopRuntime) {
+      const updated = await invoke<CatalogSchedule>(plugin('update_schedule'), {
+        request: {
+          scheduleId: scheduleDraft.id,
+          name,
+          semesterStart: scheduleDraft.semesterStart,
+          semesterEnd,
+        },
+      })
+      if (updated.id === schedule.id) schedule = updated
+      summaries = await invoke<ScheduleSummary[]>(plugin('list_schedules'))
+    } else {
+      schedule = { ...schedule, name, semesterStart: scheduleDraft.semesterStart, semesterEnd }
+      summaries = [summaryFromSchedule(schedule, true)]
+    }
+
+    if (scheduleDraft.id === schedule.id) currentWeek = initialWeek(schedule)
+    surface = 'data'
+    scheduleDraft = null
+    initialScheduleDraftSnapshot = ''
+    surfaceMessage = ''
+    render()
+    showToast('课表信息已保存')
+  } catch (error) {
+    surfaceMessage = errorText(error)
+    render()
+  }
+}
+
 function bindImportEvents(): void {
   document.querySelector('[data-action="choose-excel"]')?.addEventListener('click', () => void chooseExcel())
   document.querySelector('[data-action="create-imported-schedule"]')?.addEventListener('click', () => void createImportedSchedule())
@@ -1146,6 +1322,9 @@ async function saveTimes(): Promise<void> {
 }
 
 function bindDataEvents(): void {
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-edit-schedule]')) {
+    button.addEventListener('click', () => void openScheduleEditor(button.dataset.editSchedule ?? ''))
+  }
   for (const button of document.querySelectorAll<HTMLButtonElement>('[data-activate-schedule]')) {
     button.addEventListener('click', () => void activateSchedule(button.dataset.activateSchedule ?? ''))
   }
@@ -1183,6 +1362,9 @@ async function deleteSchedule(id: string): Promise<void> {
       summaries = await invoke<ScheduleSummary[]>(plugin('list_schedules'))
     }
     currentWeek = initialWeek(schedule)
+    surface = 'data'
+    scheduleDraft = null
+    initialScheduleDraftSnapshot = ''
     render()
     showToast('课表已删除')
   } catch (error) {
@@ -1267,18 +1449,24 @@ window.addEventListener('keydown', (event) => {
     event.preventDefault()
     void saveCourse()
   }
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's' && surface === 'schedule') {
+    event.preventDefault()
+    void saveSchedule()
+  }
   if (!typing && !event.ctrlKey && !event.metaKey && event.key === 'ArrowLeft') changeWeek(-1)
   if (!typing && !event.ctrlKey && !event.metaKey && event.key === 'ArrowRight') changeWeek(1)
 })
 
 async function handleSettingsCloseRequest(): Promise<void> {
-  if (surface === 'course' && draftDirty() && !window.confirm('放弃未保存的修改？')) return
+  if (hasUnsavedChanges() && !window.confirm('放弃未保存的修改？')) return
   surface = null
   menuOpen = false
   scheduleMenuOpen = false
   selectedCourseId = null
   courseDraft = null
   initialDraftSnapshot = ''
+  scheduleDraft = null
+  initialScheduleDraftSnapshot = ''
   surfaceMessage = ''
   render()
   await getCurrentWindow().hide()
@@ -1288,7 +1476,8 @@ async function initialize(): Promise<void> {
   render()
   if (!desktopRuntime) return
   try {
-    await listen('settings:close-requested', () => {
+    await getCurrentWindow().onCloseRequested((event) => {
+      event.preventDefault()
       void handleSettingsCloseRequest()
     })
     await reloadDesktopState()

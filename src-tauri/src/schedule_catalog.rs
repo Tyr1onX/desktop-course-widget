@@ -111,6 +111,15 @@ pub struct SaveCourseSlot {
     teacher: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateScheduleRequest {
+    schedule_id: String,
+    name: String,
+    semester_start: String,
+    semester_end: Option<String>,
+}
+
 fn catalog_schema_version() -> u8 {
     CATALOG_SCHEMA_VERSION
 }
@@ -120,6 +129,8 @@ pub fn init() -> TauriPlugin<Wry> {
         .invoke_handler(tauri::generate_handler![
             list_schedules,
             get_active_schedule,
+            get_schedule,
+            update_schedule,
             activate_schedule,
             delete_schedule,
             create_schedule_from_import,
@@ -161,6 +172,47 @@ fn list_schedules(app: AppHandle) -> Result<Vec<ScheduleSummary>, String> {
 fn get_active_schedule(app: AppHandle) -> Result<CatalogSchedule, String> {
     let index = ensure_catalog(&app)?;
     read_catalog_schedule(&app, &index.active_schedule_id)
+}
+
+#[tauri::command]
+fn get_schedule(app: AppHandle, schedule_id: String) -> Result<CatalogSchedule, String> {
+    let index = ensure_catalog(&app)?;
+    if !index.schedule_ids.iter().any(|id| id == &schedule_id) {
+        return Err("找不到要编辑的课表".into());
+    }
+    read_catalog_schedule(&app, &schedule_id)
+}
+
+#[tauri::command]
+fn update_schedule(
+    app: AppHandle,
+    request: UpdateScheduleRequest,
+) -> Result<CatalogSchedule, String> {
+    let index = ensure_catalog(&app)?;
+    if !index
+        .schedule_ids
+        .iter()
+        .any(|id| id == &request.schedule_id)
+    {
+        return Err("找不到要编辑的课表".into());
+    }
+    if request.name.trim().is_empty() {
+        return Err("课表名称不能为空".into());
+    }
+
+    let mut schedule = read_catalog_schedule(&app, &request.schedule_id)?;
+    schedule.name = request.name;
+    schedule.semester_start = request.semester_start;
+    schedule.semester_end = request.semester_end;
+    schedule.updated_at = now_millis()?;
+    normalize_catalog_schedule(&mut schedule)?;
+    write_catalog_schedule(&app, &schedule)?;
+
+    if index.active_schedule_id == schedule.id {
+        apply_active_schedule(&app, &schedule)?;
+        emit_schedule_updated(&app)?;
+    }
+    Ok(schedule)
 }
 
 #[tauri::command]
