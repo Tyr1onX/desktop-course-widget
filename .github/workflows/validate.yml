@@ -3,7 +3,7 @@ name: Validate
 on:
   push:
     branches:
-      - agent/settings-schedule-workspace
+      - main
   pull_request:
     branches:
       - main
@@ -28,6 +28,9 @@ jobs:
 
       - name: Install web dependencies
         run: npm ci
+
+      - name: Check release version consistency
+        run: npm run check:version
 
       - name: Build web interface
         id: web_build
