@@ -1,0 +1,32 @@
+.side-surface .schedule-records {
+  gap: 8px;
+  margin-top: 0;
+}
+
+.side-surface .schedule-record {
+  padding: 12px 13px;
+}
+
+.side-surface .data-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 12px 13px;
+  border: 1px solid #e6e9ed;
+  border-radius: 10px;
+  background: #fafbfc;
+}
+
+.side-surface .data-card h3 {
+  font-size: 13px;
+  font-weight: 620;
+}
+
+.side-surface .data-card .secondary-button {
+  min-height: 31px;
+  margin-top: 0;
+  padding-inline: 10px;
+  font-size: 11px;
+}
