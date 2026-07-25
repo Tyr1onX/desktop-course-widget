@@ -83,11 +83,8 @@ jobs:
       - name: Commit generated implementation
         shell: pwsh
         run: |
-          git rm .github/workflows/bootstrap-updater.yml
-          git rm .github/workflows/apply-updater-foundation.yml
-          git rm scripts/apply-updater-foundation.py
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add package.json package-lock.json settings.html src src-tauri .github/workflows/release.yml docs/UPDATER_SETUP.md
+          git add -A
           git commit -m "feat: add signed in-app update flow"
           git push origin HEAD:${{ github.head_ref }}
