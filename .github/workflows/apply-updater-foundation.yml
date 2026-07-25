@@ -45,24 +45,26 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
+          import subprocess
 
-          targets = [
-              Path('package.json'),
-              Path('package-lock.json'),
-              Path('settings.html'),
-              Path('src-tauri/Cargo.toml'),
-              Path('src-tauri/Cargo.lock'),
-              Path('src-tauri/src/lib.rs'),
-              Path('src-tauri/capabilities/default.json'),
-              Path('src/updater-ui.ts'),
-              Path('src/updater-ui.css'),
-              Path('.github/workflows/release.yml'),
-              Path('docs/UPDATER_SETUP.md'),
-          ]
-          for path in targets:
-              if not path.exists():
+          changed = subprocess.check_output(
+              ['git', 'diff', '--name-only', '--diff-filter=ACMRTUXB'],
+              text=True,
+              encoding='utf-8',
+          ).splitlines()
+          binary_suffixes = {
+              '.ico', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.zip', '.exe',
+              '.dll', '.pdb', '.woff', '.woff2', '.ttf', '.otf', '.xlsx', '.pdf',
+          }
+          for raw in changed:
+              path = Path(raw)
+              if not path.is_file() or path.suffix.lower() in binary_suffixes:
                   continue
-              text = path.read_text(encoding='utf-8')
+              data = path.read_bytes()
+              try:
+                  text = data.decode('utf-8-sig')
+              except UnicodeDecodeError:
+                  continue
               normalized = '\n'.join(line.rstrip() for line in text.splitlines()) + '\n'
               path.write_text(normalized, encoding='utf-8', newline='\n')
 
@@ -74,7 +76,9 @@ jobs:
 
       - name: Check diff
         shell: pwsh
-        run: git diff --check
+        run: |
+          git diff --check
+          git diff --stat
 
       - name: Commit generated implementation
         shell: pwsh
