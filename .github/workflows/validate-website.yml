@@ -43,3 +43,10 @@ jobs:
       - name: Build website
         working-directory: website
         run: npm run docs:build
+
+      - name: Upload website preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: website-preview
+          path: website/docs/.vitepress/dist
+          retention-days: 3
