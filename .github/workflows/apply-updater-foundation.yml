@@ -41,6 +41,31 @@ jobs:
       - name: Refresh Rust lockfile
         run: cargo generate-lockfile --manifest-path src-tauri/Cargo.toml
 
+      - name: Normalize generated text
+        shell: python
+        run: |
+          from pathlib import Path
+
+          targets = [
+              Path('package.json'),
+              Path('package-lock.json'),
+              Path('settings.html'),
+              Path('src-tauri/Cargo.toml'),
+              Path('src-tauri/Cargo.lock'),
+              Path('src-tauri/src/lib.rs'),
+              Path('src-tauri/capabilities/default.json'),
+              Path('src/updater-ui.ts'),
+              Path('src/updater-ui.css'),
+              Path('.github/workflows/release.yml'),
+              Path('docs/UPDATER_SETUP.md'),
+          ]
+          for path in targets:
+              if not path.exists():
+                  continue
+              text = path.read_text(encoding='utf-8')
+              normalized = '\n'.join(line.rstrip() for line in text.splitlines()) + '\n'
+              path.write_text(normalized, encoding='utf-8', newline='\n')
+
       - name: Validate web build
         run: npm run web:build
 
