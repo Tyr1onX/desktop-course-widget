@@ -7,6 +7,7 @@ import './focus-polish.css'
 import './demo-interactions.css'
 import './real-widget-demo.css'
 import './story-focus.css'
+import './project-footer.css'
 
 export default {
   extends: DefaultTheme,
