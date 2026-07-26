@@ -21,7 +21,7 @@ jobs:
       - name: Checkout release branch
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref }}
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
           fetch-depth: 0
 
       - name: Set up Node.js
@@ -63,13 +63,15 @@ jobs:
           retention-days: 7
 
       - name: Commit refreshed lockfiles
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.ref_name != 'main'
         shell: pwsh
+        env:
+          TARGET_BRANCH: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add package-lock.json src-tauri/Cargo.lock
           if (-not (git diff --cached --quiet)) {
             git commit -m "chore: refresh release lockfiles"
-            git push origin HEAD:${{ github.head_ref }}
+            git push origin "HEAD:$env:TARGET_BRANCH"
           }
