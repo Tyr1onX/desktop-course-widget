@@ -38,22 +38,46 @@ jobs:
         run: npm ci
 
       - name: Build web interface
-        run: npm run web:build
+        id: web
+        continue-on-error: true
+        shell: pwsh
+        run: npm run web:build 2>&1 | Tee-Object -FilePath data-backup-web.log
 
       - name: Run Rust library tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+        id: rust
+        continue-on-error: true
+        shell: pwsh
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib 2>&1 | Tee-Object -FilePath data-backup-rust.log
 
       - name: Check diff
+        id: diff
+        continue-on-error: true
         shell: pwsh
         run: |
-          git diff --check
+          git diff --check 2>&1 | Tee-Object -FilePath data-backup-diff.log
           git diff --stat
 
-      - name: Commit validated implementation
+      - name: Record validation result
+        if: always()
+        shell: pwsh
+        run: |
+          @"
+          web=${{ steps.web.outcome }}
+          rust=${{ steps.rust.outcome }}
+          diff=${{ steps.diff.outcome }}
+          "@ | Set-Content data-backup-ci-result.txt -Encoding utf8
+
+      - name: Commit generated implementation and logs
+        if: always()
         shell: pwsh
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add settings.html src/backup-ui.ts src/backup-ui.css src-tauri/src/lib.rs src-tauri/src/data_backup.rs
+          git add settings.html src/backup-ui.ts src/backup-ui.css src-tauri/src/lib.rs src-tauri/src/data_backup.rs data-backup-ci-result.txt data-backup-web.log data-backup-rust.log data-backup-diff.log
           git commit -m "feat: add local data backup and recovery"
           git push origin HEAD:feat/data-backup-recovery
+
+      - name: Fail when validation failed
+        if: steps.web.outcome != 'success' || steps.rust.outcome != 'success' || steps.diff.outcome != 'success'
+        shell: pwsh
+        run: throw 'Generated data backup implementation did not pass validation'
