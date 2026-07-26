@@ -10,11 +10,18 @@ type DemoPreset = {
   time: string
 }
 
-const heroPresets: DemoPreset[] = [
+const homepagePresets: DemoPreset[] = [
+  { id: 'current', label: '正在上课', scenario: 'current', time: '08:48' },
+  { id: 'between', label: '课间等待', scenario: 'between', time: '09:50' },
+]
+
+const experiencePresets: DemoPreset[] = [
   { id: 'current', label: '正在上课', scenario: 'current', time: '08:48' },
   { id: 'between', label: '课间等待', scenario: 'between', time: '09:50' },
   { id: 'ended', label: '今日结束', scenario: 'ended', time: '18:40' },
   { id: 'empty', label: '今天无课', scenario: 'empty', time: '12:20' },
+  { id: 'before', label: '学期未开始', scenario: 'before', time: '08:30' },
+  { id: 'browsing', label: '浏览日期', scenario: 'browsing', time: '09:50' },
 ]
 
 const storyPresets: DemoPreset[] = [
@@ -74,10 +81,14 @@ function renderLatestWidget(
   return widget
 }
 
-function setupHeroDemo(root: HTMLElement): Cleanup {
+function setupHeroDemo(
+  root: HTMLElement,
+  presets: DemoPreset[],
+  statusPrefix: string,
+): Cleanup {
   const stage = root.querySelector<HTMLElement>('.course-stage')
   const legacyWidget = stage?.querySelector<HTMLElement>('.widget-window')
-  if (!stage || !legacyWidget) return () => undefined
+  if (!stage || !legacyWidget || !presets.length) return () => undefined
 
   const legacyClone = legacyWidget.cloneNode(true) as HTMLElement
   const host = document.createElement('div')
@@ -93,7 +104,7 @@ function setupHeroDemo(root: HTMLElement): Cleanup {
   controls.className = 'course-demo-controls'
   controls.setAttribute('aria-label', '课刻最新版运行状态演示控制')
 
-  const stepButtons = heroPresets.map((preset, index) => {
+  const stepButtons = presets.map((preset, index) => {
     const button = createButton('course-demo-step', `查看${preset.label}状态`)
     button.dataset.demoIndex = String(index)
     button.title = preset.label
@@ -107,7 +118,7 @@ function setupHeroDemo(root: HTMLElement): Cleanup {
   stage.append(status, controls)
 
   let currentIndex = 0
-  let activeOptions = optionsFor(heroPresets[currentIndex])
+  let activeOptions = optionsFor(presets[currentIndex])
   let intervalId: number | undefined
   let transitionId: number | undefined
   let userPaused = false
@@ -137,9 +148,9 @@ function setupHeroDemo(root: HTMLElement): Cleanup {
 
   const applyPreset = (index: number) => {
     currentIndex = index
-    activeOptions = optionsFor(heroPresets[index])
+    activeOptions = optionsFor(presets[index])
     renderActiveOptions()
-    status.textContent = `当前桌面组件 · ${heroPresets[index].label}`
+    status.textContent = `${statusPrefix} · ${presets[index].label}`
     updateControls()
   }
 
@@ -167,7 +178,7 @@ function setupHeroDemo(root: HTMLElement): Cleanup {
     updateControls()
     if (isPaused()) return
     intervalId = window.setInterval(() => {
-      renderPreset((currentIndex + 1) % heroPresets.length)
+      renderPreset((currentIndex + 1) % presets.length)
     }, 5200)
   }
 
@@ -346,8 +357,17 @@ function setupTrayDemo(root: HTMLElement): Cleanup {
 }
 
 export function setupWebsiteDemo(): Cleanup {
-  const root = document.querySelector<HTMLElement>('.course-home')
+  const root = document.querySelector<HTMLElement>('.course-home, .course-experience')
   if (!root) return () => undefined
-  const cleanups = [setupHeroDemo(root), setupStoryWidgets(root), setupTrayDemo(root)]
+
+  const isExperiencePage = root.classList.contains('course-experience')
+  const heroCleanup = setupHeroDemo(
+    root,
+    isExperiencePage ? experiencePresets : homepagePresets,
+    isExperiencePage ? '完整状态演示' : '当前桌面组件',
+  )
+  const storyCleanup = setupStoryWidgets(root)
+  const trayCleanup = setupTrayDemo(root)
+  const cleanups = [heroCleanup, storyCleanup, trayCleanup]
   return () => cleanups.forEach((cleanup) => cleanup())
 }
