@@ -18,6 +18,7 @@ const statuses = [
 ] as const
 
 const followCounts = [0, 1, 2, 3, 5]
+const completeTimePattern = /^(?:[01]\d|2[0-3]):[0-5]\d$/
 
 function panelMarkup() {
   return `
@@ -72,10 +73,15 @@ function panelMarkup() {
     </main>`
 }
 
+function renderWidget() {
+  const mount = document.querySelector<HTMLDivElement>('#widget-mount')
+  if (!mount) return
+  mount.replaceChildren(enhanceTimeFlow(createWidget(options, render), options))
+}
+
 function render() {
   app.innerHTML = panelMarkup()
-  const mount = document.querySelector<HTMLDivElement>('#widget-mount')!
-  mount.replaceChildren(enhanceTimeFlow(createWidget(options, render), options))
+  renderWidget()
 
   document.querySelectorAll<HTMLElement>('[data-control]').forEach((control) => {
     if (control instanceof HTMLButtonElement) {
@@ -89,12 +95,11 @@ function render() {
     }
 
     if (control instanceof HTMLInputElement && control.type === 'time') {
-      control.addEventListener('change', () => {
+      control.addEventListener('input', () => {
         const value = control.value
-        window.setTimeout(() => {
-          options.time = value
-          render()
-        }, 0)
+        if (!completeTimePattern.test(value)) return
+        options.time = value
+        renderWidget()
       })
       return
     }
