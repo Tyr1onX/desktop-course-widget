@@ -5,6 +5,7 @@ import './motion.css'
 import './layout-polish.css'
 import './focus-polish.css'
 import './demo-interactions.css'
+import './real-widget-demo.css'
 
 export default {
   extends: DefaultTheme,
