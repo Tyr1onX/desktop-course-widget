@@ -52,6 +52,15 @@ jobs:
         working-directory: website
         run: npm run docs:test:responsive
 
+      - name: Upload responsive test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: responsive-test-report
+          path: website/responsive-results.json
+          if-no-files-found: warn
+          retention-days: 3
+
       - name: Upload website preview
         uses: actions/upload-artifact@v4
         with:
