@@ -8,6 +8,7 @@
     "docs:preview": "vitepress preview docs"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.11.1",
     "motion-v": "^2.3.0"
   },
   "devDependencies": {

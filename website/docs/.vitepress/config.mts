@@ -1,3 +1,4 @@
+import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vitepress'
 
 export default defineConfig({
@@ -17,6 +18,18 @@ export default defineConfig({
       },
     ],
   ],
+  vite: {
+    resolve: {
+      alias: {
+        '@tauri-apps/api': fileURLToPath(new URL('../../node_modules/@tauri-apps/api', import.meta.url)),
+      },
+    },
+    server: {
+      fs: {
+        allow: [fileURLToPath(new URL('../../..', import.meta.url))],
+      },
+    },
+  },
   themeConfig: {
     logo: '/app-icon-v2.svg',
     siteTitle: '课刻',
