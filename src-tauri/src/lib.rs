@@ -295,7 +295,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
                 .expect("application icon is configured")
                 .clone(),
         )
-        .tooltip("桌面课表组件")
+        .tooltip("课刻")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id().as_ref() {
@@ -525,9 +525,6 @@ pub fn run() {
                 eprintln!("[widget] secondary launch could not show the existing window: {error}");
             }
         }));
-
-    #[cfg(not(debug_assertions))]
-    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
 
     builder
         .plugin(tauri_plugin_process::init())
