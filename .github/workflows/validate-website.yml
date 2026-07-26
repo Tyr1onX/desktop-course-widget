@@ -46,7 +46,11 @@ jobs:
 
       - name: Install Chromium
         working-directory: website
-        run: npx playwright install --with-deps chromium
+        run: |
+          npx playwright install --with-deps chromium > /tmp/playwright-install.log 2>&1 || {
+            cat /tmp/playwright-install.log
+            exit 1
+          }
 
       - name: Test responsive layouts
         working-directory: website
