@@ -144,26 +144,28 @@ const easeOut = [0.22, 1, 0.36, 1]
                   <div class="orbit-settings__body">
                     <div class="orbit-settings__calendar" aria-hidden="true">
                       <div class="orbit-settings__days">
-                        <span>一<br /><b>21</b></span>
-                        <span class="is-today">二<br /><b>22</b></span>
-                        <span>三<br /><b>23</b></span>
-                        <span>四<br /><b>24</b></span>
-                        <span>五<br /><b>25</b></span>
+                        <span><small>一</small><b>21</b></span>
+                        <span class="is-today"><small>二</small><b>22</b></span>
+                        <span><small>三</small><b>23</b></span>
+                        <span><small>四</small><b>24</b></span>
+                        <span><small>五</small><b>25</b></span>
                       </div>
                       <div class="orbit-settings__grid">
-                        <i class="orbit-course orbit-course--blue"><b>通信原理</b><span>B311</span></i>
-                        <i class="orbit-course orbit-course--green"><b>数字信号处理</b><span>201</span></i>
-                        <i class="orbit-course orbit-course--purple"><b>单片机原理</b><span>B203</span></i>
+                        <i class="orbit-course orbit-course--blue" style="--day:1;--start:1;--span:2"><b>通信原理</b><span>B311</span></i>
+                        <i class="orbit-course orbit-course--green" style="--day:2;--start:2;--span:2"><b>数字信号处理</b><span>201</span></i>
+                        <i class="orbit-course orbit-course--purple" style="--day:3;--start:1;--span:2"><b>单片机原理</b><span>B203</span></i>
                       </div>
                     </div>
 
                     <aside class="orbit-settings__editor">
                       <header><strong>编辑课程</strong><span>×</span></header>
-                      <label><span>课程名称</span><b>单片机原理及应用</b></label>
-                      <div class="orbit-settings__colors" aria-hidden="true">
-                        <i></i><i></i><i></i><i class="is-active"></i><i></i>
+                      <div class="orbit-settings__editor-content">
+                        <label><span>课程名称</span><b>单片机原理及应用</b></label>
+                        <div class="orbit-settings__colors" aria-hidden="true">
+                          <i></i><i></i><i></i><i class="is-active"></i><i></i>
+                        </div>
+                        <label><span>上课时间</span><b>周三 · 1 至 2 节</b></label>
                       </div>
-                      <label><span>上课时间</span><b>周三 · 1 至 2 节</b></label>
                       <footer><span>取消</span><strong>保存修改</strong></footer>
                     </aside>
                   </div>
