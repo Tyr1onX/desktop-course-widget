@@ -1,0 +1,138 @@
+.backup-panel {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line, rgba(0, 0, 0, 0.1));
+}
+
+.backup-panel__intro {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.backup-panel__intro h4 {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-primary, #1d1d1f);
+}
+
+.backup-panel__intro p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary, #6e6e73);
+}
+
+.backup-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.backup-preview {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--line, rgba(0, 0, 0, 0.1));
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.backup-preview header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.backup-preview header div {
+  min-width: 0;
+}
+
+.backup-preview header span,
+.backup-preview header strong {
+  display: block;
+}
+
+.backup-preview header span {
+  font-size: 11px;
+  color: var(--text-secondary, #6e6e73);
+}
+
+.backup-preview header strong {
+  margin-top: 3px;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.backup-preview header button {
+  border: 0;
+  background: transparent;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text-secondary, #6e6e73);
+  cursor: pointer;
+}
+
+.backup-preview dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 14px 0 0;
+}
+
+.backup-preview dl div {
+  padding: 9px 10px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.035);
+}
+
+.backup-preview dt {
+  font-size: 11px;
+  color: var(--text-secondary, #6e6e73);
+}
+
+.backup-preview dd {
+  margin: 3px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.backup-preview > p,
+.backup-preview > small {
+  display: block;
+  margin: 10px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-secondary, #6e6e73);
+}
+
+.backup-restore-button {
+  width: 100%;
+  margin-top: 12px;
+}
+
+.backup-message {
+  min-height: 18px;
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary, #6e6e73);
+}
+
+@media (max-width: 720px) {
+  .backup-panel__intro {
+    flex-direction: column;
+  }
+
+  .backup-panel__actions {
+    justify-content: flex-start;
+  }
+}

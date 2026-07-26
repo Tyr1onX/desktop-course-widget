@@ -1,0 +1,5 @@
+apply=success
+install=success
+web=success
+rust=failure
+diff=success

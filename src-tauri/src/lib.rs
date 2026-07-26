@@ -1,4 +1,5 @@
 mod app_settings;
+mod data_backup;
 pub mod excel_import;
 mod schedule_apply;
 mod schedule_catalog;
@@ -535,6 +536,7 @@ pub fn run() {
             None,
         ))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(data_backup::init())
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_state_flags(tauri_plugin_window_state::StateFlags::POSITION)
