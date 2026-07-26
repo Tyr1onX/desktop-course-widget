@@ -1,192 +1,33 @@
+import { createWidget, defaultOptions, type WidgetOptions } from '../../../../src/widget'
+import { enhanceTimeFlow } from '../../../../src/time-flow'
+
 type Cleanup = () => void
 
-type RealCourse = {
-  start: string
-  end: string
-  name: string
-  location: string
-}
-
-type RealFocus = RealCourse & {
-  kicker: string
-  courseDate?: string
-  countdown?: string
-  progress?: number
-  current?: boolean
-  urgency?: 'soon' | 'imminent'
-}
-
-type RealWidgetState = {
+type DemoPreset = {
   id: string
   label: string
-  tone: 'morning' | 'day' | 'evening' | 'night'
-  title: string
-  dateLine: string
-  now: string
-  today?: boolean
-  stateLabel?: string
-  emptyMessage?: string
-  focus?: RealFocus
-  following?: RealCourse[]
+  scenario: WidgetOptions['scenario']
+  time: string
 }
 
-type WidgetMarkupOptions = {
-  theme?: 'light' | 'dark'
-  closeControl?: boolean
-  compact?: boolean
-}
-
-const mondayCourses: RealCourse[] = [
-  { start: '08:00', end: '09:40', name: '高等数学', location: '教学楼 A101' },
-  { start: '10:00', end: '11:40', name: '大学英语', location: '教学楼 A101' },
-  { start: '13:30', end: '15:10', name: '程序设计基础', location: '实验楼 B203' },
-  { start: '15:30', end: '17:10', name: '计算机网络', location: '实验楼 B203' },
+const heroPresets: DemoPreset[] = [
+  { id: 'current', label: '正在上课', scenario: 'current', time: '08:48' },
+  { id: 'between', label: '课间等待', scenario: 'between', time: '09:50' },
+  { id: 'ended', label: '今日结束', scenario: 'ended', time: '18:40' },
+  { id: 'empty', label: '今天无课', scenario: 'empty', time: '12:20' },
 ]
 
-const heroStates: RealWidgetState[] = [
-  {
-    id: 'current-morning',
-    label: '上课中',
-    tone: 'morning',
-    title: '9月21日课表',
-    dateLine: '星期一 · 第3教学周',
-    now: '08:48',
-    today: true,
-    focus: {
-      ...mondayCourses[0],
-      kicker: '正在上课',
-      countdown: '还剩 52 分钟',
-      progress: 0.48,
-      current: true,
-    },
-    following: mondayCourses.slice(1),
-  },
-  {
-    id: 'between',
-    label: '课间',
-    tone: 'morning',
-    title: '9月21日课表',
-    dateLine: '星期一 · 第3教学周',
-    now: '09:50',
-    today: true,
-    focus: {
-      ...mondayCourses[1],
-      kicker: '马上开始',
-      countdown: '10 分钟后开始',
-      urgency: 'imminent',
-    },
-    following: mondayCourses.slice(2),
-  },
-  {
-    id: 'current-afternoon',
-    label: '下午上课',
-    tone: 'day',
-    title: '9月21日课表',
-    dateLine: '星期一 · 第3教学周',
-    now: '14:22',
-    today: true,
-    focus: {
-      ...mondayCourses[2],
-      kicker: '正在上课',
-      countdown: '还剩 48 分钟',
-      progress: 0.52,
-      current: true,
-    },
-    following: mondayCourses.slice(3),
-  },
-  {
-    id: 'ended',
-    label: '今日结束',
-    tone: 'evening',
-    title: '9月21日课表',
-    dateLine: '星期一 · 第3教学周',
-    now: '18:40',
-    today: true,
-    stateLabel: '今日课程结束',
-    focus: {
-      start: '10:00',
-      end: '11:40',
-      name: '大学英语',
-      location: '教学楼 A101',
-      kicker: '下一次课程',
-      courseDate: '9月22日 · 星期二',
-    },
-    following: [],
-  },
+const storyPresets: DemoPreset[] = [
+  { id: 'morning', label: '早晨', scenario: 'current', time: '08:12' },
+  { id: 'current', label: '此刻', scenario: 'current', time: '08:48' },
+  { id: 'ended', label: '结束', scenario: 'ended', time: '18:40' },
 ]
 
-const browsingPrevious: RealWidgetState = {
-  id: 'browse-previous',
-  label: '浏览前一天',
-  tone: 'day',
-  title: '9月20日课表',
-  dateLine: '星期日 · 第2教学周',
-  now: '09:50',
-  stateLabel: '9月20日无课',
-  focus: {
-    ...mondayCourses[0],
-    kicker: '下一次课程',
-    courseDate: '9月21日 · 星期一',
-  },
-  following: [],
-}
-
-const browsingNext: RealWidgetState = {
-  id: 'browse-next',
-  label: '浏览后一天',
-  tone: 'day',
-  title: '9月22日课表',
-  dateLine: '星期二 · 第3教学周',
-  now: '09:50',
-  focus: {
-    start: '10:00',
-    end: '11:40',
-    name: '大学英语',
-    location: '教学楼 A101',
-    kicker: '首节课',
-  },
-  following: [],
-}
-
-const storyStates: RealWidgetState[] = [
-  {
-    id: 'story-morning',
-    label: '早晨',
-    tone: 'morning',
-    title: '9月21日课表',
-    dateLine: '星期一 · 第3教学周',
-    now: '07:35',
-    today: true,
-    focus: {
-      ...mondayCourses[0],
-      kicker: '下一节课',
-      countdown: '25 分钟后开始',
-    },
-    following: mondayCourses.slice(1, 3),
-  },
-  heroStates[0],
-  heroStates[3],
-]
-
-const desktopState: RealWidgetState = {
+const desktopPreset: DemoPreset = {
   id: 'desktop-current',
-  label: '真实桌面状态',
-  tone: 'day',
-  title: '9月25日课表',
-  dateLine: '星期五 · 第3教学周',
-  now: '15:46',
-  today: true,
-  focus: {
-    start: '15:30',
-    end: '17:10',
-    name: '计算机网络',
-    location: '实验楼 B203',
-    kicker: '正在上课',
-    countdown: '还剩 84 分钟',
-    progress: 0.16,
-    current: true,
-  },
-  following: [],
+  label: '桌面运行状态',
+  scenario: 'current',
+  time: '08:48',
 }
 
 function createButton(className: string, label: string): HTMLButtonElement {
@@ -197,33 +38,40 @@ function createButton(className: string, label: string): HTMLButtonElement {
   return button
 }
 
-function focusMarkup(focus: RealFocus): string {
-  const classes = [
-    'focus-course',
-    focus.current ? 'is-current' : '',
-    focus.urgency ? `is-${focus.urgency}` : '',
-  ].filter(Boolean).join(' ')
-
-  const progress = typeof focus.progress === 'number'
-    ? `<div class="course-flow"><div class="course-flow-meta"><span>时间进度</span><span>${Math.round(focus.progress * 100)}%</span></div><div class="course-flow-track" role="progressbar" aria-label="本节课时间进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(focus.progress * 100)}"><span style="--course-progress:${focus.progress}"></span></div></div>`
-    : ''
-
-  return `<section class="${classes}"><p class="focus-kicker">${focus.kicker}</p>${focus.courseDate ? `<p class="course-date">${focus.courseDate}</p>` : ''}<h2>${focus.name}</h2><p class="course-time">${focus.start}–${focus.end}</p><p class="course-location">${focus.location}</p>${focus.countdown ? `<p class="countdown">${focus.countdown}</p>` : ''}${progress}</section>`
+function optionsFor(
+  preset: DemoPreset,
+  overrides: Partial<WidgetOptions> = {},
+): WidgetOptions {
+  return {
+    ...defaultOptions,
+    runtime: 'prototype',
+    scenario: preset.scenario,
+    theme: 'light',
+    background: 'blue',
+    width: 360,
+    scale: 1,
+    followCount: 3,
+    showNav: true,
+    time: preset.time,
+    browsingOffset: 0,
+    browseDate: undefined,
+    dragRegion: false,
+    closeControl: false,
+    ...overrides,
+  }
 }
 
-function followingMarkup(courses: RealCourse[], compact: boolean): string {
-  const visible = courses.slice(0, compact ? 1 : 3)
-  if (!visible.length) return ''
-  return `<section class="following" aria-label="后续课程"><p class="section-label">后续课程</p><ol class="timeline">${visible.map((course) => `<li><time>${course.start}</time><span><strong>${course.name}</strong><small>${course.location}</small></span></li>`).join('')}</ol>${courses.length > visible.length ? `<p class="more-courses">还有 ${courses.length - visible.length} 节</p>` : ''}</section>`
-}
-
-function widgetMarkup(state: RealWidgetState, options: WidgetMarkupOptions = {}): string {
-  const theme = options.theme ?? 'light'
-  const scale = options.compact ? 0.84 : 1
-  const width = options.compact ? '100%' : '360px'
-  const close = options.closeControl ? '<button class="widget-close" type="button" data-real-hide aria-label="隐藏组件" title="隐藏到托盘">×</button>' : ''
-
-  return `<article class="course-widget website-real-widget theme-${theme} tone-${state.tone}${options.compact ? ' is-compact' : ''}" data-real-state="${state.id}" style="--widget-width:${width};--widget-scale:${scale}"><header class="widget-header"><div class="widget-drag-surface"><div class="widget-heading"><div class="title-row"><p class="widget-title">${state.title}</p>${state.today ? '<span class="today-badge">今日</span>' : ''}</div><p class="date-line">${state.dateLine}</p></div><div class="header-right"><div class="header-meta"><time class="now-time">${state.now}</time>${close}</div><nav class="date-nav" aria-label="日期导航"><button type="button" data-real-nav="previous" aria-label="前一天">‹</button><button type="button" data-real-nav="today">今</button><button type="button" data-real-nav="next" aria-label="后一天">›</button></nav></div></div></header>${state.stateLabel ? `<p class="state-label">${state.stateLabel}</p>` : ''}${state.focus ? focusMarkup(state.focus) : ''}${state.emptyMessage ? `<p class="empty-state">${state.emptyMessage}</p>` : ''}${followingMarkup(state.following ?? [], Boolean(options.compact))}</article>`
+function renderLatestWidget(
+  host: HTMLElement,
+  options: WidgetOptions,
+  onNavigate?: () => void,
+  extraClass?: string,
+): HTMLElement {
+  const widget = enhanceTimeFlow(createWidget(options, onNavigate), options)
+  widget.classList.add('website-real-widget')
+  if (extraClass) widget.classList.add(extraClass)
+  host.replaceChildren(widget)
+  return widget
 }
 
 function setupHeroDemo(root: HTMLElement): Cleanup {
@@ -243,12 +91,12 @@ function setupHeroDemo(root: HTMLElement): Cleanup {
 
   const controls = document.createElement('div')
   controls.className = 'course-demo-controls'
-  controls.setAttribute('aria-label', '课刻真实状态演示控制')
+  controls.setAttribute('aria-label', '课刻最新版运行状态演示控制')
 
-  const stepButtons = heroStates.map((state, index) => {
-    const button = createButton('course-demo-step', `查看${state.label}状态`)
+  const stepButtons = heroPresets.map((preset, index) => {
+    const button = createButton('course-demo-step', `查看${preset.label}状态`)
     button.dataset.demoIndex = String(index)
-    button.title = state.label
+    button.title = preset.label
     controls.append(button)
     return button
   })
@@ -259,6 +107,7 @@ function setupHeroDemo(root: HTMLElement): Cleanup {
   stage.append(status, controls)
 
   let currentIndex = 0
+  let activeOptions = optionsFor(heroPresets[currentIndex])
   let intervalId: number | undefined
   let transitionId: number | undefined
   let userPaused = false
@@ -278,35 +127,31 @@ function setupHeroDemo(root: HTMLElement): Cleanup {
     controls.classList.toggle('is-paused', isPaused())
   }
 
-  const bindNavigation = () => {
-    host.querySelectorAll<HTMLButtonElement>('[data-real-nav]').forEach((button) => {
-      button.addEventListener('click', () => {
-        userPaused = true
-        const direction = button.dataset.realNav
-        if (direction === 'previous') renderState(browsingPrevious, false)
-        else if (direction === 'next') renderState(browsingNext, false)
-        else renderState(heroStates[currentIndex], false)
-        syncTimer()
-      })
-    })
+  const renderActiveOptions = () => {
+    renderLatestWidget(host, activeOptions, () => {
+      userPaused = true
+      renderActiveOptions()
+      syncTimer()
+    }, 'website-real-widget--hero')
   }
 
-  const applyState = (state: RealWidgetState) => {
-    host.innerHTML = widgetMarkup(state)
-    status.textContent = `真实状态演示 · ${state.label}`
-    bindNavigation()
+  const applyPreset = (index: number) => {
+    currentIndex = index
+    activeOptions = optionsFor(heroPresets[index])
+    renderActiveOptions()
+    status.textContent = `当前桌面组件 · ${heroPresets[index].label}`
     updateControls()
   }
 
-  const renderState = (state: RealWidgetState, immediate = false) => {
+  const renderPreset = (index: number, immediate = false) => {
     if (transitionId !== undefined) window.clearTimeout(transitionId)
     if (immediate) {
-      applyState(state)
+      applyPreset(index)
       return
     }
     host.classList.add('is-real-transitioning')
     transitionId = window.setTimeout(() => {
-      applyState(state)
+      applyPreset(index)
       host.classList.remove('is-real-transitioning')
       transitionId = undefined
     }, 150)
@@ -317,22 +162,20 @@ function setupHeroDemo(root: HTMLElement): Cleanup {
     intervalId = undefined
   }
 
-  const syncTimer = () => {
+  function syncTimer() {
     stopTimer()
     updateControls()
     if (isPaused()) return
     intervalId = window.setInterval(() => {
-      currentIndex = (currentIndex + 1) % heroStates.length
-      renderState(heroStates[currentIndex])
-    }, 5000)
+      renderPreset((currentIndex + 1) % heroPresets.length)
+    }, 5200)
   }
 
   const onStepClick = (event: Event) => {
     const button = event.currentTarget as HTMLButtonElement
     const index = Number(button.dataset.demoIndex)
     if (Number.isNaN(index)) return
-    currentIndex = index
-    renderState(heroStates[currentIndex])
+    renderPreset(index)
     syncTimer()
   }
 
@@ -350,7 +193,7 @@ function setupHeroDemo(root: HTMLElement): Cleanup {
   stage.addEventListener('mouseleave', onMouseLeave)
   document.addEventListener('visibilitychange', onVisibilityChange)
 
-  renderState(heroStates[currentIndex], true)
+  renderPreset(currentIndex, true)
   syncTimer()
 
   return () => {
@@ -367,11 +210,9 @@ function setupHeroDemo(root: HTMLElement): Cleanup {
   }
 }
 
-function setupStoryTimeline(root: HTMLElement): Cleanup {
-  const flow = root.querySelector<HTMLElement>('.day-flow')
-  const lineIndicator = flow?.querySelector<HTMLElement>('.day-flow__line span')
-  const moments = flow ? Array.from(flow.querySelectorAll<HTMLElement>('.day-moment')) : []
-  if (!flow || !lineIndicator || moments.length < 3) return () => undefined
+function setupStoryWidgets(root: HTMLElement): Cleanup {
+  const moments = Array.from(root.querySelectorAll<HTMLElement>('.day-flow .day-moment'))
+  if (moments.length < storyPresets.length) return () => undefined
 
   const originals = moments.map((moment) => {
     const visual = moment.querySelector<HTMLElement>('.day-moment__visual')
@@ -379,51 +220,18 @@ function setupStoryTimeline(root: HTMLElement): Cleanup {
   })
 
   originals.forEach((entry, index) => {
-    if (!entry) return
+    if (!entry || !storyPresets[index]) return
     entry.visual.className = `${entry.className} has-real-widget`
-    entry.visual.innerHTML = widgetMarkup(storyStates[index], { compact: true })
+    const options = optionsFor(storyPresets[index], {
+      width: 360,
+      scale: 0.82,
+      followCount: 1,
+      showNav: false,
+    })
+    renderLatestWidget(entry.visual, options, undefined, 'website-real-widget--story')
   })
 
-  let frame = 0
-  const update = () => {
-    frame = 0
-    const rect = flow.getBoundingClientRect()
-    const anchor = window.innerHeight * 0.46
-    const start = rect.top + 36
-    const end = rect.bottom - 36
-    const progress = Math.min(1, Math.max(0, (anchor - start) / Math.max(1, end - start)))
-    lineIndicator.style.top = `${progress * 100}%`
-    lineIndicator.style.transform = `translateY(${-progress * 100}%)`
-
-    let closestIndex = 0
-    let closestDistance = Number.POSITIVE_INFINITY
-    moments.forEach((moment, index) => {
-      const momentRect = moment.getBoundingClientRect()
-      const distance = Math.abs(momentRect.top + momentRect.height * 0.42 - anchor)
-      if (distance < closestDistance) {
-        closestDistance = distance
-        closestIndex = index
-      }
-      moment.classList.toggle('is-story-passed', momentRect.top + 36 <= anchor)
-    })
-    moments.forEach((moment, index) => moment.classList.toggle('is-story-current', index === closestIndex))
-  }
-
-  const requestUpdate = () => {
-    if (frame) return
-    frame = window.requestAnimationFrame(update)
-  }
-
-  window.addEventListener('scroll', requestUpdate, { passive: true })
-  window.addEventListener('resize', requestUpdate)
-  update()
-
   return () => {
-    if (frame) window.cancelAnimationFrame(frame)
-    window.removeEventListener('scroll', requestUpdate)
-    window.removeEventListener('resize', requestUpdate)
-    lineIndicator.removeAttribute('style')
-    moments.forEach((moment) => moment.classList.remove('is-story-passed', 'is-story-current'))
     originals.forEach((entry) => {
       if (!entry) return
       entry.visual.className = entry.className
@@ -441,10 +249,18 @@ function setupTrayDemo(root: HTMLElement): Cleanup {
 
   const originalHtml = widgetShell.innerHTML
   const originalClass = widgetShell.className
+  const options = optionsFor(desktopPreset, {
+    theme: 'dark',
+    width: 360,
+    scale: 0.92,
+    followCount: 2,
+    showNav: true,
+    closeControl: true,
+  })
+
   visual.removeAttribute('aria-hidden')
-  visual.setAttribute('aria-label', '课刻真实窗口关闭到系统托盘并重新打开的交互演示')
+  visual.setAttribute('aria-label', '课刻最新版窗口关闭到系统托盘并重新打开的交互演示')
   widgetShell.classList.add('focus-desktop__widget--real')
-  widgetShell.innerHTML = widgetMarkup(desktopState, { theme: 'dark', closeControl: true })
 
   desktop.querySelectorAll('.focus-desktop__tray-app, .focus-desktop__demo-hint').forEach((element) => element.remove())
   const iconSource = root.querySelector<HTMLImageElement>('.course-brand img')?.src ?? ''
@@ -454,7 +270,6 @@ function setupTrayDemo(root: HTMLElement): Cleanup {
 
   const hint = document.createElement('p')
   hint.className = 'focus-desktop__demo-hint'
-  hint.textContent = '窗口中的 × 与课刻实际关闭按钮一致'
   desktop.append(hint)
 
   let visible = true
@@ -462,6 +277,7 @@ function setupTrayDemo(root: HTMLElement): Cleanup {
   let autoHideId: number | undefined
   let autoShowId: number | undefined
   let observer: IntersectionObserver | undefined
+  let closeButton: HTMLButtonElement | null = null
 
   const clearTimers = () => {
     if (autoHideId !== undefined) window.clearTimeout(autoHideId)
@@ -481,14 +297,24 @@ function setupTrayDemo(root: HTMLElement): Cleanup {
     trayButton.classList.toggle('is-active', !visible)
     trayButton.setAttribute('aria-expanded', String(visible))
     hint.textContent = visible
-      ? '点击真实窗口中的 ×，课刻会隐藏到托盘'
-      : '课刻已隐藏 · 点击托盘中的课刻图标重新显示'
+      ? '点击课刻窗口中的 ×，窗口会隐藏到系统托盘'
+      : '课刻已隐藏 · 点击托盘图标重新显示'
   }
 
-  const closeButton = widgetShell.querySelector<HTMLButtonElement>('[data-real-hide]')
   const onClose = () => setVisible(false, true)
+  const bindClose = () => {
+    closeButton?.removeEventListener('click', onClose)
+    closeButton = widgetShell.querySelector<HTMLButtonElement>('[data-hide]')
+    closeButton?.addEventListener('click', onClose)
+  }
+
+  const renderDesktopWidget = () => {
+    renderLatestWidget(widgetShell, options, renderDesktopWidget, 'website-real-widget--desktop')
+    bindClose()
+  }
+
   const onTray = () => setVisible(true, true)
-  closeButton?.addEventListener('click', onClose)
+  renderDesktopWidget()
   trayButton.addEventListener('click', onTray)
   setVisible(true)
 
@@ -497,8 +323,8 @@ function setupTrayDemo(root: HTMLElement): Cleanup {
     observer = new IntersectionObserver((entries) => {
       if (userInteracted || !entries.some((entry) => entry.isIntersecting && entry.intersectionRatio > 0.55)) return
       observer?.disconnect()
-      autoHideId = window.setTimeout(() => setVisible(false), 1700)
-      autoShowId = window.setTimeout(() => setVisible(true), 3900)
+      autoHideId = window.setTimeout(() => setVisible(false), 1800)
+      autoShowId = window.setTimeout(() => setVisible(true), 4100)
     }, { threshold: [0.55] })
     observer.observe(desktop)
   }
@@ -522,6 +348,6 @@ function setupTrayDemo(root: HTMLElement): Cleanup {
 export function setupWebsiteDemo(): Cleanup {
   const root = document.querySelector<HTMLElement>('.course-home')
   if (!root) return () => undefined
-  const cleanups = [setupHeroDemo(root), setupStoryTimeline(root), setupTrayDemo(root)]
+  const cleanups = [setupHeroDemo(root), setupStoryWidgets(root), setupTrayDemo(root)]
   return () => cleanups.forEach((cleanup) => cleanup())
 }
