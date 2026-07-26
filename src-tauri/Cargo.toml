@@ -1,6 +1,6 @@
 [package]
 name = "desktop-course-widget"
-version = "0.3.0"
+version = "0.4.0"
 description = "A local-first Windows desktop course schedule widget"
 authors = ["Tyr1onX"]
 license = "MIT"
@@ -33,4 +33,3 @@ tauri-plugin-window-state = "2.4.1"
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-process = "2"
 tauri-plugin-updater = "2"
-
