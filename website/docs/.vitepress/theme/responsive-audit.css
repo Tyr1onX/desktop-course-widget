@@ -1,0 +1,394 @@
+.course-home--orbit {
+  width: 100%;
+  min-height: 100dvh;
+  overflow-x: clip;
+}
+
+.course-home--orbit .course-nav__inner,
+.course-footer--home-legal {
+  padding-right: env(safe-area-inset-right, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+}
+
+.orbit-hero__copy,
+.orbit-scene,
+.orbit-float,
+.orbit-settings,
+.course-footer--home-legal {
+  max-width: 100%;
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .course-home--orbit .orbit-float,
+  .course-home--orbit .orbit-mark {
+    animation: none !important;
+  }
+}
+
+@media (max-width: 1100px) and (min-width: 721px) {
+  .orbit-hero {
+    padding: clamp(56px, 7vw, 72px) 22px 46px;
+  }
+
+  .orbit-hero__inner {
+    gap: 28px;
+  }
+
+  .course-home--orbit .orbit-hero h1 {
+    font-size: clamp(48px, 7.4vw, 64px);
+    line-height: 1.03;
+  }
+
+  .orbit-hero__lead {
+    margin-top: 20px;
+  }
+
+  .course-home--orbit .orbit-hero__actions {
+    margin-top: 24px;
+  }
+
+  .orbit-scene {
+    width: min(760px, 100%);
+    height: clamp(500px, 68vw, 560px);
+    overflow: clip;
+  }
+
+  .course-home--orbit .orbit-float--widget {
+    top: 3%;
+    left: 2%;
+    width: min(286px, 40%);
+  }
+
+  .course-home--orbit .orbit-float--settings {
+    right: 2%;
+    bottom: 3%;
+    width: min(405px, 57%);
+  }
+
+  .course-home--orbit .orbit-mark {
+    top: 46%;
+    left: 49%;
+    width: clamp(118px, 16vw, 140px);
+  }
+}
+
+@media (max-width: 720px) {
+  .course-home--orbit {
+    padding-top: 52px;
+  }
+
+  .course-home--orbit .course-nav__inner {
+    width: calc(100% - 24px);
+  }
+
+  .orbit-hero {
+    padding:
+      48px max(14px, env(safe-area-inset-right, 0px))
+      34px max(14px, env(safe-area-inset-left, 0px));
+  }
+
+  .orbit-hero__inner {
+    gap: 24px;
+  }
+
+  .course-home--orbit .course-kicker {
+    margin-bottom: 12px;
+    font-size: 13px;
+  }
+
+  .course-home--orbit .orbit-hero h1 {
+    font-size: clamp(40px, 11vw, 50px);
+    line-height: 1.04;
+    letter-spacing: -0.05em;
+  }
+
+  .course-home--orbit .orbit-hero h1 span {
+    white-space: normal;
+  }
+
+  .orbit-hero__lead {
+    max-width: 440px;
+    margin: 18px auto 0;
+    font-size: 15px;
+    line-height: 1.55;
+  }
+
+  .course-home--orbit .orbit-hero__actions {
+    width: min(300px, 100%);
+    margin: 22px auto 0;
+  }
+
+  .course-home--orbit .course-button--primary {
+    width: min(280px, 100%);
+    justify-content: center;
+  }
+
+  .orbit-hero__meta {
+    max-width: 300px;
+    margin: 12px auto 0 !important;
+    font-size: 11px !important;
+    line-height: 1.5;
+  }
+
+  .orbit-scene {
+    gap: 18px;
+    padding-top: 8px;
+    overflow: visible;
+  }
+
+  .course-home--orbit .orbit-mark {
+    width: 104px;
+    margin-bottom: 0;
+  }
+
+  .course-home--orbit .orbit-float--widget {
+    width: min(296px, 88vw);
+  }
+
+  .course-home--orbit .orbit-float--settings {
+    width: min(420px, 100%);
+  }
+
+  .course-home--orbit .orbit-settings__titlebar {
+    height: 24px;
+  }
+
+  .course-home--orbit .orbit-settings__toolbar {
+    height: 34px;
+    padding-inline: 8px;
+    gap: 5px;
+  }
+
+  .course-home--orbit .orbit-settings__toolbar > strong,
+  .course-home--orbit .orbit-settings__toolbar > b {
+    font-size: 8px;
+  }
+
+  .course-home--orbit .orbit-settings__toolbar > span {
+    font-size: 13px;
+  }
+
+  .course-home--orbit .orbit-settings__body {
+    height: 198px;
+    grid-template-columns: 53% 47%;
+  }
+
+  .course-home--orbit .orbit-settings__calendar {
+    grid-template-rows: 38px minmax(0, 1fr);
+  }
+
+  .course-home--orbit .orbit-settings__days {
+    height: 38px;
+    font-size: 7.5px;
+  }
+
+  .course-home--orbit .orbit-settings__days b {
+    font-size: 8.5px;
+  }
+
+  .course-home--orbit .orbit-settings__grid {
+    padding: 7px 5px 6px;
+    gap: 3px;
+  }
+
+  .course-home--orbit .orbit-course {
+    padding: 3px 2px;
+    border-radius: 5px;
+  }
+
+  .course-home--orbit .orbit-course b {
+    font-size: 6.5px;
+  }
+
+  .course-home--orbit .orbit-course span {
+    font-size: 5.5px;
+  }
+
+  .course-home--orbit .orbit-settings__editor {
+    grid-template-rows: 34px minmax(0, 1fr) 36px;
+  }
+
+  .course-home--orbit .orbit-settings__editor > header {
+    height: 34px;
+    padding-inline: 9px;
+  }
+
+  .course-home--orbit .orbit-settings__editor > header strong {
+    font-size: 9px;
+  }
+
+  .course-home--orbit .orbit-settings__editor-content {
+    padding: 8px 9px 6px;
+  }
+
+  .course-home--orbit .orbit-settings__editor-content label {
+    margin-bottom: 7px;
+    gap: 3px;
+  }
+
+  .course-home--orbit .orbit-settings__editor label > span {
+    font-size: 7.5px;
+  }
+
+  .course-home--orbit .orbit-settings__editor label > b {
+    height: 23px;
+    padding-inline: 6px;
+    font-size: 8px;
+  }
+
+  .course-home--orbit .orbit-settings__editor-content .orbit-settings__colors {
+    margin: 0 0 8px;
+    gap: 5px;
+  }
+
+  .course-home--orbit .orbit-settings__colors i {
+    width: 13px;
+    height: 13px;
+  }
+
+  .course-home--orbit .orbit-settings__editor > footer {
+    min-height: 36px;
+    padding: 6px 8px;
+  }
+
+  .course-home--orbit .orbit-settings__editor > footer span,
+  .course-home--orbit .orbit-settings__editor > footer strong {
+    height: 23px;
+    padding-inline: 7px;
+  }
+
+  .course-footer--home-legal {
+    padding-right: max(0px, env(safe-area-inset-right, 0px));
+    padding-bottom: max(17px, env(safe-area-inset-bottom, 0px));
+    padding-left: max(0px, env(safe-area-inset-left, 0px));
+  }
+}
+
+@media (max-width: 430px) {
+  .course-home--orbit .course-brand img {
+    width: 24px;
+    height: 24px;
+  }
+
+  .course-home--orbit .course-nav__download {
+    min-height: 34px;
+    padding-inline: 10px;
+    font-size: 10.5px;
+  }
+
+  .course-home--orbit .orbit-hero h1 {
+    font-size: clamp(38px, 10.8vw, 46px);
+  }
+
+  .course-home--orbit .orbit-float--widget {
+    width: min(286px, 90vw);
+  }
+
+  .course-home--orbit .orbit-settings__body {
+    height: 192px;
+    grid-template-columns: 51% 49%;
+  }
+
+  .course-home--orbit .orbit-settings__toolbar > em {
+    width: 22px;
+    height: 22px;
+  }
+
+  .course-home--orbit .orbit-settings__editor-content .orbit-settings__colors {
+    gap: 4px;
+  }
+
+  .course-footer--home-legal {
+    font-size: 10px;
+  }
+}
+
+@media (max-width: 380px) {
+  .course-home--orbit .course-nav__inner {
+    width: calc(100% - 18px);
+  }
+
+  .course-home--orbit .course-brand {
+    gap: 6px;
+    font-size: 13px;
+  }
+
+  .course-home--orbit .course-nav__download {
+    padding-inline: 8px;
+    font-size: 10px;
+  }
+
+  .orbit-hero {
+    padding-inline: 12px;
+  }
+
+  .course-home--orbit .orbit-hero h1 {
+    font-size: clamp(36px, 10.6vw, 41px);
+  }
+
+  .course-home--orbit .orbit-float--widget {
+    width: min(278px, 92vw);
+  }
+
+  .course-home--orbit .orbit-settings__body {
+    height: 186px;
+    grid-template-columns: 49% 51%;
+  }
+
+  .course-home--orbit .orbit-settings__toolbar {
+    grid-template-columns: 1fr auto auto auto;
+  }
+
+  .course-home--orbit .orbit-settings__toolbar > strong {
+    display: none;
+  }
+
+  .course-home--orbit .orbit-settings__colors i {
+    width: 12px;
+    height: 12px;
+  }
+}
+
+@media (max-width: 900px) and (max-height: 540px) and (orientation: landscape) {
+  .course-home--orbit .course-nav__links {
+    display: none;
+  }
+
+  .orbit-hero {
+    padding: 36px 18px 28px;
+  }
+
+  .orbit-hero__inner {
+    gap: 22px;
+  }
+
+  .course-home--orbit .orbit-hero h1 {
+    font-size: 44px;
+  }
+
+  .orbit-hero__lead {
+    margin-top: 14px;
+    font-size: 15px;
+  }
+
+  .course-home--orbit .orbit-hero__actions {
+    margin-top: 18px;
+  }
+
+  .orbit-scene {
+    width: min(720px, 100%);
+    height: 460px;
+  }
+
+  .course-home--orbit .orbit-float--widget {
+    width: min(250px, 39%);
+  }
+
+  .course-home--orbit .orbit-float--settings {
+    width: min(360px, 56%);
+  }
+
+  .course-home--orbit .orbit-mark {
+    width: 110px;
+  }
+}

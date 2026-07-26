@@ -5,13 +5,15 @@
   "scripts": {
     "docs:dev": "vitepress docs",
     "docs:build": "vitepress build docs",
-    "docs:preview": "vitepress preview docs"
+    "docs:preview": "vitepress preview docs",
+    "docs:test:responsive": "playwright test --reporter=line"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
     "motion-v": "^2.3.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.49.0",
     "vitepress": "^1.6.4"
   }
 }

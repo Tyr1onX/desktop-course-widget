@@ -44,6 +44,29 @@ jobs:
         working-directory: website
         run: npm run docs:build
 
+      - name: Install Chromium
+        working-directory: website
+        run: npx playwright install --with-deps chromium > /dev/null
+
+      - name: Test responsive layouts
+        working-directory: website
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run docs:test:responsive 2>&1 | tee responsive-test-output.txt
+
+      - name: Upload responsive test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: responsive-test-report
+          path: |
+            website/responsive-test-output.txt
+            website/responsive-results.json
+            website/test-results
+          if-no-files-found: warn
+          retention-days: 3
+
       - name: Upload website preview
         uses: actions/upload-artifact@v4
         with:
