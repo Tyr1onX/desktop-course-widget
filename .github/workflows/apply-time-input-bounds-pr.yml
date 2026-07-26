@@ -1,0 +1,53 @@
+name: Apply time input bounds on PR
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.head_ref == 'fix/time-input-bounds' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/time-input-bounds
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Apply embedded patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from textwrap import dedent
+
+          source = Path('.github/workflows/apply-time-input-bounds.yml').read_text(encoding='utf-8')
+          marker = "python3 - <<'PY'\n"
+          script = source.split(marker, 1)[1].split('\n          PY', 1)[0]
+          exec(dedent(script), {'__name__': '__main__'})
+          PY
+      - name: Install web dependencies
+        run: npm ci
+      - name: Check time-flow model
+        run: npm run check:time-flow
+      - name: Build web interface
+        run: npm run web:build
+      - name: Select stable Rust
+        run: rustup default stable
+      - name: Run Rust library tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+      - name: Commit implementation
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/main.ts src/settings.ts src-tauri/src/app_settings.rs
+          git commit -m "fix: enforce time input bounds"
+          git push origin HEAD:fix/time-input-bounds
