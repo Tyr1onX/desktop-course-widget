@@ -443,9 +443,10 @@ fn apply_imported_schedule(
     let course_count = schedule.courses.len();
     let mut warnings = schedule_apply::apply_schedule(&app, &schedule)?;
 
-    match app_settings::save_lesson_times(&app, request.times, equal_duration, true) {
-        Ok(_) => {}
-        Err(error) => warnings.push(format!("作息设置保存失败：{error}")),
+    if let Err(error) =
+        app_settings::save_lesson_times(&app, request.times, equal_duration, true)
+    {
+        warnings.push(format!("作息设置保存失败：{error}"));
     }
 
     app.emit("schedule:updated", ())
@@ -527,7 +528,6 @@ pub fn run() {
         }));
 
     builder
-        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
