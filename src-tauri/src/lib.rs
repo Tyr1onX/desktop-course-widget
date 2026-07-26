@@ -1,4 +1,5 @@
 mod app_settings;
+mod data_backup;
 pub mod excel_import;
 mod schedule_apply;
 mod schedule_catalog;
@@ -579,7 +580,10 @@ pub fn run() {
             read_app_settings,
             save_lesson_times,
             choose_and_parse_excel,
-            apply_imported_schedule
+            apply_imported_schedule,
+            data_backup::export_backup,
+            data_backup::choose_backup_for_restore,
+            data_backup::restore_backup
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

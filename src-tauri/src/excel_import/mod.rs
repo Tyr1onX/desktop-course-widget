@@ -77,10 +77,7 @@ mod tests {
             Some((1, 2)),
         )
         .unwrap();
-        assert_eq!(
-            next_line[0].location.as_deref(),
-            Some("教学楼A101")
-        );
+        assert_eq!(next_line[0].location.as_deref(), Some("教学楼A101"));
 
         let no_location = parse_cell(
             "课程甲\n1-2周,星期1,第1节-第2节\nC002-课程乙\n3-4周,星期1,第1节-第2节实验楼B203",

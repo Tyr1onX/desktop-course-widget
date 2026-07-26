@@ -230,10 +230,7 @@ mod tests {
             Some((1, 2)),
         )
         .unwrap();
-        assert_eq!(
-            entries[0].location.as_deref(),
-            Some("教学楼B203")
-        );
+        assert_eq!(entries[0].location.as_deref(), Some("教学楼B203"));
     }
 
     #[test]
@@ -244,10 +241,7 @@ mod tests {
             Some((1, 2)),
         )
         .unwrap();
-        assert_eq!(
-            entries[0].location.as_deref(),
-            Some("教学楼B203")
-        );
+        assert_eq!(entries[0].location.as_deref(), Some("教学楼B203"));
     }
 
     #[test]
@@ -258,9 +252,6 @@ mod tests {
             Some((1, 2)),
         )
         .unwrap();
-        assert_eq!(
-            entries[0].location.as_deref(),
-            Some("教学楼B203")
-        );
+        assert_eq!(entries[0].location.as_deref(), Some("教学楼B203"));
     }
 }
