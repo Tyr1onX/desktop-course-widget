@@ -3,6 +3,10 @@
   height: 100svh;
 }
 
+.course-home--orbit .course-nav__download {
+  min-height: 34px;
+}
+
 .course-home--orbit .orbit-mark {
   transform: none;
   translate: -50% -50%;

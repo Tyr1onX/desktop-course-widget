@@ -6,7 +6,7 @@
     "docs:dev": "vitepress docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",
-    "docs:test:responsive": "playwright test --reporter=line"
+    "docs:test:responsive": "playwright test"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
