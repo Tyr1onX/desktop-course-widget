@@ -185,7 +185,12 @@ mod tests {
 
     #[test]
     fn accepts_dynamic_contiguous_lesson_times() {
-        assert_eq!(normalize_lesson_times(default_lesson_times()).unwrap().len(), 10);
+        assert_eq!(
+            normalize_lesson_times(default_lesson_times())
+                .unwrap()
+                .len(),
+            10
+        );
         assert_eq!(
             normalize_lesson_times(default_lesson_times().into_iter().take(6).collect())
                 .unwrap()

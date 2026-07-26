@@ -20,6 +20,30 @@ type AppSettings = {
   equalDuration: boolean
 }
 
+type BackupPreview = {
+  path: string
+  fileName: string
+  createdAt: number
+  appVersion: string
+  scheduleCount: number
+  courseCount: number
+  activeScheduleName: string
+  lessonCount: number
+}
+
+type BackupExportResult = {
+  fileName: string
+  scheduleCount: number
+  courseCount: number
+}
+
+type BackupRestoreResult = {
+  scheduleCount: number
+  courseCount: number
+  activeScheduleName: string
+  safetySnapshot: string
+}
+
 type CatalogCourse = {
   id: string
   name: string
@@ -165,6 +189,7 @@ let initialScheduleDraftSnapshot = ''
 let importPreview: ExcelImportPreview | null = null
 let surfaceMessage = ''
 let autostartEnabled = false
+let backupPreview: BackupPreview | null = null
 let timeDraft = structuredClone(settings.lessonTimes)
 let timeEqualDuration = settings.equalDuration
 
@@ -710,9 +735,35 @@ function dataSurfaceMarkup(): string {
       </article>
     `
   }).join('')
+  const preview = backupPreview
   return surfaceShell('课表与数据', `
     <div class="surface-scroll simple-surface">
       <div class="schedule-records">${items}</div>
+      <div class="data-card backup-card">
+        <div class="data-card-heading">
+          <div><h3>备份与恢复</h3><p>把全部课表、当前课表和作息设置保存为一个本地文件。</p></div>
+          <div class="data-card-actions">
+            <button class="secondary-button" type="button" data-action="export-backup">导出备份</button>
+            <button class="secondary-button" type="button" data-action="choose-backup">选择备份</button>
+          </div>
+        </div>
+        ${preview ? `
+          <section class="backup-preview" aria-label="备份恢复预览">
+            <div class="backup-preview-title"><strong>${escapeHtml(preview.fileName)}</strong><span>可恢复</span></div>
+            <div class="backup-preview-grid">
+              <div><span>课表</span><strong>${preview.scheduleCount} 份</strong></div>
+              <div><span>课程</span><strong>${preview.courseCount} 门</strong></div>
+              <div><span>当前课表</span><strong>${escapeHtml(preview.activeScheduleName)}</strong></div>
+              <div><span>作息</span><strong>${preview.lessonCount} 节</strong></div>
+            </div>
+            <p>来自版本 ${escapeHtml(preview.appVersion)}。恢复前会自动保存当前数据快照。</p>
+            <div class="backup-preview-actions">
+              <button class="secondary-button" type="button" data-action="cancel-backup-preview">取消</button>
+              <button class="primary-button" type="button" data-action="restore-backup">确认恢复</button>
+            </div>
+          </section>
+        ` : ''}
+      </div>
       <div class="data-card">
         <h3>本地数据</h3>
         <button class="secondary-button" type="button" data-action="open-data-location">打开数据位置</button>
@@ -721,7 +772,6 @@ function dataSurfaceMarkup(): string {
     </div>
   `)
 }
-
 function helpSurfaceMarkup(): string {
   return surfaceShell('使用帮助', `
     <div class="surface-scroll simple-surface help-list">
@@ -1330,9 +1380,16 @@ function bindDataEvents(): void {
   for (const button of document.querySelectorAll<HTMLButtonElement>('[data-delete-schedule]')) {
     button.addEventListener('click', () => void deleteSchedule(button.dataset.deleteSchedule ?? ''))
   }
+  document.querySelector('[data-action="export-backup"]')?.addEventListener('click', () => void exportBackup())
+  document.querySelector('[data-action="choose-backup"]')?.addEventListener('click', () => void chooseBackup())
+  document.querySelector('[data-action="restore-backup"]')?.addEventListener('click', () => void restoreBackup())
+  document.querySelector('[data-action="cancel-backup-preview"]')?.addEventListener('click', () => {
+    backupPreview = null
+    surfaceMessage = '已取消恢复。'
+    render()
+  })
   document.querySelector('[data-action="open-data-location"]')?.addEventListener('click', () => void openDataLocation())
 }
-
 async function activateSchedule(id: string): Promise<void> {
   if (!id || !canLeaveCourse('切换课表')) return
   try {
@@ -1378,6 +1435,69 @@ async function openDataLocation(): Promise<void> {
     await invoke(plugin('open_data_location'))
   } catch (error) {
     surfaceMessage = errorText(error)
+    render()
+  }
+}
+
+async function exportBackup(): Promise<void> {
+  if (!desktopRuntime) {
+    surfaceMessage = '浏览器预览无法导出本机备份。'
+    render()
+    return
+  }
+  surfaceMessage = '正在整理全部本地数据…'
+  render()
+  try {
+    const result = await invoke<BackupExportResult | null>('export_backup')
+    surfaceMessage = result
+      ? `已导出“${result.fileName}”，包含 ${result.scheduleCount} 份课表、${result.courseCount} 门课程。`
+      : '已取消导出。'
+    render()
+    if (result) showToast('备份已导出')
+  } catch (error) {
+    surfaceMessage = `导出失败：${errorText(error)}`
+    render()
+  }
+}
+
+async function chooseBackup(): Promise<void> {
+  if (!desktopRuntime) {
+    surfaceMessage = '浏览器预览无法读取本机备份。'
+    render()
+    return
+  }
+  surfaceMessage = '等待选择备份文件…'
+  render()
+  try {
+    backupPreview = await invoke<BackupPreview | null>('choose_backup_for_restore')
+    surfaceMessage = backupPreview ? '备份校验通过，请确认恢复内容。' : '已取消选择。'
+  } catch (error) {
+    backupPreview = null
+    surfaceMessage = `备份不可用：${errorText(error)}`
+  }
+  render()
+}
+
+async function restoreBackup(): Promise<void> {
+  const preview = backupPreview
+  if (!preview) return
+  const confirmed = window.confirm(
+    `恢复“${preview.fileName}”将替换当前全部课表和作息设置。恢复前会自动保存当前数据快照，是否继续？`,
+  )
+  if (!confirmed) return
+  surfaceMessage = '正在创建安全快照并恢复数据…'
+  render()
+  try {
+    const result = await invoke<BackupRestoreResult>('restore_backup', { path: preview.path })
+    await reloadDesktopState()
+    currentWeek = initialWeek(schedule)
+    backupPreview = null
+    surface = 'data'
+    surfaceMessage = `恢复完成：${result.scheduleCount} 份课表、${result.courseCount} 门课程，当前课表为“${result.activeScheduleName}”。`
+    render()
+    showToast('备份恢复完成')
+  } catch (error) {
+    surfaceMessage = `恢复失败：${errorText(error)}`
     render()
   }
 }

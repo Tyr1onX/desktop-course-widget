@@ -24,8 +24,8 @@ const CATALOG_DIR: &str = "schedules";
 const INDEX_FILE: &str = "index.json";
 const MAX_SCHEDULES: usize = 30;
 const PALETTE: [&str; 10] = [
-    "#CFE1FF", "#D8EBCF", "#F8D8D2", "#E5D9F7", "#F9E3B7", "#CFE9E8", "#F2D6E6",
-    "#D9E1F2", "#E4E7C9", "#F4DCC5",
+    "#CFE1FF", "#D8EBCF", "#F8D8D2", "#E5D9F7", "#F9E3B7", "#CFE9E8", "#F2D6E6", "#D9E1F2",
+    "#E4E7C9", "#F4DCC5",
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -400,9 +400,13 @@ fn set_autostart(app: AppHandle, enabled: bool) -> Result<bool, String> {
         return Err("请在 Release 版本测试开机启动".into());
     }
     if enabled {
-        app.autolaunch().enable().map_err(|error| error.to_string())?;
+        app.autolaunch()
+            .enable()
+            .map_err(|error| error.to_string())?;
     } else {
-        app.autolaunch().disable().map_err(|error| error.to_string())?;
+        app.autolaunch()
+            .disable()
+            .map_err(|error| error.to_string())?;
     }
     read_autostart(app)
 }
@@ -670,9 +674,9 @@ fn index_path(app: &AppHandle) -> Result<PathBuf, String> {
 
 fn schedule_path(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
     if id.is_empty()
-        || !id
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || character == '-' || character == '_')
+        || !id.chars().all(|character| {
+            character.is_ascii_alphanumeric() || character == '-' || character == '_'
+        })
     {
         return Err("课表标识无效".into());
     }
