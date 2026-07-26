@@ -81,6 +81,32 @@ function renderLatestWidget(
   return widget
 }
 
+function setupStaticHomepageWidget(root: HTMLElement): Cleanup {
+  const stage = root.querySelector<HTMLElement>('.course-stage[data-static-demo="true"]')
+  const legacyWidget = stage?.querySelector<HTMLElement>('.widget-window')
+  if (!stage || !legacyWidget) return () => undefined
+
+  const legacyClone = legacyWidget.cloneNode(true) as HTMLElement
+  const host = document.createElement('div')
+  host.className = 'real-widget-host real-widget-host--static'
+  legacyWidget.replaceWith(host)
+  stage.querySelectorAll('.course-demo-controls, .course-demo-status').forEach((element) => element.remove())
+
+  renderLatestWidget(
+    host,
+    optionsFor(homepagePresets[0], {
+      width: 340,
+      scale: 0.78,
+      followCount: 2,
+      showNav: true,
+    }),
+    undefined,
+    'website-real-widget--homepage-static',
+  )
+
+  return () => host.replaceWith(legacyClone)
+}
+
 function setupHeroDemo(
   root: HTMLElement,
   presets: DemoPreset[],
@@ -361,11 +387,14 @@ export function setupWebsiteDemo(): Cleanup {
   if (!root) return () => undefined
 
   const isExperiencePage = root.classList.contains('course-experience')
-  const heroCleanup = setupHeroDemo(
-    root,
-    isExperiencePage ? experiencePresets : homepagePresets,
-    isExperiencePage ? '完整状态演示' : '当前桌面组件',
-  )
+  const hasStaticHomepageWidget = !isExperiencePage && Boolean(root.querySelector('.course-stage[data-static-demo="true"]'))
+  const heroCleanup = hasStaticHomepageWidget
+    ? setupStaticHomepageWidget(root)
+    : setupHeroDemo(
+        root,
+        isExperiencePage ? experiencePresets : homepagePresets,
+        isExperiencePage ? '完整状态演示' : '当前桌面组件',
+      )
   const storyCleanup = setupStoryWidgets(root)
   const trayCleanup = setupTrayDemo(root)
   const cleanups = [heroCleanup, storyCleanup, trayCleanup]
