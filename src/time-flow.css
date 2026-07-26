@@ -1,6 +1,10 @@
 .course-widget {
-  --flow-accent: #0a75e8;
-  --flow-accent-rgb: 10, 117, 232;
+  --identity-accent: #0a75e8;
+  --identity-accent-rgb: 10, 117, 232;
+  --ambient-accent: #0a75e8;
+  --ambient-accent-rgb: 10, 117, 232;
+  --urgency-accent: #d86d1f;
+  --urgency-accent-rgb: 216, 109, 31;
   position: relative;
   isolation: isolate;
   overflow: hidden;
@@ -14,52 +18,59 @@
   border-radius: 50%;
   content: '';
   pointer-events: none;
-  background: radial-gradient(circle, rgba(var(--flow-accent-rgb), .13), transparent 68%);
+  background: radial-gradient(circle, rgba(var(--ambient-accent-rgb), .09), transparent 68%);
   transform: translate3d(0, 0, 0);
 }
 
-.course-widget.tone-morning { --flow-accent: #c87927; --flow-accent-rgb: 200, 121, 39; }
-.course-widget.tone-day { --flow-accent: #0a75e8; --flow-accent-rgb: 10, 117, 232; }
-.course-widget.tone-evening { --flow-accent: #6d58c9; --flow-accent-rgb: 109, 88, 201; }
-.course-widget.tone-night { --flow-accent: #506b9d; --flow-accent-rgb: 80, 107, 157; }
+.course-widget.tone-morning { --ambient-accent: #c87927; --ambient-accent-rgb: 200, 121, 39; }
+.course-widget.tone-day { --ambient-accent: #0a75e8; --ambient-accent-rgb: 10, 117, 232; }
+.course-widget.tone-evening { --ambient-accent: #6d58c9; --ambient-accent-rgb: 109, 88, 201; }
+.course-widget.tone-night { --ambient-accent: #506b9d; --ambient-accent-rgb: 80, 107, 157; }
 
+/* Stable identity elements stay blue across the whole day. */
 .course-widget .today-badge,
 .course-widget .focus-kicker,
 .course-widget .section-label,
 .course-widget .countdown {
-  color: var(--flow-accent);
+  color: var(--identity-accent);
 }
 
 .course-widget .today-badge {
-  background: rgba(var(--flow-accent-rgb), .1);
+  background: rgba(var(--identity-accent-rgb), .1);
 }
 
 .course-widget .focus-course {
   position: relative;
-  background: linear-gradient(115deg, rgba(var(--flow-accent-rgb), .105), rgba(var(--flow-accent-rgb), .035));
+  background: linear-gradient(115deg, rgba(var(--identity-accent-rgb), .09), rgba(var(--identity-accent-rgb), .03));
   animation: time-flow-enter 420ms cubic-bezier(.22, 1, .36, 1) both;
   transition: background-color 220ms ease, box-shadow 220ms ease, transform 220ms ease;
 }
 
 .course-widget.theme-dark .focus-course {
-  background: linear-gradient(115deg, rgba(var(--flow-accent-rgb), .21), rgba(var(--flow-accent-rgb), .07));
+  background: linear-gradient(115deg, rgba(var(--identity-accent-rgb), .18), rgba(var(--identity-accent-rgb), .06));
 }
 
 .course-widget .focus-course.is-current {
-  box-shadow: inset 3px 0 0 rgba(var(--flow-accent-rgb), .9);
+  box-shadow: inset 3px 0 0 rgba(var(--identity-accent-rgb), .9);
 }
 
 .course-widget .focus-course.is-soon {
-  box-shadow: inset 0 0 0 1px rgba(var(--flow-accent-rgb), .16);
+  box-shadow: inset 0 0 0 1px rgba(var(--identity-accent-rgb), .16);
 }
 
+/* Urgency is a state signal, not a time-of-day theme. */
 .course-widget .focus-course.is-imminent {
-  background: linear-gradient(115deg, rgba(var(--flow-accent-rgb), .17), rgba(var(--flow-accent-rgb), .06));
-  box-shadow: inset 0 0 0 1px rgba(var(--flow-accent-rgb), .28), 0 8px 22px rgba(var(--flow-accent-rgb), .08);
+  background: linear-gradient(115deg, rgba(var(--urgency-accent-rgb), .12), rgba(var(--identity-accent-rgb), .03));
+  box-shadow: inset 0 0 0 1px rgba(var(--urgency-accent-rgb), .26), 0 8px 22px rgba(var(--urgency-accent-rgb), .07);
+}
+
+.course-widget .focus-course.is-imminent .focus-kicker,
+.course-widget .focus-course.is-imminent .countdown {
+  color: var(--urgency-accent);
 }
 
 .course-widget.theme-dark .focus-course.is-imminent {
-  background: linear-gradient(115deg, rgba(var(--flow-accent-rgb), .28), rgba(var(--flow-accent-rgb), .1));
+  background: linear-gradient(115deg, rgba(var(--urgency-accent-rgb), .2), rgba(var(--identity-accent-rgb), .07));
 }
 
 .course-flow {
@@ -83,11 +94,12 @@
   color: #c0cede;
 }
 
+/* Time-of-day color is limited to the ambient glow and the moving progress rail. */
 .course-flow-track {
   height: calc(4px * var(--widget-scale));
   overflow: hidden;
   border-radius: 999px;
-  background: rgba(var(--flow-accent-rgb), .13);
+  background: rgba(var(--ambient-accent-rgb), .14);
 }
 
 .course-flow-track > span {
@@ -95,17 +107,17 @@
   width: calc(var(--course-progress) * 100%);
   height: 100%;
   border-radius: inherit;
-  background: var(--flow-accent);
+  background: var(--ambient-accent);
   transition: width 800ms cubic-bezier(.22, 1, .36, 1);
 }
 
 .course-widget .timeline li::after {
-  background: var(--flow-accent);
-  box-shadow: 0 0 0 3px rgba(var(--flow-accent-rgb), .12);
+  background: var(--identity-accent);
+  box-shadow: 0 0 0 3px rgba(var(--identity-accent-rgb), .12);
 }
 
 .course-widget.is-date-browsing::before {
-  opacity: .42;
+  opacity: .32;
 }
 
 @keyframes time-flow-enter {
