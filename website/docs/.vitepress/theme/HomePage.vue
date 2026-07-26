@@ -3,6 +3,7 @@ import { MotionConfig, motion } from 'motion-v'
 import { withBase } from 'vitepress'
 
 const guideLink = withBase('/guide/getting-started')
+const experienceLink = withBase('/experience/')
 const faqLink = withBase('/help/faq')
 const developmentLink = withBase('/development/')
 const markLink = withBase('/app-icon-v2.svg')
@@ -26,12 +27,12 @@ const revealViewport = { once: true, amount: 0.32 }
           </a>
 
           <nav class="course-nav__links" aria-label="页面导航">
-            <a href="#experience">体验</a>
+            <a :href="experienceLink">产品体验</a>
             <a href="#privacy">隐私</a>
             <a :href="guideLink">使用指南</a>
           </nav>
 
-          <a class="course-nav__download" :href="releaseLink">下载</a>
+          <a class="course-nav__download" :href="releaseLink">下载 Windows 版</a>
         </div>
       </header>
 
@@ -74,12 +75,12 @@ const revealViewport = { once: true, amount: 0.32 }
                 :whileHover="{ scale: 1.015 }"
                 :whilePress="{ scale: 0.985 }"
               >
-                下载课刻
+                下载 Windows 版
                 <svg viewBox="0 0 16 16" aria-hidden="true">
                   <path d="M5.25 3.5 9.75 8l-4.5 4.5" />
                 </svg>
               </motion.a>
-              <a class="course-button course-button--text" :href="guideLink">了解如何使用</a>
+              <a class="course-button course-button--text" :href="guideLink">查看安装与使用指南</a>
             </motion.div>
             <motion.p
               class="course-hero__meta"
@@ -93,7 +94,7 @@ const revealViewport = { once: true, amount: 0.32 }
 
           <motion.div
             class="course-stage"
-            aria-label="课刻桌面组件预览"
+            aria-label="课刻桌面组件真实状态演示"
             :initial="{ opacity: 0, y: 58, scale: 0.975 }"
             :animate="{ opacity: 1, y: 0, scale: 1 }"
             :transition="{ duration: 1.05, delay: 0.35, ease: easeOut }"
@@ -115,49 +116,14 @@ const revealViewport = { once: true, amount: 0.32 }
               :transition="{ duration: 7, repeat: Infinity, ease: 'easeInOut' }"
             >
               <div class="widget-window__top">
-                <div>
-                  <p>星期一</p>
-                  <strong>7月27日</strong>
-                </div>
-                <span>第 5 周</span>
+                <div><p>星期一</p><strong>9月21日</strong></div>
+                <span>第 3 周</span>
               </div>
-
-              <div class="widget-now">
-                <span class="widget-now__dot"></span>
-                <span>现在 · 09:42</span>
-              </div>
-
+              <div class="widget-now"><span class="widget-now__dot"></span><span>现在 · 08:48</span></div>
               <div class="widget-course widget-course--active">
-                <div class="widget-course__time">
-                  <strong>09:00</strong>
-                  <span>10:35</span>
-                </div>
-                <div class="widget-course__line" aria-hidden="true">
-                  <span></span>
-                </div>
-                <div class="widget-course__content">
-                  <span>正在上课</span>
-                  <strong>数字信号处理</strong>
-                  <p>逸夫教学楼 · B311</p>
-                </div>
-              </div>
-
-              <div class="widget-course">
-                <div class="widget-course__time">
-                  <strong>10:50</strong>
-                  <span>12:25</span>
-                </div>
-                <div class="widget-course__line" aria-hidden="true"></div>
-                <div class="widget-course__content">
-                  <span>接下来</span>
-                  <strong>通信原理</strong>
-                  <p>李四光楼 · 201</p>
-                </div>
-              </div>
-
-              <div class="widget-window__footer">
-                <span>今天还有 2 节课</span>
-                <span>打开完整课表</span>
+                <div class="widget-course__time"><strong>08:00</strong><span>09:40</span></div>
+                <div class="widget-course__line" aria-hidden="true"><span></span></div>
+                <div class="widget-course__content"><span>正在上课</span><strong>计算机网络</strong><p>教学楼 A101</p></div>
               </div>
             </motion.div>
 
@@ -166,102 +132,15 @@ const revealViewport = { once: true, amount: 0.32 }
             </div>
           </motion.div>
 
-          <motion.p
-            class="course-stage-caption"
+          <motion.div
+            class="course-stage-caption course-stage-caption--with-link"
             :initial="{ opacity: 0 }"
             :animate="{ opacity: 1 }"
             :transition="{ duration: 0.7, delay: 1.05 }"
           >
-            课刻不让你多打开一个页面，只让你少记住一件事。
-          </motion.p>
-        </section>
-
-        <section id="experience" class="course-story" aria-labelledby="story-title">
-          <motion.div
-            class="course-section-heading"
-            :initial="revealInitial"
-            :whileInView="revealTarget"
-            :viewport="revealViewport"
-            :transition="{ duration: 0.82, ease: easeOut }"
-          >
-            <p class="course-kicker">每一课，都有它的时刻</p>
-            <h2 id="story-title">课刻只呈现，此刻需要知道的。</h2>
-            <p>早晨看见今天，上课时聚焦正在发生。最后一节结束后，桌面重新安静。</p>
+            <span>课刻不让你多打开一个页面，只让你少记住一件事。</span>
+            <a :href="experienceLink">查看完整状态演示</a>
           </motion.div>
-
-          <div class="day-flow">
-            <div class="day-flow__line" aria-hidden="true">
-              <span></span>
-            </div>
-
-            <motion.article
-              class="day-moment day-moment--morning"
-              :initial="{ opacity: 0, y: 46 }"
-              :whileInView="{ opacity: 1, y: 0 }"
-              :viewport="revealViewport"
-              :transition="{ duration: 0.78, ease: easeOut }"
-            >
-              <div class="day-moment__time">08:10</div>
-              <div class="day-moment__visual">
-                <p>今天</p>
-                <strong>3 节课</strong>
-                <span>第一节 09:00 开始</span>
-              </div>
-              <div class="day-moment__copy">
-                <span>早晨</span>
-                <h3>今天，从第一节开始。</h3>
-                <p>打开电脑，课刻已经把今天排好。你不必先翻完整周课表。</p>
-              </div>
-            </motion.article>
-
-            <motion.article
-              class="day-moment day-moment--current"
-              :initial="{ opacity: 0, y: 46, scale: 0.985 }"
-              :whileInView="{ opacity: 1, y: 0, scale: 1 }"
-              :viewport="revealViewport"
-              :transition="{ duration: 0.82, ease: easeOut }"
-            >
-              <div class="day-moment__time">09:42</div>
-              <div class="day-moment__visual day-moment__visual--current">
-                <p>数字信号处理</p>
-                <strong>正在上课</strong>
-                <div class="moment-progress">
-                  <motion.span
-                    :initial="{ scaleX: 0 }"
-                    :whileInView="{ scaleX: 1 }"
-                    :viewport="{ once: true, amount: 0.8 }"
-                    :transition="{ duration: 1.1, delay: 0.18, ease: easeOut }"
-                  ></motion.span>
-                </div>
-                <span>还有 53 分钟</span>
-              </div>
-              <div class="day-moment__copy">
-                <span>此刻</span>
-                <h3>这一刻，只看这一课。</h3>
-                <p>正在上的课程成为视觉中心；下一节保留在刚好能看见的位置。</p>
-              </div>
-            </motion.article>
-
-            <motion.article
-              class="day-moment day-moment--evening"
-              :initial="{ opacity: 0, y: 46 }"
-              :whileInView="{ opacity: 1, y: 0 }"
-              :viewport="revealViewport"
-              :transition="{ duration: 0.78, ease: easeOut }"
-            >
-              <div class="day-moment__time">17:20</div>
-              <div class="day-moment__visual day-moment__visual--quiet">
-                <p>今天的课程已经结束</p>
-                <strong>明天见。</strong>
-                <span>星期二 · 2 节课</span>
-              </div>
-              <div class="day-moment__copy">
-                <span>结束</span>
-                <h3>最后一课结束，课刻也安静下来。</h3>
-                <p>没有课程时，它不占据注意力。明天的安排，留到明天出现。</p>
-              </div>
-            </motion.article>
-          </div>
         </section>
 
         <section class="course-focus" aria-labelledby="focus-title">
@@ -289,16 +168,11 @@ const revealViewport = { once: true, amount: 0.32 }
             >
               <div class="focus-desktop">
                 <div class="focus-desktop__widget">
-                  <div>
-                    <span>下一节</span>
-                    <strong>通信原理</strong>
-                  </div>
-                  <p>10:50 · 李四光楼 201</p>
+                  <div><span>下一节</span><strong>通信原理</strong></div>
+                  <p>10:50 · 教学楼 A101</p>
                 </div>
                 <div class="focus-desktop__cursor"></div>
-                <div class="focus-desktop__tray">
-                  <span></span><span></span><span></span><span></span>
-                </div>
+                <div class="focus-desktop__tray"><span></span><span></span><span></span><span></span></div>
               </div>
             </motion.div>
           </div>
@@ -306,7 +180,7 @@ const revealViewport = { once: true, amount: 0.32 }
 
         <motion.section
           id="privacy"
-          class="course-privacy"
+          class="course-privacy course-privacy--compact"
           aria-labelledby="privacy-title"
           :initial="revealInitial"
           :whileInView="revealTarget"
@@ -321,49 +195,13 @@ const revealViewport = { once: true, amount: 0.32 }
             </svg>
           </div>
           <p class="course-kicker">课表属于你</p>
-          <h2 id="privacy-title">课刻留在本机，课表也是。</h2>
-          <p>Excel 只在本机解析，课程与设置只保存在应用目录。无需账号，不建立云端课表。</p>
+          <h2 id="privacy-title">无需账号，不上传课表。</h2>
+          <p>Excel 在本机解析，课程与设置保存在本机。课刻不建立云端课表。</p>
           <a :href="faqLink">了解数据位置与隐私</a>
         </motion.section>
 
-        <section class="course-details" aria-label="功能详情">
-          <motion.div
-            class="course-detail"
-            :initial="{ opacity: 0, y: 32 }"
-            :whileInView="{ opacity: 1, y: 0 }"
-            :viewport="revealViewport"
-            :transition="{ duration: 0.7, ease: easeOut }"
-          >
-            <span>01</span>
-            <h3>导入之后，仍由你决定。</h3>
-            <p>课程、周次、地点、教师、颜色与作息，都可以继续调整。</p>
-          </motion.div>
-          <motion.div
-            class="course-detail"
-            :initial="{ opacity: 0, y: 32 }"
-            :whileInView="{ opacity: 1, y: 0 }"
-            :viewport="revealViewport"
-            :transition="{ duration: 0.7, delay: 0.08, ease: easeOut }"
-          >
-            <span>02</span>
-            <h3>每个学期，都有自己的课刻。</h3>
-            <p>保存不同学期和不同版本，切换时不覆盖原来的安排。</p>
-          </motion.div>
-          <motion.div
-            class="course-detail"
-            :initial="{ opacity: 0, y: 32 }"
-            :whileInView="{ opacity: 1, y: 0 }"
-            :viewport="revealViewport"
-            :transition="{ duration: 0.7, delay: 0.16, ease: easeOut }"
-          >
-            <span>03</span>
-            <h3>安静地待在桌面上。</h3>
-            <p>单实例、系统托盘、位置恢复，并适配 DPI 与多显示器。</p>
-          </motion.div>
-        </section>
-
         <motion.section
-          class="course-closing"
+          class="course-closing course-closing--compact"
           aria-labelledby="closing-title"
           :initial="revealInitial"
           :whileInView="revealTarget"
@@ -381,7 +219,7 @@ const revealViewport = { once: true, amount: 0.32 }
             :transition="{ duration: 0.72, ease: easeOut }"
           />
           <h2 id="closing-title">把课表交给课刻。</h2>
-          <p>课刻现已面向 Windows 免费提供。</p>
+          <p>面向 Windows 免费提供，下载后即可开始使用。</p>
           <div class="course-actions course-actions--center">
             <motion.a
               class="course-button course-button--primary"
@@ -389,7 +227,7 @@ const revealViewport = { once: true, amount: 0.32 }
               :whileHover="{ scale: 1.015 }"
               :whilePress="{ scale: 0.985 }"
             >
-              下载课刻
+              下载 Windows 版
             </motion.a>
             <a class="course-button course-button--text" :href="repositoryLink">在 GitHub 查看源码</a>
           </div>
