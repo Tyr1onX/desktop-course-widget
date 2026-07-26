@@ -1,1 +1,1 @@
-src/settings.ts: expected one match, found 0
+src/main.ts [prototype time behavior]: expected one match, found 0
