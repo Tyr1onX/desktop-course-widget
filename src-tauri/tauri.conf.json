@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "桌面课表",
+  "productName": "课刻",
   "version": "0.4.0",
   "identifier": "com.coursewidget.desktop",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "课程组件",
+        "title": "课刻",
         "url": "widget.html",
         "width": 392,
         "height": 460,
@@ -36,7 +36,7 @@
       },
       {
         "label": "settings",
-        "title": "课表与设置",
+        "title": "课刻 · 课表与设置",
         "url": "settings.html",
         "width": 1180,
         "height": 760,
@@ -75,7 +75,8 @@
     ],
     "windows": {
       "nsis": {
-        "installMode": "currentUser"
+        "installMode": "currentUser",
+        "languages": ["SimpChinese"]
       }
     },
     "android": {
