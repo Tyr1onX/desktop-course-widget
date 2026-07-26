@@ -14,6 +14,7 @@ import './settings-showcase.css'
 import './settings-showcase-positioning.css'
 import './three-part-homepage.css'
 import './orbit-homepage-fixes.css'
+import './orbit-accuracy-fixes.css'
 
 export default {
   extends: DefaultTheme,
