@@ -3,6 +3,7 @@ import DefaultTheme from 'vitepress/theme'
 import { useData } from 'vitepress'
 import { nextTick, onBeforeUnmount, onMounted, watch } from 'vue'
 import HomePage from './HomePage.vue'
+import ExperiencePage from './ExperiencePage.vue'
 import { setupProjectFooter } from './project-footer'
 import { setupStoryFocus } from './story-focus'
 import { setupWebsiteDemo } from './website-demo'
@@ -17,10 +18,11 @@ async function refreshDemo() {
   cleanupDemo = undefined
 
   await nextTick()
-  if (frontmatter.value.layout === 'course-home') {
+  const layout = frontmatter.value.layout
+  if (layout === 'course-home' || layout === 'course-experience') {
     const cleanupWebsiteDemo = setupWebsiteDemo()
-    const cleanupStoryFocus = setupStoryFocus()
     const cleanupProjectFooter = setupProjectFooter()
+    const cleanupStoryFocus = layout === 'course-experience' ? setupStoryFocus() : () => undefined
     cleanupDemo = () => {
       cleanupProjectFooter()
       cleanupStoryFocus()
@@ -36,5 +38,6 @@ onBeforeUnmount(() => cleanupDemo?.())
 
 <template>
   <HomePage v-if="frontmatter.layout === 'course-home'" />
+  <ExperiencePage v-else-if="frontmatter.layout === 'course-experience'" />
   <DefaultLayout v-else />
 </template>
