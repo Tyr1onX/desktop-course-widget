@@ -6,6 +6,7 @@ import './layout-polish.css'
 import './focus-polish.css'
 import './demo-interactions.css'
 import './real-widget-demo.css'
+import './story-focus.css'
 
 export default {
   extends: DefaultTheme,
