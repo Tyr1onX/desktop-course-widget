@@ -34,11 +34,11 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: website/package.json
+          cache-dependency-path: website/package-lock.json
 
       - name: Install dependencies
         working-directory: website
-        run: npm install
+        run: npm ci
 
       - name: Build website
         working-directory: website
@@ -46,26 +46,11 @@ jobs:
 
       - name: Install Chromium
         working-directory: website
-        run: npx playwright install --with-deps chromium > /dev/null
+        run: npx playwright install --with-deps chromium
 
       - name: Test responsive layouts
         working-directory: website
-        shell: bash
-        run: |
-          set -o pipefail
-          npm run docs:test:responsive 2>&1 | tee responsive-test-output.txt
-
-      - name: Upload responsive test report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: responsive-test-report
-          path: |
-            website/responsive-test-output.txt
-            website/responsive-results.json
-            website/test-results
-          if-no-files-found: warn
-          retention-days: 3
+        run: npm run docs:test:responsive
 
       - name: Upload website preview
         uses: actions/upload-artifact@v4
