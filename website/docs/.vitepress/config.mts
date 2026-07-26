@@ -1,9 +1,4 @@
-import { readFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitepress'
-
-const currentDirectory = dirname(fileURLToPath(import.meta.url))
 
 export default defineConfig({
   lang: 'zh-CN',
@@ -17,31 +12,13 @@ export default defineConfig({
       'link',
       {
         rel: 'icon',
-        type: 'image/png',
-        href: '/desktop-course-widget/app-icon.png',
+        type: 'image/svg+xml',
+        href: '/desktop-course-widget/app-icon-v2.svg',
       },
     ],
   ],
-  vite: {
-    plugins: [
-      {
-        name: 'desktop-course-widget-brand-assets',
-        buildStart() {
-          const source = readFileSync(
-            resolve(currentDirectory, '../../../src-tauri/icons/128x128.png'),
-          )
-
-          this.emitFile({
-            type: 'asset',
-            fileName: 'app-icon.png',
-            source,
-          })
-        },
-      },
-    ],
-  },
   themeConfig: {
-    logo: '/app-icon.png',
+    logo: '/app-icon-v2.svg',
     siteTitle: '桌面课表',
     nav: [
       { text: '首页', link: '/' },

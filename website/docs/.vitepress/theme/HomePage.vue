@@ -5,7 +5,7 @@ import { withBase } from 'vitepress'
 const guideLink = withBase('/guide/getting-started')
 const faqLink = withBase('/help/faq')
 const developmentLink = withBase('/development/')
-const markLink = withBase('/app-icon.png')
+const markLink = withBase('/app-icon-v2.svg')
 const releaseLink = 'https://github.com/Tyr1onX/desktop-course-widget/releases/latest'
 const repositoryLink = 'https://github.com/Tyr1onX/desktop-course-widget'
 
