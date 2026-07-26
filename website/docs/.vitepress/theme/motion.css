@@ -1,0 +1,81 @@
+.course-stage,
+.day-moment,
+.course-focus__visual,
+.course-privacy,
+.course-detail,
+.course-closing {
+  will-change: transform, opacity;
+}
+
+/* Keep horizontal centering independent from Motion's transform animations. */
+.widget-window {
+  transform: none;
+  translate: -50% 0;
+}
+
+.moment-progress span {
+  transform-origin: left center;
+}
+
+.course-stage__light--one {
+  animation: course-light-drift-one 12s ease-in-out infinite alternate;
+}
+
+.course-stage__light--two {
+  animation: course-light-drift-two 15s ease-in-out infinite alternate;
+}
+
+.course-stage__dock {
+  animation: course-dock-breathe 8s ease-in-out infinite;
+}
+
+@keyframes course-light-drift-one {
+  from {
+    opacity: 0.72;
+    translate: -10px 4px;
+  }
+
+  to {
+    opacity: 1;
+    translate: 18px -12px;
+  }
+}
+
+@keyframes course-light-drift-two {
+  from {
+    opacity: 0.68;
+    translate: 12px 8px;
+  }
+
+  to {
+    opacity: 0.92;
+    translate: -18px -10px;
+  }
+}
+
+@keyframes course-dock-breathe {
+  0%, 100% {
+    opacity: 0.86;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .course-stage,
+  .day-moment,
+  .course-focus__visual,
+  .course-privacy,
+  .course-detail,
+  .course-closing {
+    will-change: auto;
+  }
+
+  .course-stage__light--one,
+  .course-stage__light--two,
+  .course-stage__dock {
+    animation: none;
+  }
+}
