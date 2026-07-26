@@ -157,10 +157,6 @@ fn show_settings_window(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-fn hide_settings_window(app: &AppHandle) -> tauri::Result<()> {
-    settings_window(app)?.hide()
-}
-
 fn show_primary_experience(app: &AppHandle) -> tauri::Result<()> {
     if onboarding_completed(app) {
         show_main_window(app)
