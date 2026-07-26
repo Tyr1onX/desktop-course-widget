@@ -1,9 +1,12 @@
-import type { WidgetOptions } from './widget'
-
 export type TemporalTone = 'morning' | 'day' | 'evening' | 'night'
 export type UpcomingUrgency = 'calm' | 'soon' | 'imminent'
 
-type TimeFlowOptions = Pick<WidgetOptions, 'runtime' | 'scenario' | 'time' | 'browseDate'>
+export interface TimeFlowOptions {
+  runtime: 'prototype' | 'live'
+  scenario: string
+  time: string
+  browseDate?: Date
+}
 
 export function minutesFromClock(value: string): number | null {
   const match = /^(\d{2}):(\d{2})$/.exec(value.trim())
