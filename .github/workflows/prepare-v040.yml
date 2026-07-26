@@ -1,0 +1,122 @@
+name: Prepare v0.4.0 release
+
+on:
+  push:
+    branches:
+      - chore/v0.4.0-release-prep
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: windows-latest
+    steps:
+      - name: Check out release branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Apply v0.4.0 release changes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding="utf-8")
+              if text.count(old) != 1:
+                  raise SystemExit(f"Expected exactly one match in {path}: {old!r}")
+              file.write_text(text.replace(old, new, 1), encoding="utf-8", newline="\n")
+
+          replace_once(
+              "src-tauri/Cargo.toml",
+              'version = "0.3.0"',
+              'version = "0.4.0"',
+          )
+          replace_once(
+              "src-tauri/tauri.conf.json",
+              '"version": "0.3.0"',
+              '"version": "0.4.0"',
+          )
+
+          replace_once(
+              "src-tauri/src/data_backup.rs",
+              "    excel_import::types::SectionTime,\n",
+              "",
+          )
+          replace_once(
+              "src-tauri/src/data_backup.rs",
+              "    use crate::schedule_catalog::CatalogCourse;",
+              "    use crate::{excel_import::types::SectionTime, schedule_catalog::CatalogCourse};",
+          )
+
+          replace_once(
+              "src-tauri/src/lib.rs",
+              "\nfn hide_settings_window(app: &AppHandle) -> tauri::Result<()> {\n    settings_window(app)?.hide()\n}\n",
+              "",
+          )
+
+          replace_once(
+              "src-tauri/src/schedule_store.rs",
+              "\npub fn import_schedule(app: &AppHandle, source: &Path) -> Result<(Schedule, Vec<String>), String> {\n    let bytes = read_limited(source)?;\n    let validation = validate_schedule(&bytes);\n    let schedule = validation\n        .normalized_schedule\n        .ok_or_else(|| validation.errors.join(\"\\n\"))?;\n    let destination = ensure_schedule_storage(app)?;\n    if destination.exists() {\n        backup_current_schedule(app, &destination)?;\n    }\n    write_atomic(&destination, &serialize(&schedule)?)?;\n    Ok((schedule, validation.warnings))\n}\n",
+              "",
+          )
+          replace_once(
+              "src-tauri/src/schedule_store.rs",
+              "\npub fn open_schedule_directory(app: &AppHandle) -> Result<(), String> {\n    let path = ensure_schedule_storage(app)?;\n    std::process::Command::new(\"explorer.exe\")\n        .arg(format!(\"/select,{}\", path.display()))\n        .spawn()\n        .map_err(|error| error.to_string())?;\n    Ok(())\n}\n",
+              "",
+          )
+
+      - name: Update npm version and lockfile
+        shell: pwsh
+        run: npm version 0.4.0 --no-git-tag-version
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Format Rust code
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml
+
+      - name: Check version consistency
+        run: npm run check:version
+
+      - name: Check Rust code
+        run: cargo check --manifest-path src-tauri/Cargo.toml
+
+      - name: Run Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Build frontend
+        run: npm run web:build
+
+      - name: Build Windows installer
+        run: npm run tauri:build
+
+      - name: Validate diff
+        shell: pwsh
+        run: git diff --check
+
+      - name: Remove temporary workflow and commit
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/prepare-v040.yml
+          git add -A
+          if (git diff --cached --quiet) {
+            throw "No release-preparation changes were produced."
+          }
+          git commit -m "chore: prepare v0.4.0 Windows release"
+          git push origin HEAD:chore/v0.4.0-release-prep
