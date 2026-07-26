@@ -32,10 +32,16 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Apply implementation
-        run: python scripts/apply-data-backup.py
+        id: apply
+        continue-on-error: true
+        shell: pwsh
+        run: python scripts/apply-data-backup.py 2>&1 | Tee-Object -FilePath data-backup-apply.log
 
       - name: Install web dependencies
-        run: npm ci
+        id: install
+        continue-on-error: true
+        shell: pwsh
+        run: npm ci 2>&1 | Tee-Object -FilePath data-backup-install.log
 
       - name: Build web interface
         id: web
@@ -62,6 +68,8 @@ jobs:
         shell: pwsh
         run: |
           @"
+          apply=${{ steps.apply.outcome }}
+          install=${{ steps.install.outcome }}
           web=${{ steps.web.outcome }}
           rust=${{ steps.rust.outcome }}
           diff=${{ steps.diff.outcome }}
@@ -73,11 +81,11 @@ jobs:
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add settings.html src/backup-ui.ts src/backup-ui.css src-tauri/src/lib.rs src-tauri/src/data_backup.rs data-backup-ci-result.txt data-backup-web.log data-backup-rust.log data-backup-diff.log
+          git add -A
           git commit -m "feat: add local data backup and recovery"
           git push origin HEAD:feat/data-backup-recovery
 
       - name: Fail when validation failed
-        if: steps.web.outcome != 'success' || steps.rust.outcome != 'success' || steps.diff.outcome != 'success'
+        if: steps.apply.outcome != 'success' || steps.install.outcome != 'success' || steps.web.outcome != 'success' || steps.rust.outcome != 'success' || steps.diff.outcome != 'success'
         shell: pwsh
         run: throw 'Generated data backup implementation did not pass validation'
