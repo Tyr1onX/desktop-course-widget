@@ -1,0 +1,30 @@
+.course-details {
+  margin-bottom: 160px;
+  padding-bottom: 0;
+}
+
+.day-flow {
+  --course-timeline-x: 84px;
+}
+
+.day-flow__line,
+.day-moment__time::after {
+  left: var(--course-timeline-x);
+}
+
+.day-flow__line {
+  transform: translateX(-50%);
+}
+
+@media (max-width: 960px) {
+  .day-flow {
+    --course-timeline-x: 72px;
+  }
+}
+
+@media (max-width: 720px) {
+  .course-details {
+    margin-bottom: 110px;
+    padding-bottom: 0;
+  }
+}
