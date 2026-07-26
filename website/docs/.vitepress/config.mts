@@ -35,6 +35,7 @@ export default defineConfig({
     siteTitle: '课刻',
     nav: [
       { text: '首页', link: '/' },
+      { text: '产品体验', link: '/experience/' },
       { text: '使用指南', link: '/guide/getting-started' },
       { text: '常见问题', link: '/help/faq' },
       { text: '开发', link: '/development/' },
