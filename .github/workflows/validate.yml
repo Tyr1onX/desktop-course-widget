@@ -9,79 +9,13 @@ on:
       - main
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: validate-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  finalize-data-backup:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'feat/data-backup-recovery'
-    runs-on: windows-latest
-    timeout-minutes: 20
-    steps:
-      - name: Checkout feature branch
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
-          fetch-depth: 0
-
-      - name: Detect pending finalization
-        id: state
-        shell: pwsh
-        run: |
-          if (Test-Path scripts/finalize-data-backup.py) {
-            "skip=false" >> $env:GITHUB_OUTPUT
-          } else {
-            "skip=true" >> $env:GITHUB_OUTPUT
-          }
-
-      - name: Set up Node.js
-        if: steps.state.outputs.skip != 'true'
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install web dependencies
-        if: steps.state.outputs.skip != 'true'
-        run: npm ci
-
-      - name: Select stable Rust
-        if: steps.state.outputs.skip != 'true'
-        run: rustup default stable
-
-      - name: Apply final fixes
-        if: steps.state.outputs.skip != 'true'
-        run: python scripts/finalize-data-backup.py
-
-      - name: Build web interface
-        if: steps.state.outputs.skip != 'true'
-        run: npm run web:build
-
-      - name: Run Rust library tests
-        if: steps.state.outputs.skip != 'true'
-        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
-
-      - name: Check diff
-        if: steps.state.outputs.skip != 'true'
-        shell: pwsh
-        run: |
-          git diff --check
-          git diff --stat
-
-      - name: Commit validated finalization
-        if: steps.state.outputs.skip != 'true'
-        shell: pwsh
-        run: |
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add src-tauri/src/data_backup.rs src/backup-ui.ts
-          git rm scripts/finalize-data-backup.py
-          git commit -m "fix: finalize backup restore validation and UI mounting"
-          git push origin HEAD:${{ github.head_ref }}
-
   build-and-test:
     runs-on: windows-latest
     timeout-minutes: 20
