@@ -78,11 +78,28 @@ function render() {
   mount.replaceChildren(enhanceTimeFlow(createWidget(options, render), options))
 
   document.querySelectorAll<HTMLElement>('[data-control]').forEach((control) => {
-    control.addEventListener('input', () => updateControl(control))
+    if (control instanceof HTMLButtonElement) {
+      control.addEventListener('click', () => updateControl(control))
+      return
+    }
+
+    if (control instanceof HTMLInputElement && control.type === 'range') {
+      control.addEventListener('input', () => updateControl(control))
+      return
+    }
+
+    if (control instanceof HTMLInputElement && control.type === 'time') {
+      control.addEventListener('change', () => {
+        const value = control.value
+        window.setTimeout(() => {
+          options.time = value
+          render()
+        }, 0)
+      })
+      return
+    }
+
     control.addEventListener('change', () => updateControl(control))
-    control.addEventListener('click', () => {
-      if (control instanceof HTMLButtonElement) updateControl(control)
-    })
   })
 }
 
