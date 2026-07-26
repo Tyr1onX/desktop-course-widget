@@ -20,9 +20,9 @@ const revealViewport = { once: true, amount: 0.32 }
     <div class="course-home">
       <header class="course-nav" aria-label="主导航">
         <div class="course-nav__inner">
-          <a class="course-brand" href="#top" aria-label="桌面课表首页">
+          <a class="course-brand" href="#top" aria-label="课刻首页">
             <img :src="markLink" alt="" width="28" height="28" />
-            <span>桌面课表</span>
+            <span>课刻</span>
           </a>
 
           <nav class="course-nav__links" aria-label="页面导航">
@@ -44,7 +44,7 @@ const revealViewport = { once: true, amount: 0.32 }
               :animate="{ opacity: 1, y: 0 }"
               :transition="{ duration: 0.62, delay: 0.05, ease: easeOut }"
             >
-              Windows 桌面课表
+              课刻 · Windows 桌面课表
             </motion.p>
             <motion.h1
               id="hero-title"
@@ -52,7 +52,7 @@ const revealViewport = { once: true, amount: 0.32 }
               :animate="{ opacity: 1, y: 0 }"
               :transition="{ duration: 0.82, delay: 0.13, ease: easeOut }"
             >
-              一天的课程，<br />静静流过桌面。
+              让一天的课程，<br />静静流过桌面。
             </motion.h1>
             <motion.p
               class="course-hero__lead"
@@ -60,7 +60,7 @@ const revealViewport = { once: true, amount: 0.32 }
               :animate="{ opacity: 1, y: 0 }"
               :transition="{ duration: 0.72, delay: 0.28, ease: easeOut }"
             >
-              现在上什么，下一节几点。抬眼就知道。
+              课刻把正在上的课、下一节和今天剩下的安排，放在抬眼就能看见的位置。
             </motion.p>
             <motion.div
               class="course-actions"
@@ -74,7 +74,7 @@ const revealViewport = { once: true, amount: 0.32 }
                 :whileHover="{ scale: 1.015 }"
                 :whilePress="{ scale: 0.985 }"
               >
-                免费下载
+                下载课刻
                 <svg viewBox="0 0 16 16" aria-hidden="true">
                   <path d="M5.25 3.5 9.75 8l-4.5 4.5" />
                 </svg>
@@ -87,13 +87,13 @@ const revealViewport = { once: true, amount: 0.32 }
               :animate="{ opacity: 1 }"
               :transition="{ duration: 0.6, delay: 0.52 }"
             >
-              Windows 10 / 11 · 课表只保存在本机
+              Windows 10 / 11 · 免费 · 课表只保存在本机
             </motion.p>
           </div>
 
           <motion.div
             class="course-stage"
-            aria-label="桌面课表组件预览"
+            aria-label="课刻桌面组件预览"
             :initial="{ opacity: 0, y: 58, scale: 0.975 }"
             :animate="{ opacity: 1, y: 0, scale: 1 }"
             :transition="{ duration: 1.05, delay: 0.35, ease: easeOut }"
@@ -172,7 +172,7 @@ const revealViewport = { once: true, amount: 0.32 }
             :animate="{ opacity: 1 }"
             :transition="{ duration: 0.7, delay: 1.05 }"
           >
-            不是多打开一个页面，而是少记住一件事。
+            课刻不让你多打开一个页面，只让你少记住一件事。
           </motion.p>
         </section>
 
@@ -184,9 +184,9 @@ const revealViewport = { once: true, amount: 0.32 }
             :viewport="revealViewport"
             :transition="{ duration: 0.82, ease: easeOut }"
           >
-            <p class="course-kicker">时间，而不是格子</p>
-            <h2 id="story-title">它知道，现在该显示什么。</h2>
-            <p>早晨看见今天，上课时聚焦此刻。最后一节结束，界面也随之安静。</p>
+            <p class="course-kicker">每一课，都有它的时刻</p>
+            <h2 id="story-title">课刻只呈现，此刻需要知道的。</h2>
+            <p>早晨看见今天，上课时聚焦正在发生。最后一节结束后，桌面重新安静。</p>
           </motion.div>
 
           <div class="day-flow">
@@ -210,7 +210,7 @@ const revealViewport = { once: true, amount: 0.32 }
               <div class="day-moment__copy">
                 <span>早晨</span>
                 <h3>今天，从第一节开始。</h3>
-                <p>打开电脑，今天的安排已经在那里。无需浏览整周。</p>
+                <p>打开电脑，课刻已经把今天排好。你不必先翻完整周课表。</p>
               </div>
             </motion.article>
 
@@ -237,8 +237,8 @@ const revealViewport = { once: true, amount: 0.32 }
               </div>
               <div class="day-moment__copy">
                 <span>此刻</span>
-                <h3>此刻，只看这一节。</h3>
-                <p>正在发生的课程成为视觉中心。下一节，只留在刚好能看见的位置。</p>
+                <h3>这一刻，只看这一课。</h3>
+                <p>正在上的课程成为视觉中心；下一节保留在刚好能看见的位置。</p>
               </div>
             </motion.article>
 
@@ -257,8 +257,8 @@ const revealViewport = { once: true, amount: 0.32 }
               </div>
               <div class="day-moment__copy">
                 <span>结束</span>
-                <h3>课程结束，桌面归于安静。</h3>
-                <p>没有课的时候，它不争夺注意力。明天的安排，等明天再出现。</p>
+                <h3>最后一课结束，课刻也安静下来。</h3>
+                <p>没有课程时，它不占据注意力。明天的安排，留到明天出现。</p>
               </div>
             </motion.article>
           </div>
@@ -273,9 +273,9 @@ const revealViewport = { once: true, amount: 0.32 }
               :viewport="revealViewport"
               :transition="{ duration: 0.82, ease: easeOut }"
             >
-              <p class="course-kicker course-kicker--light">桌面，本来就在那里</p>
-              <h2 id="focus-title">它一直都在。</h2>
-              <p>开机后自然出现，需要时查看，关闭后回到系统托盘。位置与缩放会被记住。</p>
+              <p class="course-kicker course-kicker--light">不是窗口，是桌面的一部分</p>
+              <h2 id="focus-title">需要时看见，不需要时隐去。</h2>
+              <p>课刻随 Windows 启动，关闭后回到系统托盘。位置、缩放与显示习惯都会被记住。</p>
               <a :href="guideLink">查看首次使用指南</a>
             </motion.div>
 
@@ -320,9 +320,9 @@ const revealViewport = { once: true, amount: 0.32 }
               <circle cx="32" cy="41" r="3" />
             </svg>
           </div>
-          <p class="course-kicker">本地优先</p>
-          <h2 id="privacy-title">你的课表，留在你的电脑里。</h2>
-          <p>Excel 在本机解析，课程与设置只保存在应用目录。无需账号，也没有云端课表数据库。</p>
+          <p class="course-kicker">课表属于你</p>
+          <h2 id="privacy-title">课刻留在本机，课表也是。</h2>
+          <p>Excel 只在本机解析，课程与设置只保存在应用目录。无需账号，不建立云端课表。</p>
           <a :href="faqLink">了解数据位置与隐私</a>
         </motion.section>
 
@@ -335,8 +335,8 @@ const revealViewport = { once: true, amount: 0.32 }
             :transition="{ duration: 0.7, ease: easeOut }"
           >
             <span>01</span>
-            <h3>导入，不等于定稿。</h3>
-            <p>课程、周次、地点、教师、颜色和作息，都可以继续调整。</p>
+            <h3>导入之后，仍由你决定。</h3>
+            <p>课程、周次、地点、教师、颜色与作息，都可以继续调整。</p>
           </motion.div>
           <motion.div
             class="course-detail"
@@ -346,8 +346,8 @@ const revealViewport = { once: true, amount: 0.32 }
             :transition="{ duration: 0.7, delay: 0.08, ease: easeOut }"
           >
             <span>02</span>
-            <h3>每个学期，各自安放。</h3>
-            <p>保存不同学期与不同版本，切换时不必覆盖原来的安排。</p>
+            <h3>每个学期，都有自己的课刻。</h3>
+            <p>保存不同学期和不同版本，切换时不覆盖原来的安排。</p>
           </motion.div>
           <motion.div
             class="course-detail"
@@ -357,7 +357,7 @@ const revealViewport = { once: true, amount: 0.32 }
             :transition="{ duration: 0.7, delay: 0.16, ease: easeOut }"
           >
             <span>03</span>
-            <h3>像桌面的一部分。</h3>
+            <h3>安静地待在桌面上。</h3>
             <p>单实例、系统托盘、位置恢复，并适配 DPI 与多显示器。</p>
           </motion.div>
         </section>
@@ -380,8 +380,8 @@ const revealViewport = { once: true, amount: 0.32 }
             :viewport="{ once: true, amount: 0.8 }"
             :transition="{ duration: 0.72, ease: easeOut }"
           />
-          <h2 id="closing-title">让今天，回到桌面。</h2>
-          <p>桌面课表目前面向 Windows，免费下载。</p>
+          <h2 id="closing-title">把课表交给课刻。</h2>
+          <p>课刻现已面向 Windows 免费提供。</p>
           <div class="course-actions course-actions--center">
             <motion.a
               class="course-button course-button--primary"
@@ -389,7 +389,7 @@ const revealViewport = { once: true, amount: 0.32 }
               :whileHover="{ scale: 1.015 }"
               :whilePress="{ scale: 0.985 }"
             >
-              下载最新版
+              下载课刻
             </motion.a>
             <a class="course-button course-button--text" :href="repositoryLink">在 GitHub 查看源码</a>
           </div>
@@ -400,7 +400,7 @@ const revealViewport = { once: true, amount: 0.32 }
         <div>
           <a class="course-brand course-brand--footer" href="#top">
             <img :src="markLink" alt="" width="24" height="24" />
-            <span>桌面课表</span>
+            <span>课刻</span>
           </a>
           <p>让一天的课程，在桌面上缓慢流动。</p>
         </div>
