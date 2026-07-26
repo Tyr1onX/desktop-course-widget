@@ -1,91 +1,88 @@
 name: Apply time input bounds
 
 on:
-  push:
-    branches:
-      - fix/time-input-bounds
-
-permissions:
-  contents: write
+  workflow_dispatch:
 
 jobs:
-  apply:
-    if: github.actor != 'github-actions[bot]'
+  patch-source:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: fix/time-input-bounds
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-      - name: Patch prototype and desktop time editors
+      - name: Patch source
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          from textwrap import dedent
 
-          def replace_once(path: Path, old: str, new: str) -> None:
+          def replace_once(path: Path, old: str, new: str, label: str) -> None:
               text = path.read_text(encoding='utf-8')
               count = text.count(old)
               if count != 1:
-                  raise SystemExit(f'{path}: expected one match, found {count}')
+                  raise SystemExit(f'{path} [{label}]: expected one match, found {count}')
               path.write_text(text.replace(old, new, 1), encoding='utf-8')
 
           main = Path('src/main.ts')
           replace_once(
               main,
-              '            <input type="time" value="${options.time}" data-control="time">',
-              '            <input type="time" min="00:00" max="23:59" step="60" value="${options.time}" data-control="time">',
+              '<input type="time" value="${options.time}" data-control="time">',
+              '<input type="time" min="00:00" max="23:59" step="60" value="${options.time}" data-control="time">',
+              'prototype time attributes',
           )
           replace_once(
               main,
-              '''    if (control instanceof HTMLInputElement && control.type === 'time') {
-                control.addEventListener('input', () => {
-                  const value = control.value
-                  if (!completeTimePattern.test(value)) return
-                  options.time = value
-                  renderWidget()
-                })
-                return
-              }''',
-              '''    if (control instanceof HTMLInputElement && control.type === 'time') {
-                let valueBeforeEdit = options.time
-                control.addEventListener('focus', () => {
-                  valueBeforeEdit = options.time
-                })
-                control.addEventListener('input', () => {
-                  const value = control.value
-                  if (!completeTimePattern.test(value) || !control.validity.valid) return
-                  options.time = value
-                  renderWidget()
-                })
-                control.addEventListener('blur', () => {
-                  const value = control.value
-                  if (completeTimePattern.test(value) && control.validity.valid) return
-                  control.value = valueBeforeEdit
-                  options.time = valueBeforeEdit
-                  renderWidget()
-                })
-                return
-              }''',
+              dedent("""\
+                  if (control instanceof HTMLInputElement && control.type === 'time') {
+                    control.addEventListener('input', () => {
+                      const value = control.value
+                      if (!completeTimePattern.test(value)) return
+                      options.time = value
+                      renderWidget()
+                    })
+                    return
+                  }
+              """),
+              dedent("""\
+                  if (control instanceof HTMLInputElement && control.type === 'time') {
+                    let valueBeforeEdit = options.time
+                    control.addEventListener('focus', () => {
+                      valueBeforeEdit = options.time
+                    })
+                    control.addEventListener('input', () => {
+                      const value = control.value
+                      if (!completeTimePattern.test(value) || !control.validity.valid) return
+                      options.time = value
+                      renderWidget()
+                    })
+                    control.addEventListener('blur', () => {
+                      const value = control.value
+                      if (completeTimePattern.test(value) && control.validity.valid) return
+                      control.value = valueBeforeEdit
+                      options.time = valueBeforeEdit
+                      renderWidget()
+                    })
+                    return
+                  }
+              """),
+              'prototype time behavior',
           )
 
           settings = Path('src/settings.ts')
           replace_once(
               settings,
-              'const rowHeight = 66\nconst defaultLessonTimes: LessonTime[] = [',
-              "const rowHeight = 66\nconst completeTimePattern = /^(?:[01]\\d|2[0-3]):[0-5]\\d$/\nconst defaultLessonTimes: LessonTime[] = [",
+              'const rowHeight = 66\n',
+              "const rowHeight = 66\nconst completeTimePattern = /^(?:[01]\\d|2[0-3]):[0-5]\\d$/\n",
+              'clock pattern',
           )
           replace_once(
               settings,
-              '''function timeToMinutes(value: string): number {
+              dedent("""\
+              function timeToMinutes(value: string): number {
                 const [hours, minutes] = value.split(':').map(Number)
                 return hours * 60 + minutes
-              }''',
-              '''function isValidClockTime(value: string): boolean {
+              }
+              """),
+              dedent("""\
+              function isValidClockTime(value: string): boolean {
                 return completeTimePattern.test(value)
               }
 
@@ -93,18 +90,26 @@ jobs:
                 if (!isValidClockTime(value)) return Number.NaN
                 const [hours, minutes] = value.split(':').map(Number)
                 return hours * 60 + minutes
-              }''',
+              }
+              """),
+              'clock parser',
           )
           replace_once(
               settings,
-              '''      <label><span>开始</span><input type="time" value="${item.start}" data-time-start="${item.section}" /></label>
-                    <label><span>结束</span><input type="time" value="${item.end}" data-time-end="${item.section}" /></label>''',
-              '''      <label><span>开始</span><input type="time" min="00:00" max="23:59" step="60" value="${item.start}" data-time-start="${item.section}" /></label>
-                    <label><span>结束</span><input type="time" min="00:00" max="23:59" step="60" value="${item.end}" data-time-end="${item.section}" /></label>''',
+              '<input type="time" value="${item.start}" data-time-start="${item.section}" />',
+              '<input type="time" min="00:00" max="23:59" step="60" value="${item.start}" data-time-start="${item.section}" />',
+              'lesson start attributes',
           )
           replace_once(
               settings,
-              '''function bindTimeEvents(): void {
+              '<input type="time" value="${item.end}" data-time-end="${item.section}" />',
+              '<input type="time" min="00:00" max="23:59" step="60" value="${item.end}" data-time-end="${item.section}" />',
+              'lesson end attributes',
+          )
+          replace_once(
+              settings,
+              dedent("""\
+              function bindTimeEvents(): void {
                 for (const input of document.querySelectorAll<HTMLInputElement>('[data-time-start]')) {
                   input.addEventListener('input', () => {
                     const section = Number(input.dataset.timeStart)
@@ -122,8 +127,10 @@ jobs:
                     item.end = input.value
                     if (timeEqualDuration && section === 1) applyEqualDuration()
                   })
-                }''',
-              '''function bindLessonTimeInput(input: HTMLInputElement, field: 'start' | 'end'): void {
+                }
+              """),
+              dedent("""\
+              function bindLessonTimeInput(input: HTMLInputElement, field: 'start' | 'end'): void {
                 const section = Number(field === 'start' ? input.dataset.timeStart : input.dataset.timeEnd)
                 const item = timeDraft.find((value) => value.section === section)
                 if (!item) return
@@ -150,55 +157,45 @@ jobs:
                 }
                 for (const input of document.querySelectorAll<HTMLInputElement>('[data-time-end]')) {
                   bindLessonTimeInput(input, 'end')
-                }''',
+                }
+              """),
+              'lesson time behavior',
           )
           replace_once(
               settings,
-              '''    for (const item of timeDraft) {
+              dedent("""\
+                  for (const item of timeDraft) {
                     if (timeToMinutes(item.end) <= timeToMinutes(item.start)) throw new Error(`第 ${item.section} 节结束时间必须晚于开始时间`)
-                  }''',
-              '''    for (const item of timeDraft) {
+                  }
+              """),
+              dedent("""\
+                  for (const item of timeDraft) {
                     if (!isValidClockTime(item.start) || !isValidClockTime(item.end)) throw new Error(`第 ${item.section} 节时间必须在 00:00～23:59 之间`)
                     if (timeToMinutes(item.end) <= timeToMinutes(item.start)) throw new Error(`第 ${item.section} 节结束时间必须晚于开始时间`)
-                  }''',
+                  }
+              """),
+              'browser save validation',
           )
 
           rust = Path('src-tauri/src/app_settings.rs')
           text = rust.read_text(encoding='utf-8')
-          marker = '\n}\n'
-          position = text.rfind(marker)
-          if position < 0:
-              raise SystemExit('app_settings.rs: test module closing brace not found')
-          test = '''
+          if 'fn rejects_out_of_range_clock_values()' not in text:
+              marker = '\n}\n'
+              position = text.rfind(marker)
+              if position < 0:
+                  raise SystemExit('app_settings.rs: test module closing brace not found')
+              test = dedent("""
 
-              #[test]
-              fn rejects_out_of_range_clock_values() {
-                  let mut invalid_minutes = default_lesson_times();
-                  invalid_minutes[0].start = "08:60".into();
-                  assert!(normalize_lesson_times(invalid_minutes).is_err());
+                  #[test]
+                  fn rejects_out_of_range_clock_values() {
+                      let mut invalid_minutes = default_lesson_times();
+                      invalid_minutes[0].start = "08:60".into();
+                      assert!(normalize_lesson_times(invalid_minutes).is_err());
 
-                  let mut invalid_hours = default_lesson_times();
-                  invalid_hours[0].start = "24:00".into();
-                  assert!(normalize_lesson_times(invalid_hours).is_err());
-              }
-          '''
-          rust.write_text(text[:position] + test + text[position:], encoding='utf-8')
+                      let mut invalid_hours = default_lesson_times();
+                      invalid_hours[0].start = "24:00".into();
+                      assert!(normalize_lesson_times(invalid_hours).is_err());
+                  }
+              """)
+              rust.write_text(text[:position] + test + text[position:], encoding='utf-8')
           PY
-      - name: Install web dependencies
-        run: npm ci
-      - name: Check time-flow model
-        run: npm run check:time-flow
-      - name: Build web interface
-        run: npm run web:build
-      - name: Select stable Rust
-        run: rustup default stable
-      - name: Run Rust library tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
-      - name: Commit implementation
-        shell: bash
-        run: |
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add src/main.ts src/settings.ts src-tauri/src/app_settings.rs
-          git commit -m "fix: enforce time input bounds"
-          git push origin HEAD:fix/time-input-bounds
