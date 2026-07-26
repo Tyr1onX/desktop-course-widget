@@ -1,0 +1,86 @@
+name: Apply local backup recovery
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: windows-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Detect completed implementation
+        id: detect
+        shell: pwsh
+        run: |
+          if (Test-Path src-tauri/src/data_backup.rs) {
+            "completed=true" >> $env:GITHUB_OUTPUT
+          } else {
+            "completed=false" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Setup Node
+        if: steps.detect.outputs.completed != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Rust
+        if: steps.detect.outputs.completed != 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Install dependencies
+        if: steps.detect.outputs.completed != 'true'
+        run: npm ci
+
+      - name: Apply implementation
+        if: steps.detect.outputs.completed != 'true'
+        run: python scripts/apply-local-backup-recovery.py
+
+      - name: Format Rust
+        if: steps.detect.outputs.completed != 'true'
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --all
+
+      - name: Validate web build
+        if: steps.detect.outputs.completed != 'true'
+        run: npm run web:build
+
+      - name: Validate Rust tests
+        if: steps.detect.outputs.completed != 'true'
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+
+      - name: Check diff
+        if: steps.detect.outputs.completed != 'true'
+        shell: pwsh
+        run: |
+          git diff --check
+          git diff --stat
+
+      - name: Commit implementation
+        if: steps.detect.outputs.completed != 'true'
+        shell: pwsh
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "feat: add local data backup and recovery"
+          git push origin "HEAD:$env:HEAD_REF"
