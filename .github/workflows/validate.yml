@@ -36,6 +36,9 @@ jobs:
       - name: Check release version consistency
         run: npm run check:version
 
+      - name: Check widget time-flow model
+        run: npm run check:time-flow
+
       - name: Build web interface
         id: web_build
         shell: pwsh

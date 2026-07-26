@@ -9,6 +9,7 @@
     "web:dev": "vite",
     "web:build": "tsc && vite build",
     "check:version": "node scripts/check-version-consistency.mjs",
+    "check:time-flow": "node scripts/check-time-flow.mjs",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "preview": "vite preview"

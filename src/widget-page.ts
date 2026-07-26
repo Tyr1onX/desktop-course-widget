@@ -1,6 +1,8 @@
 import './style.css'
 import './widget-page.css'
+import './time-flow.css'
 import { isTauri } from '@tauri-apps/api/core'
+import { enhanceTimeFlow } from './time-flow'
 import { clearActiveSchedule, createWidget, defaultOptions, setActiveSchedule, type ScheduleSource, type WidgetOptions } from './widget'
 
 const app = document.querySelector<HTMLDivElement>('#app')!
@@ -27,7 +29,7 @@ const options: WidgetOptions = {
 }
 
 function renderWidget() {
-  app.replaceChildren(createWidget(options, renderWidget))
+  app.replaceChildren(enhanceTimeFlow(createWidget(options, renderWidget), options))
 }
 
 let minuteTimeout: number | undefined
