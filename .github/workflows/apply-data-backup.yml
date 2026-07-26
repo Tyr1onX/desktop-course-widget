@@ -1,4 +1,4 @@
-name: Apply data backup feature
+name: Finalize data backup feature
 
 on:
   push:
@@ -6,15 +6,16 @@ on:
       - feat/data-backup-recovery
     paths:
       - .github/workflows/apply-data-backup.yml
-      - scripts/apply-data-backup.py
+      - scripts/finalize-data-backup.py
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  apply:
+  finalize:
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout feature branch
         uses: actions/checkout@v4
@@ -22,70 +23,57 @@ jobs:
           ref: feat/data-backup-recovery
           fetch-depth: 0
 
+      - name: Detect pending finalization
+        id: state
+        shell: pwsh
+        run: |
+          if (Test-Path scripts/finalize-data-backup.py) {
+            "skip=false" >> $env:GITHUB_OUTPUT
+          } else {
+            "skip=true" >> $env:GITHUB_OUTPUT
+          }
+
       - name: Setup Node
+        if: steps.state.outputs.skip != 'true'
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Setup Rust
+        if: steps.state.outputs.skip != 'true'
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Apply implementation
-        id: apply
-        continue-on-error: true
-        shell: pwsh
-        run: python scripts/apply-data-backup.py 2>&1 | Tee-Object -FilePath data-backup-apply.log
+      - name: Apply final fixes
+        if: steps.state.outputs.skip != 'true'
+        run: python scripts/finalize-data-backup.py
 
       - name: Install web dependencies
-        id: install
-        continue-on-error: true
-        shell: pwsh
-        run: npm ci 2>&1 | Tee-Object -FilePath data-backup-install.log
+        if: steps.state.outputs.skip != 'true'
+        run: npm ci
 
       - name: Build web interface
-        id: web
-        continue-on-error: true
-        shell: pwsh
-        run: npm run web:build 2>&1 | Tee-Object -FilePath data-backup-web.log
+        if: steps.state.outputs.skip != 'true'
+        run: npm run web:build
 
       - name: Run Rust library tests
-        id: rust
-        continue-on-error: true
-        shell: pwsh
-        run: cargo test --manifest-path src-tauri/Cargo.toml --lib 2>&1 | Tee-Object -FilePath data-backup-rust.log
+        if: steps.state.outputs.skip != 'true'
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
 
       - name: Check diff
-        id: diff
-        continue-on-error: true
+        if: steps.state.outputs.skip != 'true'
         shell: pwsh
         run: |
-          git diff --check 2>&1 | Tee-Object -FilePath data-backup-diff.log
+          git diff --check
           git diff --stat
 
-      - name: Record validation result
-        if: always()
-        shell: pwsh
-        run: |
-          @"
-          apply=${{ steps.apply.outcome }}
-          install=${{ steps.install.outcome }}
-          web=${{ steps.web.outcome }}
-          rust=${{ steps.rust.outcome }}
-          diff=${{ steps.diff.outcome }}
-          "@ | Set-Content data-backup-ci-result.txt -Encoding utf8
-
-      - name: Commit generated implementation and logs
-        if: always()
+      - name: Commit validated finalization
+        if: steps.state.outputs.skip != 'true'
         shell: pwsh
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add -A
-          git commit -m "feat: add local data backup and recovery"
+          git add src-tauri/src/data_backup.rs src/backup-ui.ts
+          git rm scripts/finalize-data-backup.py
+          git commit -m "fix: finalize backup restore validation and UI mounting"
           git push origin HEAD:feat/data-backup-recovery
-
-      - name: Fail when validation failed
-        if: steps.apply.outcome != 'success' || steps.install.outcome != 'success' || steps.web.outcome != 'success' || steps.rust.outcome != 'success' || steps.diff.outcome != 'success'
-        shell: pwsh
-        run: throw 'Generated data backup implementation did not pass validation'
