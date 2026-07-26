@@ -1,0 +1,23 @@
+.course-home--orbit .orbit-mark {
+  transform: none;
+  translate: -50% -50%;
+}
+
+@media (max-width: 720px) {
+  .course-home--orbit .orbit-mark {
+    translate: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .course-home--orbit .orbit-mark {
+    transform: none !important;
+    translate: -50% -50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) and (max-width: 720px) {
+  .course-home--orbit .orbit-mark {
+    translate: none;
+  }
+}
