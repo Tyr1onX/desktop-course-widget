@@ -521,15 +521,19 @@ fn intercept_settings_close(app: &AppHandle, event: &WindowEvent) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .manage(RuntimeState::default())
         // The single-instance plugin must be registered before every other plugin.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Err(error) = show_primary_experience(app) {
                 eprintln!("[widget] secondary launch could not show the existing window: {error}");
             }
-        }))
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        }));
+
+    #[cfg(not(debug_assertions))]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+
+    builder
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
