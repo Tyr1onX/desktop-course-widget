@@ -9,7 +9,7 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: validate-${{ github.workflow }}-${{ github.ref }}
@@ -18,11 +18,14 @@ concurrency:
 jobs:
   build-and-test:
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -32,6 +35,9 @@ jobs:
 
       - name: Install web dependencies
         run: npm ci
+
+      - name: Refresh npm lockfile metadata
+        run: npm install --package-lock-only --ignore-scripts
 
       - name: Check release version consistency
         run: npm run check:version
@@ -64,5 +70,30 @@ jobs:
       - name: Select stable Rust
         run: rustup default stable
 
+      - name: Refresh Cargo lockfile metadata
+        run: cargo check --manifest-path src-tauri/Cargo.toml
+
       - name: Run Rust library tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+
+      - name: Build Windows NSIS installer
+        run: npm run tauri:build
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-course-widget-v0.4.0-windows
+          path: src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Commit refreshed lockfiles
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json src-tauri/Cargo.lock
+          if (-not (git diff --cached --quiet)) {
+            git commit -m "chore: refresh v0.4.0 lockfiles"
+            git push origin HEAD:${{ github.head_ref }}
+          }
