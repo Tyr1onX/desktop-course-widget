@@ -15,8 +15,8 @@
 .course-widget.theme-dark {
   --identity-accent: #78a9f5;
   --identity-accent-rgb: 120, 169, 245;
-  --urgency-accent: #d4ad67;
-  --urgency-accent-rgb: 212, 173, 103;
+  --urgency-accent: #e0bf79;
+  --urgency-accent-rgb: 224, 191, 121;
   --progress-start: #6ba2f3;
   --progress-end: #91bbf8;
 }
@@ -72,7 +72,7 @@
 /* Imminent classes use a muted champagne-gold signal instead of saturated orange. */
 .course-widget .focus-course.is-imminent {
   background: linear-gradient(115deg, rgba(var(--urgency-accent-rgb), .085), rgba(var(--identity-accent-rgb), .022));
-  box-shadow: inset 0 0 0 1px rgba(var(--urgency-accent-rgb), .22), 0 8px 22px rgba(var(--urgency-accent-rgb), .045);
+  box-shadow: inset 0 0 0 1px rgba(var(--urgency-accent-rgb), .17), 0 8px 22px rgba(var(--urgency-accent-rgb), .03);
 }
 
 .course-widget .focus-course.is-imminent .focus-kicker,
@@ -81,8 +81,8 @@
 }
 
 .course-widget.theme-dark .focus-course.is-imminent {
-  background: linear-gradient(115deg, rgba(var(--urgency-accent-rgb), .14), rgba(var(--identity-accent-rgb), .05));
-  box-shadow: inset 0 0 0 1px rgba(var(--urgency-accent-rgb), .26), 0 8px 22px rgba(var(--urgency-accent-rgb), .05);
+  background: linear-gradient(115deg, rgba(var(--urgency-accent-rgb), .12), rgba(var(--identity-accent-rgb), .05));
+  box-shadow: inset 0 0 0 1px rgba(var(--urgency-accent-rgb), .18), 0 8px 22px rgba(var(--urgency-accent-rgb), .03);
 }
 
 .course-flow {
@@ -104,6 +104,14 @@
 
 .theme-dark .course-flow-meta {
   color: #c0cede;
+}
+
+.course-widget.theme-dark .timeline time {
+  color: #9fb4cc;
+}
+
+.course-widget.theme-dark .timeline small {
+  color: #b6c5d8;
 }
 
 /* Progress belongs to the active blue state; time of day stays ambient only. */
