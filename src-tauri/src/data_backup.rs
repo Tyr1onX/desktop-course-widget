@@ -399,7 +399,10 @@ fn validate_staging_bundle(staging: &Path, expected: &BackupBundle) -> Result<()
         .iter()
         .find(|schedule| schedule.id == expected.catalog.active_schedule_id)
         .ok_or("备份中的当前课表不存在")?;
-    if active_legacy != legacy_schedule(expected_active) {
+    let active_bytes = serde_json::to_vec(&active_legacy).map_err(|error| error.to_string())?;
+    let expected_bytes = serde_json::to_vec(&legacy_schedule(expected_active))
+        .map_err(|error| error.to_string())?;
+    if active_bytes != expected_bytes {
         return Err("桌面组件课表暂存校验失败".into());
     }
     Ok(())
