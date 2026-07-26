@@ -3,6 +3,7 @@ import DefaultTheme from 'vitepress/theme'
 import { useData } from 'vitepress'
 import { nextTick, onBeforeUnmount, onMounted, watch } from 'vue'
 import HomePage from './HomePage.vue'
+import { setupProjectFooter } from './project-footer'
 import { setupStoryFocus } from './story-focus'
 import { setupWebsiteDemo } from './website-demo'
 
@@ -19,7 +20,9 @@ async function refreshDemo() {
   if (frontmatter.value.layout === 'course-home') {
     const cleanupWebsiteDemo = setupWebsiteDemo()
     const cleanupStoryFocus = setupStoryFocus()
+    const cleanupProjectFooter = setupProjectFooter()
     cleanupDemo = () => {
+      cleanupProjectFooter()
       cleanupStoryFocus()
       cleanupWebsiteDemo()
     }
