@@ -211,4 +211,15 @@ mod tests {
         reversed[0].end = "07:59".into();
         assert!(normalize_lesson_times(reversed).is_err());
     }
+
+    #[test]
+    fn rejects_out_of_range_clock_values() {
+        let mut invalid_minutes = default_lesson_times();
+        invalid_minutes[0].start = "08:60".into();
+        assert!(normalize_lesson_times(invalid_minutes).is_err());
+
+        let mut invalid_hours = default_lesson_times();
+        invalid_hours[0].start = "24:00".into();
+        assert!(normalize_lesson_times(invalid_hours).is_err());
+    }
 }
