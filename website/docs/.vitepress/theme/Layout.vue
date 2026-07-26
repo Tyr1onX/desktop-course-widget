@@ -1,10 +1,28 @@
 <script setup lang="ts">
 import DefaultTheme from 'vitepress/theme'
 import { useData } from 'vitepress'
+import { nextTick, onBeforeUnmount, onMounted, watch } from 'vue'
 import HomePage from './HomePage.vue'
+import { setupWebsiteDemo } from './website-demo'
 
 const { frontmatter } = useData()
 const DefaultLayout = DefaultTheme.Layout
+
+let cleanupDemo: (() => void) | undefined
+
+async function refreshDemo() {
+  cleanupDemo?.()
+  cleanupDemo = undefined
+
+  await nextTick()
+  if (frontmatter.value.layout === 'course-home') {
+    cleanupDemo = setupWebsiteDemo()
+  }
+}
+
+onMounted(refreshDemo)
+watch(() => frontmatter.value.layout, refreshDemo)
+onBeforeUnmount(() => cleanupDemo?.())
 </script>
 
 <template>
