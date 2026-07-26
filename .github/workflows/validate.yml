@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  apply-data-backup:
+  apply-data-backup-fix:
     if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'feat/data-backup-recovery'
     runs-on: windows-latest
     timeout-minutes: 20
@@ -27,38 +27,23 @@ jobs:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
 
-      - name: Detect completed implementation
+      - name: Detect pending fix
         id: state
         shell: pwsh
         run: |
-          if (Test-Path src-tauri/src/data_backup.rs) {
-            "skip=true" >> $env:GITHUB_OUTPUT
-          } else {
+          if (Test-Path scripts/fix-data-backup-rust.py) {
             "skip=false" >> $env:GITHUB_OUTPUT
+          } else {
+            "skip=true" >> $env:GITHUB_OUTPUT
           }
-
-      - name: Set up Node.js
-        if: steps.state.outputs.skip != 'true'
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install web dependencies
-        if: steps.state.outputs.skip != 'true'
-        run: npm ci
 
       - name: Select stable Rust
         if: steps.state.outputs.skip != 'true'
         run: rustup default stable
 
-      - name: Apply implementation
+      - name: Apply Rust fix
         if: steps.state.outputs.skip != 'true'
-        run: python scripts/apply-data-backup.py
-
-      - name: Build web interface
-        if: steps.state.outputs.skip != 'true'
-        run: npm run web:build
+        run: python scripts/fix-data-backup-rust.py
 
       - name: Run Rust library tests
         if: steps.state.outputs.skip != 'true'
@@ -71,14 +56,15 @@ jobs:
           git diff --check
           git diff --stat
 
-      - name: Commit validated implementation
+      - name: Commit validated fix
         if: steps.state.outputs.skip != 'true'
         shell: pwsh
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add settings.html src/backup-ui.ts src/backup-ui.css src-tauri/src/lib.rs src-tauri/src/data_backup.rs
-          git commit -m "feat: add local data backup and recovery"
+          git add src-tauri/src/data_backup.rs
+          git rm scripts/fix-data-backup-rust.py
+          git commit -m "fix: validate restored schedule without trait coupling"
           git push origin HEAD:${{ github.head_ref }}
 
   build-and-test:
