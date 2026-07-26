@@ -38,11 +38,19 @@ jobs:
 
       - name: Install dependencies
         working-directory: website
-        run: npm install
+        run: |
+          npm install > /tmp/npm-install.log 2>&1 || {
+            cat /tmp/npm-install.log
+            exit 1
+          }
 
       - name: Build website
         working-directory: website
-        run: npm run docs:build
+        run: |
+          npm run docs:build > /tmp/website-build.log 2>&1 || {
+            cat /tmp/website-build.log
+            exit 1
+          }
 
       - name: Install Chromium
         working-directory: website
