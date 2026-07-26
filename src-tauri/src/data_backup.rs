@@ -11,7 +11,6 @@ use tauri_plugin_dialog::DialogExt;
 
 use crate::{
     app_settings::{self, AppSettings},
-    excel_import::types::SectionTime,
     schedule_catalog::CatalogSchedule,
     schedule_store::{self, Course, Schedule},
 };
@@ -631,7 +630,7 @@ fn now_millis() -> Result<u64, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::schedule_catalog::CatalogCourse;
+    use crate::{excel_import::types::SectionTime, schedule_catalog::CatalogCourse};
 
     fn sample_bundle() -> BackupBundle {
         BackupBundle {
