@@ -206,20 +206,6 @@ pub fn validate_schedule(bytes: &[u8]) -> ValidationResult {
     result
 }
 
-pub fn import_schedule(app: &AppHandle, source: &Path) -> Result<(Schedule, Vec<String>), String> {
-    let bytes = read_limited(source)?;
-    let validation = validate_schedule(&bytes);
-    let schedule = validation
-        .normalized_schedule
-        .ok_or_else(|| validation.errors.join("\n"))?;
-    let destination = ensure_schedule_storage(app)?;
-    if destination.exists() {
-        backup_current_schedule(app, &destination)?;
-    }
-    write_atomic(&destination, &serialize(&schedule)?)?;
-    Ok((schedule, validation.warnings))
-}
-
 pub fn backup_current_schedule(app: &AppHandle, schedule_path: &Path) -> Result<(), String> {
     let bytes = read_limited(schedule_path)?;
     if validate_schedule(&bytes).valid {
@@ -245,15 +231,6 @@ pub fn backup_current_schedule(app: &AppHandle, schedule_path: &Path) -> Result<
             }
         }
     }
-    Ok(())
-}
-
-pub fn open_schedule_directory(app: &AppHandle) -> Result<(), String> {
-    let path = ensure_schedule_storage(app)?;
-    std::process::Command::new("explorer.exe")
-        .arg(format!("/select,{}", path.display()))
-        .spawn()
-        .map_err(|error| error.to_string())?;
     Ok(())
 }
 
