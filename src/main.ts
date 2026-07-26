@@ -65,7 +65,7 @@ function panelMarkup() {
           </label>
           <label class="switch-row"><input type="checkbox" data-control="showNav" ${options.showNav ? 'checked' : ''}><span>显示日期导航</span></label>
           <label class="field-label">当前时间
-            <input type="time" value="${options.time}" data-control="time">
+            <input type="time" min="00:00" max="23:59" step="60" value="${options.time}" data-control="time">
           </label>
         </fieldset>
         <p class="debug-note">调试台不属于最终桌面组件。</p>
@@ -95,10 +95,21 @@ function render() {
     }
 
     if (control instanceof HTMLInputElement && control.type === 'time') {
+      let valueBeforeEdit = options.time
+      control.addEventListener('focus', () => {
+        valueBeforeEdit = options.time
+      })
       control.addEventListener('input', () => {
         const value = control.value
-        if (!completeTimePattern.test(value)) return
+        if (!completeTimePattern.test(value) || !control.validity.valid) return
         options.time = value
+        renderWidget()
+      })
+      control.addEventListener('blur', () => {
+        const value = control.value
+        if (completeTimePattern.test(value) && control.validity.valid) return
+        control.value = valueBeforeEdit
+        options.time = valueBeforeEdit
         renderWidget()
       })
       return

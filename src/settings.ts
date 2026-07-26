@@ -154,6 +154,7 @@ const weekdays = ['一', '二', '三', '四', '五', '六', '日']
 const weekdayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
 const palette = ['#CFE1FF', '#D8EBCF', '#F8D8D2', '#E5D9F7', '#F9E3B7', '#CFE9E8', '#F2D6E6', '#D9E1F2', '#E4E7C9', '#F4DCC5']
 const rowHeight = 66
+const completeTimePattern = /^(?:[01]\d|2[0-3]):[0-5]\d$/
 const defaultLessonTimes: LessonTime[] = [
   { section: 1, start: '08:00', end: '08:45' },
   { section: 2, start: '08:55', end: '09:40' },
@@ -280,7 +281,12 @@ function escapeHtml(value: string): string {
     .replaceAll("'", '&#039;')
 }
 
+function isValidClockTime(value: string): boolean {
+  return completeTimePattern.test(value)
+}
+
 function timeToMinutes(value: string): number {
+  if (!isValidClockTime(value)) return Number.NaN
   const [hours, minutes] = value.split(':').map(Number)
   return hours * 60 + minutes
 }
@@ -658,8 +664,8 @@ function timesSurfaceMarkup(): string {
   const rows = timeDraft.map((item) => `
     <div class="time-row">
       <strong>${item.section}</strong>
-      <label><span>开始</span><input type="time" value="${item.start}" data-time-start="${item.section}" /></label>
-      <label><span>结束</span><input type="time" value="${item.end}" data-time-end="${item.section}" /></label>
+      <label><span>开始</span><input type="time" min="00:00" max="23:59" step="60" value="${item.start}" data-time-start="${item.section}" /></label>
+      <label><span>结束</span><input type="time" min="00:00" max="23:59" step="60" value="${item.end}" data-time-end="${item.section}" /></label>
     </div>
   `).join('')
   return surfaceShell('作息时间', `
@@ -1290,24 +1296,33 @@ async function createImportedSchedule(): Promise<void> {
   }
 }
 
+function bindLessonTimeInput(input: HTMLInputElement, field: 'start' | 'end'): void {
+  const section = Number(field === 'start' ? input.dataset.timeStart : input.dataset.timeEnd)
+  const item = timeDraft.find((value) => value.section === section)
+  if (!item) return
+  let valueBeforeEdit = item[field]
+  input.addEventListener('focus', () => {
+    valueBeforeEdit = item[field]
+  })
+  input.addEventListener('input', () => {
+    if (!isValidClockTime(input.value) || !input.validity.valid) return
+    item[field] = input.value
+    if (timeEqualDuration && (field === 'start' || section === 1)) applyEqualDuration()
+  })
+  input.addEventListener('blur', () => {
+    if (isValidClockTime(input.value) && input.validity.valid) return
+    input.value = valueBeforeEdit
+    item[field] = valueBeforeEdit
+    if (timeEqualDuration && (field === 'start' || section === 1)) applyEqualDuration()
+  })
+}
+
 function bindTimeEvents(): void {
   for (const input of document.querySelectorAll<HTMLInputElement>('[data-time-start]')) {
-    input.addEventListener('input', () => {
-      const section = Number(input.dataset.timeStart)
-      const item = timeDraft.find((value) => value.section === section)
-      if (!item) return
-      item.start = input.value
-      if (timeEqualDuration) applyEqualDuration()
-    })
+    bindLessonTimeInput(input, 'start')
   }
   for (const input of document.querySelectorAll<HTMLInputElement>('[data-time-end]')) {
-    input.addEventListener('input', () => {
-      const section = Number(input.dataset.timeEnd)
-      const item = timeDraft.find((value) => value.section === section)
-      if (!item) return
-      item.end = input.value
-      if (timeEqualDuration && section === 1) applyEqualDuration()
-    })
+    bindLessonTimeInput(input, 'end')
   }
   document.querySelector<HTMLInputElement>('#equal-duration')?.addEventListener('change', (event) => {
     timeEqualDuration = (event.currentTarget as HTMLInputElement).checked
@@ -1352,6 +1367,7 @@ function minutesToTime(total: number): string {
 async function saveTimes(): Promise<void> {
   try {
     for (const item of timeDraft) {
+      if (!isValidClockTime(item.start) || !isValidClockTime(item.end)) throw new Error(`第 ${item.section} 节时间必须在 00:00～23:59 之间`)
       if (timeToMinutes(item.end) <= timeToMinutes(item.start)) throw new Error(`第 ${item.section} 节结束时间必须晚于开始时间`)
     }
     if (desktopRuntime) {
