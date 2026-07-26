@@ -106,72 +106,6 @@
   opacity: 0.54;
 }
 
-.widget-window {
-  transition:
-    opacity 190ms ease,
-    filter 190ms ease,
-    background 520ms cubic-bezier(0.22, 1, 0.36, 1),
-    border-color 420ms ease,
-    box-shadow 520ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.widget-window.is-demo-transitioning {
-  opacity: 0.38;
-  filter: blur(3px) saturate(0.86);
-}
-
-.widget-window[data-demo-mode="morning"] {
-  border-color: rgba(255, 255, 255, 0.82);
-  background: rgba(252, 250, 246, 0.82);
-  box-shadow:
-    0 30px 72px rgba(62, 49, 31, 0.18),
-    0 0 58px rgba(255, 203, 127, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.86);
-}
-
-.widget-window[data-demo-mode="current"] {
-  border-color: rgba(255, 255, 255, 0.76);
-  background: rgba(248, 251, 254, 0.82);
-}
-
-.widget-window[data-demo-mode="between"] {
-  border-color: rgba(197, 221, 245, 0.8);
-  background: rgba(242, 248, 254, 0.84);
-  box-shadow:
-    0 32px 74px rgba(25, 64, 101, 0.22),
-    0 0 52px rgba(0, 113, 227, 0.07),
-    inset 0 1px 0 rgba(255, 255, 255, 0.84);
-}
-
-.widget-window[data-demo-mode="evening"] {
-  border-color: rgba(255, 255, 255, 0.7);
-  background: rgba(247, 248, 250, 0.72);
-  box-shadow:
-    0 28px 66px rgba(32, 39, 47, 0.18),
-    inset 0 1px 0 rgba(255, 255, 255, 0.72);
-}
-
-.widget-window[data-demo-mode="evening"] .widget-now {
-  color: #77777d;
-}
-
-.widget-window[data-demo-mode="evening"] .widget-now__dot {
-  background: #8e8e93;
-  box-shadow: 0 0 0 4px rgba(142, 142, 147, 0.09);
-  animation: none;
-}
-
-.widget-window[data-demo-mode="evening"] .widget-course__content strong {
-  color: #696970;
-}
-
-.widget-course__content,
-.widget-course__time,
-.widget-window__footer,
-.widget-now {
-  transition: color 280ms ease, opacity 280ms ease;
-}
-
 .focus-desktop__widget {
   opacity: 1;
   transform-origin: 88% 90%;
@@ -313,6 +247,7 @@
       0 0 18px rgba(41, 151, 255, 0.36);
     transform: translateY(0) scale(1);
   }
+
   50% {
     box-shadow:
       0 0 0 7px rgba(41, 151, 255, 0),
@@ -358,7 +293,6 @@
 @media (prefers-reduced-motion: reduce) {
   .course-demo-step,
   .course-demo-toggle,
-  .widget-window,
   .focus-desktop__close,
   .focus-desktop__tray-app,
   .focus-desktop__demo-hint {
@@ -367,10 +301,5 @@
 
   .focus-desktop__tray-app.is-active {
     animation: none;
-  }
-
-  .widget-window.is-demo-transitioning {
-    opacity: 1;
-    filter: none;
   }
 }
