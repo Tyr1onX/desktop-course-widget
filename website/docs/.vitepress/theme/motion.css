@@ -2,7 +2,6 @@
 .day-moment,
 .course-focus__visual,
 .course-privacy,
-.course-detail,
 .course-closing {
   will-change: transform, opacity;
 }
@@ -11,10 +10,6 @@
 .widget-window {
   transform: none;
   translate: -50% 0;
-}
-
-.moment-progress span {
-  transform-origin: left center;
 }
 
 .course-stage__light--one {
@@ -68,7 +63,6 @@
   .day-moment,
   .course-focus__visual,
   .course-privacy,
-  .course-detail,
   .course-closing {
     will-change: auto;
   }
