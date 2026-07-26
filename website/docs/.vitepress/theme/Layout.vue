@@ -21,7 +21,7 @@ async function refreshDemo() {
   const layout = frontmatter.value.layout
   if (layout === 'course-home' || layout === 'course-experience') {
     const cleanupWebsiteDemo = setupWebsiteDemo()
-    const cleanupProjectFooter = setupProjectFooter()
+    const cleanupProjectFooter = layout === 'course-experience' ? setupProjectFooter() : () => undefined
     const cleanupStoryFocus = layout === 'course-experience' ? setupStoryFocus() : () => undefined
     cleanupDemo = () => {
       cleanupProjectFooter()
