@@ -62,7 +62,19 @@ jobs:
 
       - name: Test responsive layouts
         working-directory: website
-        run: npm run docs:test:responsive
+        run: |
+          npm run docs:test:responsive > /tmp/responsive-test.log 2>&1 || {
+            cat /tmp/responsive-test.log
+            exit 1
+          }
+
+      - name: Upload responsive failure log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: responsive-failure-log
+          path: /tmp/responsive-test.log
+          retention-days: 1
 
       - name: Upload website preview
         uses: actions/upload-artifact@v4
