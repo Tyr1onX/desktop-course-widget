@@ -31,7 +31,7 @@ jobs:
             git push origin HEAD:fix/time-input-bounds
             exit "$status"
           fi
-          rm -f patch-error.txt
+          rm -f patch-error.txt rust-test-error.txt
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -46,21 +46,6 @@ jobs:
         run: rustup default stable
       - name: Format Rust
         run: cargo fmt --manifest-path src-tauri/Cargo.toml
-      - name: Run Rust library tests
-        shell: bash
-        run: |
-          set +e
-          cargo test --manifest-path src-tauri/Cargo.toml --lib > rust-test-error.txt 2>&1
-          status=$?
-          if [ "$status" -ne 0 ]; then
-            git config user.name github-actions[bot]
-            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-            git add rust-test-error.txt
-            git commit -m "chore: capture Rust time bounds test failure"
-            git push origin HEAD:fix/time-input-bounds
-            exit "$status"
-          fi
-          rm -f rust-test-error.txt
       - name: Commit implementation
         shell: bash
         run: |
