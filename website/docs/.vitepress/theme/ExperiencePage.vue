@@ -26,8 +26,8 @@ const revealViewport = { once: true, amount: 0.28 }
 
           <nav class="course-nav__links" aria-label="页面导航">
             <a :href="homeLink">首页</a>
-            <a :href="guideLink">使用指南</a>
             <a href="#day-flow">一天的变化</a>
+            <a href="#desktop-behavior">桌面行为</a>
           </nav>
 
           <a class="course-nav__download" :href="releaseLink">下载 Windows 版</a>
@@ -44,7 +44,7 @@ const revealViewport = { once: true, amount: 0.28 }
           >
             <p class="course-kicker">产品体验</p>
             <h1 id="experience-title">看课刻如何跟着一天变化。</h1>
-            <p>这里保留完整的课程状态、日期浏览和时间流动演示。所有组件均直接复用当前桌面端渲染逻辑。</p>
+            <p>这里保留完整的课程状态、日期浏览、桌面行为和本地隐私说明。组件直接复用当前桌面端渲染逻辑。</p>
             <div class="course-actions course-actions--center">
               <a class="course-button course-button--primary" :href="releaseLink">下载 Windows 版</a>
               <a class="course-button course-button--text" :href="guideLink">查看使用指南</a>
@@ -99,7 +99,7 @@ const revealViewport = { once: true, amount: 0.28 }
           >
             <p class="course-kicker">一天如何流动</p>
             <h2 id="story-title">早晨看见今天，此刻只看这一课。</h2>
-            <p>完整时间线从首页移到这里。滚动时，焦点会依次落到最接近视口中心的真实组件状态。</p>
+            <p>滚动时，焦点会依次落到最接近视口中心的真实组件状态。</p>
           </motion.div>
 
           <div class="day-flow">
@@ -160,6 +160,63 @@ const revealViewport = { once: true, amount: 0.28 }
             </motion.article>
           </div>
         </section>
+
+        <section id="desktop-behavior" class="course-focus" aria-labelledby="focus-title">
+          <div class="course-focus__inner">
+            <motion.div
+              class="course-focus__copy"
+              :initial="{ opacity: 0, y: 34 }"
+              :whileInView="{ opacity: 1, y: 0 }"
+              :viewport="revealViewport"
+              :transition="{ duration: 0.82, ease: easeOut }"
+            >
+              <p class="course-kicker course-kicker--light">不是窗口，是桌面的一部分</p>
+              <h2 id="focus-title">需要时看见，不需要时隐去。</h2>
+              <p>课刻随 Windows 启动，关闭后回到系统托盘。位置、缩放与显示习惯都会被记住。</p>
+              <a :href="guideLink">查看首次使用指南</a>
+            </motion.div>
+
+            <motion.div
+              class="course-focus__visual"
+              aria-hidden="true"
+              :initial="{ opacity: 0, x: 52, rotateY: 5 }"
+              :whileInView="{ opacity: 1, x: 0, rotateY: 0 }"
+              :viewport="revealViewport"
+              :transition="{ duration: 0.95, ease: easeOut }"
+            >
+              <div class="focus-desktop">
+                <div class="focus-desktop__widget">
+                  <div><span>下一节</span><strong>通信原理</strong></div>
+                  <p>10:50 · 教学楼 A101</p>
+                </div>
+                <div class="focus-desktop__cursor"></div>
+                <div class="focus-desktop__tray"><span></span><span></span><span></span><span></span></div>
+              </div>
+            </motion.div>
+          </div>
+        </section>
+
+        <motion.section
+          id="privacy"
+          class="course-privacy course-privacy--compact"
+          aria-labelledby="privacy-title"
+          :initial="{ opacity: 0, y: 34 }"
+          :whileInView="{ opacity: 1, y: 0 }"
+          :viewport="revealViewport"
+          :transition="{ duration: 0.84, ease: easeOut }"
+        >
+          <div class="privacy-symbol" aria-hidden="true">
+            <svg viewBox="0 0 64 64">
+              <rect x="13" y="27" width="38" height="29" rx="10" />
+              <path d="M21 27v-7c0-7 4.5-12 11-12s11 5 11 12v7" />
+              <circle cx="32" cy="41" r="3" />
+            </svg>
+          </div>
+          <p class="course-kicker">课表属于你</p>
+          <h2 id="privacy-title">无需账号，不上传课表。</h2>
+          <p>Excel 在本机解析，课程与设置保存在本机。课刻不建立云端课表。</p>
+          <a :href="faqLink">了解数据位置与隐私</a>
+        </motion.section>
 
         <motion.section
           class="course-closing experience-closing"

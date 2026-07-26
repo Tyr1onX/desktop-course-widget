@@ -10,6 +10,8 @@ import '../../../../src/time-flow.css'
 import './story-focus.css'
 import './project-footer.css'
 import './experience-page.css'
+import './settings-showcase.css'
+import './settings-showcase-positioning.css'
 
 export default {
   extends: DefaultTheme,

@@ -3,6 +3,7 @@ import { MotionConfig, motion } from 'motion-v'
 import { withBase } from 'vitepress'
 
 const guideLink = withBase('/guide/getting-started')
+const managementLink = withBase('/guide/schedule-management')
 const experienceLink = withBase('/experience/')
 const faqLink = withBase('/help/faq')
 const developmentLink = withBase('/development/')
@@ -13,7 +14,7 @@ const repositoryLink = 'https://github.com/Tyr1onX/desktop-course-widget'
 const easeOut = [0.22, 1, 0.36, 1]
 const revealInitial = { opacity: 0, y: 34 }
 const revealTarget = { opacity: 1, y: 0 }
-const revealViewport = { once: true, amount: 0.32 }
+const revealViewport = { once: true, amount: 0.3 }
 </script>
 
 <template>
@@ -27,8 +28,8 @@ const revealViewport = { once: true, amount: 0.32 }
           </a>
 
           <nav class="course-nav__links" aria-label="页面导航">
+            <a href="#schedule-editor">课表编辑</a>
             <a :href="experienceLink">产品体验</a>
-            <a href="#privacy">隐私</a>
             <a :href="guideLink">使用指南</a>
           </nav>
 
@@ -143,95 +144,144 @@ const revealViewport = { once: true, amount: 0.32 }
           </motion.div>
         </section>
 
-        <section class="course-focus" aria-labelledby="focus-title">
-          <div class="course-focus__inner">
-            <motion.div
-              class="course-focus__copy"
-              :initial="revealInitial"
-              :whileInView="revealTarget"
-              :viewport="revealViewport"
-              :transition="{ duration: 0.82, ease: easeOut }"
-            >
-              <p class="course-kicker course-kicker--light">不是窗口，是桌面的一部分</p>
-              <h2 id="focus-title">需要时看见，不需要时隐去。</h2>
-              <p>课刻随 Windows 启动，关闭后回到系统托盘。位置、缩放与显示习惯都会被记住。</p>
-              <a :href="guideLink">查看首次使用指南</a>
-            </motion.div>
+        <section id="schedule-editor" class="settings-showcase" aria-labelledby="settings-showcase-title">
+          <motion.div
+            class="settings-showcase__heading"
+            :initial="revealInitial"
+            :whileInView="revealTarget"
+            :viewport="revealViewport"
+            :transition="{ duration: 0.82, ease: easeOut }"
+          >
+            <p class="course-kicker">不止看见，也能认真整理</p>
+            <h2 id="settings-showcase-title">完整课表，仍然由你编辑。</h2>
+            <p>在周课表中直接选择课程，修改名称、颜色、时间、周次、地点和教师。界面取自课刻当前设置窗口。</p>
+          </motion.div>
 
-            <motion.div
-              class="course-focus__visual"
-              aria-hidden="true"
-              :initial="{ opacity: 0, x: 52, rotateY: 5 }"
-              :whileInView="{ opacity: 1, x: 0, rotateY: 0 }"
-              :viewport="revealViewport"
-              :transition="{ duration: 0.95, ease: easeOut }"
-            >
-              <div class="focus-desktop">
-                <div class="focus-desktop__widget">
-                  <div><span>下一节</span><strong>通信原理</strong></div>
-                  <p>10:50 · 教学楼 A101</p>
+          <motion.div
+            class="settings-preview"
+            aria-label="课刻设置窗口中的周课表与编辑课程界面预览"
+            :initial="{ opacity: 0, y: 46, scale: 0.988 }"
+            :whileInView="{ opacity: 1, y: 0, scale: 1 }"
+            :viewport="{ once: true, amount: 0.2 }"
+            :transition="{ duration: 0.95, ease: easeOut }"
+          >
+            <div class="settings-preview__titlebar" aria-hidden="true">
+              <span>课表与设置</span>
+              <div><i></i><i></i><i></i></div>
+            </div>
+
+            <div class="settings-preview__app">
+              <header class="settings-preview__toolbar">
+                <div class="settings-preview__selector">
+                  <strong>2026 秋季学期</strong>
+                  <span aria-hidden="true">⌄</span>
                 </div>
-                <div class="focus-desktop__cursor"></div>
-                <div class="focus-desktop__tray"><span></span><span></span><span></span><span></span></div>
+                <div class="settings-preview__week">
+                  <button type="button" tabindex="-1" aria-hidden="true">‹</button>
+                  <strong>第 3 教学周</strong>
+                  <button type="button" tabindex="-1" aria-hidden="true">›</button>
+                </div>
+                <div class="settings-preview__toolbar-actions" aria-hidden="true">
+                  <span>＋</span><span>⋯</span>
+                </div>
+              </header>
+
+              <div class="settings-preview__stage">
+                <div class="settings-preview__calendar" aria-hidden="true">
+                  <div class="settings-preview__calendar-head">
+                    <div class="settings-preview__month"><strong>9</strong><span>月</span></div>
+                    <div><span>一</span><strong>21</strong></div>
+                    <div class="is-today"><span>二</span><strong>22</strong></div>
+                    <div><span>三</span><strong>23</strong></div>
+                    <div><span>四</span><strong>24</strong></div>
+                    <div><span>五</span><strong>25</strong></div>
+                    <div><span>六</span><strong>26</strong></div>
+                    <div><span>日</span><strong>27</strong></div>
+                  </div>
+
+                  <div class="settings-preview__calendar-body">
+                    <div class="settings-preview__times">
+                      <div><strong>1</strong><span>08:00</span></div>
+                      <div><strong>2</strong><span>08:55</span></div>
+                      <div><strong>3</strong><span>10:00</span></div>
+                      <div><strong>4</strong><span>10:55</span></div>
+                      <div><strong>5</strong><span>13:30</span></div>
+                      <div><strong>6</strong><span>14:25</span></div>
+                    </div>
+                    <div class="settings-preview__grid"></div>
+                    <div class="settings-preview__course is-blue" style="--day:1;--row:1;--span:2">
+                      <strong>通信原理</strong><span>逸夫楼 B311</span>
+                    </div>
+                    <div class="settings-preview__course is-green" style="--day:2;--row:3;--span:2">
+                      <strong>数字信号处理</strong><span>李四光楼 201</span>
+                    </div>
+                    <div class="settings-preview__course is-purple is-selected" style="--day:3;--row:1;--span:2">
+                      <strong>单片机原理及应用</strong><span>实验楼 B203</span>
+                    </div>
+                    <div class="settings-preview__course is-orange" style="--day:4;--row:5;--span:2">
+                      <strong>信息论</strong><span>经信 F101</span>
+                    </div>
+                    <div class="settings-preview__course is-pink" style="--day:5;--row:3;--span:2">
+                      <strong>高频电子技术</strong><span>逸夫楼 B205</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="settings-preview__dimmer" aria-hidden="true"></div>
+
+                <aside class="settings-preview__surface" aria-label="编辑课程">
+                  <header><h3>编辑课程</h3><span aria-hidden="true">×</span></header>
+                  <div class="settings-preview__form">
+                    <label class="settings-preview__field settings-preview__field--full">
+                      <span>课程名称</span>
+                      <b>单片机原理及应用</b>
+                    </label>
+
+                    <div class="settings-preview__colors">
+                      <span>课程颜色</span>
+                      <div aria-hidden="true">
+                        <i style="--swatch:#cfe1ff"></i><i style="--swatch:#d8ebcf"></i><i style="--swatch:#f8d8d2"></i><i class="is-active" style="--swatch:#e5d9f7"></i><i style="--swatch:#f9e3b7"></i>
+                      </div>
+                    </div>
+
+                    <div class="settings-preview__section-heading">
+                      <strong>上课时间</strong>
+                      <span>一门课程可以添加多个时间段。</span>
+                    </div>
+
+                    <div class="settings-preview__slot">
+                      <strong>时间段 1</strong>
+                      <div class="settings-preview__form-grid">
+                        <label class="settings-preview__field"><span>星期</span><b>周三</b></label>
+                        <label class="settings-preview__field"><span>节次</span><b>1 至 2</b></label>
+                        <label class="settings-preview__field"><span>起始周</span><b>1</b></label>
+                        <label class="settings-preview__field"><span>结束周</span><b>16</b></label>
+                        <label class="settings-preview__field settings-preview__field--full"><span>重复</span><b>每周</b></label>
+                        <label class="settings-preview__field settings-preview__field--full"><span>地点</span><b>实验楼 B203</b></label>
+                        <label class="settings-preview__field settings-preview__field--full"><span>老师</span><b>示例教师</b></label>
+                      </div>
+                    </div>
+                  </div>
+                  <footer>
+                    <button type="button" tabindex="-1">删除课程</button>
+                    <div><span>取消</span><strong>保存修改</strong></div>
+                  </footer>
+                </aside>
               </div>
-            </motion.div>
-          </div>
-        </section>
+            </div>
+          </motion.div>
 
-        <motion.section
-          id="privacy"
-          class="course-privacy course-privacy--compact"
-          aria-labelledby="privacy-title"
-          :initial="revealInitial"
-          :whileInView="revealTarget"
-          :viewport="revealViewport"
-          :transition="{ duration: 0.84, ease: easeOut }"
-        >
-          <div class="privacy-symbol" aria-hidden="true">
-            <svg viewBox="0 0 64 64">
-              <rect x="13" y="27" width="38" height="29" rx="10" />
-              <path d="M21 27v-7c0-7 4.5-12 11-12s11 5 11 12v7" />
-              <circle cx="32" cy="41" r="3" />
-            </svg>
-          </div>
-          <p class="course-kicker">课表属于你</p>
-          <h2 id="privacy-title">无需账号，不上传课表。</h2>
-          <p>Excel 在本机解析，课程与设置保存在本机。课刻不建立云端课表。</p>
-          <a :href="faqLink">了解数据位置与隐私</a>
-        </motion.section>
-
-        <motion.section
-          class="course-closing course-closing--compact"
-          aria-labelledby="closing-title"
-          :initial="revealInitial"
-          :whileInView="revealTarget"
-          :viewport="revealViewport"
-          :transition="{ duration: 0.86, ease: easeOut }"
-        >
-          <motion.img
-            :src="markLink"
-            alt=""
-            width="72"
-            height="72"
-            :initial="{ opacity: 0, scale: 0.88 }"
-            :whileInView="{ opacity: 1, scale: 1 }"
+          <motion.div
+            class="settings-showcase__links"
+            :initial="{ opacity: 0 }"
+            :whileInView="{ opacity: 1 }"
             :viewport="{ once: true, amount: 0.8 }"
-            :transition="{ duration: 0.72, ease: easeOut }"
-          />
-          <h2 id="closing-title">把课表交给课刻。</h2>
-          <p>面向 Windows 免费提供，下载后即可开始使用。</p>
-          <div class="course-actions course-actions--center">
-            <motion.a
-              class="course-button course-button--primary"
-              :href="releaseLink"
-              :whileHover="{ scale: 1.015 }"
-              :whilePress="{ scale: 0.985 }"
-            >
-              下载 Windows 版
-            </motion.a>
-            <a class="course-button course-button--text" :href="repositoryLink">在 GitHub 查看源码</a>
-          </div>
-        </motion.section>
+            :transition="{ duration: 0.65, delay: 0.12 }"
+          >
+            <a :href="managementLink">查看课表与课程管理指南</a>
+            <a :href="experienceLink">继续查看完整产品体验</a>
+          </motion.div>
+        </section>
       </main>
 
       <footer class="course-footer">
