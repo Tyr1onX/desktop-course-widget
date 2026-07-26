@@ -15,6 +15,7 @@ import './settings-showcase-positioning.css'
 import './three-part-homepage.css'
 import './orbit-homepage-fixes.css'
 import './orbit-accuracy-fixes.css'
+import './responsive-audit.css'
 
 export default {
   extends: DefaultTheme,
