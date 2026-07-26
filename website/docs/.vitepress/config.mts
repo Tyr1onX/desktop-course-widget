@@ -2,8 +2,8 @@ import { defineConfig } from 'vitepress'
 
 export default defineConfig({
   lang: 'zh-CN',
-  title: '桌面课表',
-  description: '让一天的课程，在桌面上缓慢流动。',
+  title: '课刻',
+  description: '让一天的课程，在桌面上缓慢流动的 Windows 桌面课表。',
   base: '/desktop-course-widget/',
   cleanUrls: true,
   head: [
@@ -19,14 +19,14 @@ export default defineConfig({
   ],
   themeConfig: {
     logo: '/app-icon-v2.svg',
-    siteTitle: '桌面课表',
+    siteTitle: '课刻',
     nav: [
       { text: '首页', link: '/' },
       { text: '使用指南', link: '/guide/getting-started' },
       { text: '常见问题', link: '/help/faq' },
       { text: '开发', link: '/development/' },
       {
-        text: '下载',
+        text: '下载课刻',
         link: 'https://github.com/Tyr1onX/desktop-course-widget/releases/latest',
       },
     ],
@@ -60,7 +60,7 @@ export default defineConfig({
       },
     ],
     footer: {
-      message: '本地优先，不上传课表数据。',
+      message: '课刻本地优先，不上传课表数据。',
       copyright: 'Released under the MIT License.',
     },
     search: {
