@@ -173,6 +173,10 @@ document.addEventListener('click', (event) => {
   }
 })
 
-const observer = new MutationObserver(renderBackupPanel)
+const observer = new MutationObserver(() => {
+  const host = document.querySelector<HTMLElement>('.data-card')
+  const panel = host?.querySelector<HTMLElement>('[data-backup-panel]')
+  if (host && !panel) renderBackupPanel()
+})
 observer.observe(document.documentElement, { childList: true, subtree: true })
 renderBackupPanel()

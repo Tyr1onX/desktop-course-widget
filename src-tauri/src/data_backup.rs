@@ -315,7 +315,7 @@ fn restore_bundle(app: &AppHandle, bundle: &BackupBundle) -> Result<(), String> 
         fs::remove_dir_all(&staging).map_err(|error| error.to_string())?;
     }
 
-    let apply_result = (|| {
+    let apply_result: Result<(), String> = (|| {
         write_staging_bundle(&staging, bundle)?;
         validate_staging_bundle(&staging, bundle)?;
         commit_staging_bundle(&root, &staging)?;
