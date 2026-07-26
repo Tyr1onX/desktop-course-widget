@@ -1,4 +1,6 @@
 import './style.css'
+import './time-flow.css'
+import { enhanceTimeFlow } from './time-flow'
 import { createWidget, defaultOptions, type WidgetOptions } from './widget'
 
 type ControlName = keyof WidgetOptions
@@ -73,7 +75,7 @@ function panelMarkup() {
 function render() {
   app.innerHTML = panelMarkup()
   const mount = document.querySelector<HTMLDivElement>('#widget-mount')!
-  mount.replaceChildren(createWidget(options, render))
+  mount.replaceChildren(enhanceTimeFlow(createWidget(options, render), options))
 
   document.querySelectorAll<HTMLElement>('[data-control]').forEach((control) => {
     control.addEventListener('input', () => updateControl(control))
