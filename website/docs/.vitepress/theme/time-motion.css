@@ -1,0 +1,367 @@
+.course-home--orbit {
+  position: relative;
+  isolation: isolate;
+}
+
+.course-home--orbit::before,
+.course-home--orbit::after {
+  position: absolute;
+  z-index: 0;
+  inset: -14%;
+  content: "";
+  pointer-events: none;
+  will-change: transform;
+}
+
+.course-home--orbit::before {
+  background-image:
+    repeating-linear-gradient(
+      116deg,
+      transparent 0 41px,
+      rgba(55, 88, 132, 0.024) 42px,
+      transparent 43px 86px
+    ),
+    repeating-radial-gradient(
+      ellipse at 68% 42%,
+      rgba(71, 107, 157, 0.018) 0 1px,
+      transparent 1px 32px
+    );
+  opacity: 0.72;
+  transform: translate3d(-18px, -8px, 0) scale(1.04);
+  animation: course-time-texture 84s linear infinite;
+  -webkit-mask-image: radial-gradient(ellipse at 68% 43%, #000 0 36%, rgba(0, 0, 0, 0.72) 54%, transparent 79%);
+  mask-image: radial-gradient(ellipse at 68% 43%, #000 0 36%, rgba(0, 0, 0, 0.72) 54%, transparent 79%);
+}
+
+.course-home--orbit::after {
+  background:
+    radial-gradient(circle at 76% 35%, rgba(102, 151, 213, 0.085), transparent 23%),
+    radial-gradient(circle at 45% 74%, rgba(190, 208, 231, 0.09), transparent 28%);
+  opacity: 0.62;
+  transform: translate3d(14px, 8px, 0) scale(1.03);
+  animation: course-time-light 58s ease-in-out infinite alternate;
+}
+
+.course-home--orbit > .orbit-home-main,
+.course-home--orbit > .course-footer--home-legal {
+  position: relative;
+  z-index: 1;
+}
+
+.course-home--orbit .orbit-float--widget {
+  animation: course-widget-drift 14s cubic-bezier(0.45, 0, 0.25, 1) infinite;
+}
+
+.course-home--orbit .orbit-float--settings {
+  animation: course-settings-drift 16s cubic-bezier(0.45, 0, 0.25, 1) infinite;
+}
+
+.course-home--orbit .orbit-mark {
+  animation: course-mark-breathe 9s ease-in-out infinite;
+}
+
+.orbit-first-mark {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.orbit-first-mark ellipse {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+}
+
+.orbit-first-mark__track {
+  stroke: rgba(72, 111, 164, 0.09);
+  stroke-width: 1;
+}
+
+.orbit-first-mark__stroke {
+  stroke: #4f8fe7;
+  stroke-width: 1.55;
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  filter: drop-shadow(0 0 5px rgba(79, 143, 231, 0.28));
+}
+
+.course-home--orbit.is-intro-playing .course-kicker {
+  animation: course-intro-rise 560ms 30ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.course-home--orbit.is-intro-playing .orbit-hero h1 {
+  animation: course-intro-rise 760ms 100ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.course-home--orbit.is-intro-playing .orbit-hero__lead {
+  animation: course-intro-rise 650ms 230ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.course-home--orbit.is-intro-playing .orbit-hero__actions {
+  animation: course-intro-rise 600ms 340ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.course-home--orbit.is-intro-playing .orbit-hero__meta {
+  animation: course-intro-fade 520ms 460ms ease both;
+}
+
+.course-home--orbit.is-intro-playing .orbit-first-mark {
+  animation: course-first-mark-shell 1500ms 120ms ease both;
+}
+
+.course-home--orbit.is-intro-playing .orbit-first-mark__track {
+  animation: course-first-mark-track 1100ms 160ms ease both;
+}
+
+.course-home--orbit.is-intro-playing .orbit-first-mark__stroke {
+  animation: course-first-mark-draw 1120ms 190ms cubic-bezier(0.33, 0, 0.2, 1) both;
+}
+
+.course-home--orbit.is-intro-playing .orbit-mark img {
+  animation: course-mark-focus 1050ms 230ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.course-home--orbit.is-intro-playing .orbit-scene__ring {
+  animation: course-ring-arrive 900ms 250ms ease both;
+}
+
+.course-home--orbit.is-intro-playing .orbit-float--widget .course-stage--orbit {
+  animation: course-widget-arrive 1050ms 430ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.course-home--orbit.is-intro-playing .orbit-float--settings .orbit-settings {
+  animation: course-settings-arrive 1080ms 590ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.course-home--orbit.is-returning .orbit-scene {
+  animation: course-return-fade 360ms ease both;
+}
+
+@keyframes course-time-texture {
+  0% {
+    transform: translate3d(-18px, -8px, 0) scale(1.04);
+  }
+
+  50% {
+    transform: translate3d(28px, 16px, 0) scale(1.055);
+  }
+
+  100% {
+    transform: translate3d(52px, -2px, 0) scale(1.04);
+  }
+}
+
+@keyframes course-time-light {
+  from {
+    transform: translate3d(14px, 8px, 0) scale(1.03);
+    opacity: 0.48;
+  }
+
+  to {
+    transform: translate3d(-22px, -14px, 0) scale(1.065);
+    opacity: 0.7;
+  }
+}
+
+@keyframes course-widget-drift {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) rotate(-0.62deg);
+  }
+
+  50% {
+    transform: translate3d(7px, 5px, 0) rotate(0.28deg);
+  }
+}
+
+@keyframes course-settings-drift {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) rotate(0.58deg);
+  }
+
+  50% {
+    transform: translate3d(-7px, -5px, 0) rotate(-0.24deg);
+  }
+}
+
+@keyframes course-mark-breathe {
+  0%, 100% {
+    transform: translate3d(0, 0, 0);
+  }
+
+  50% {
+    transform: translate3d(0, -3px, 0);
+  }
+}
+
+@keyframes course-intro-rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 18px, 0);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes course-intro-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes course-first-mark-shell {
+  0%, 100% { opacity: 0; }
+  16%, 78% { opacity: 1; }
+}
+
+@keyframes course-first-mark-track {
+  from { opacity: 0; }
+  35%, 100% { opacity: 1; }
+}
+
+@keyframes course-first-mark-draw {
+  0% {
+    stroke-dashoffset: 1;
+    opacity: 0;
+  }
+
+  8% { opacity: 1; }
+
+  78% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+
+  100% {
+    stroke-dashoffset: -0.18;
+    opacity: 0;
+  }
+}
+
+@keyframes course-mark-focus {
+  0% {
+    opacity: 0;
+    transform: scale(0.82);
+    filter: blur(7px) drop-shadow(0 12px 20px rgba(56, 82, 132, 0.08));
+  }
+
+  58% {
+    opacity: 1;
+    transform: scale(1.035);
+    filter: blur(0) drop-shadow(0 28px 38px rgba(56, 82, 132, 0.24));
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0) drop-shadow(0 25px 34px rgba(56, 82, 132, 0.22));
+  }
+}
+
+@keyframes course-ring-arrive {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes course-widget-arrive {
+  from {
+    opacity: 0;
+    transform: translate3d(46px, 30px, 0) scale(0.93);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes course-settings-arrive {
+  from {
+    opacity: 0;
+    transform: translate3d(-48px, -28px, 0) scale(0.93);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes course-return-fade {
+  from {
+    opacity: 0.82;
+    transform: translate3d(0, 5px, 0);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@media (max-width: 1100px) {
+  .orbit-first-mark {
+    display: none;
+  }
+
+  .course-home--orbit.is-intro-playing .orbit-float--widget .course-stage--orbit {
+    animation-name: course-mobile-arrive;
+  }
+
+  .course-home--orbit.is-intro-playing .orbit-float--settings .orbit-settings {
+    animation-name: course-mobile-arrive;
+  }
+}
+
+@keyframes course-mobile-arrive {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 20px, 0) scale(0.97);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@media (max-width: 720px) {
+  .course-home--orbit .orbit-float--widget,
+  .course-home--orbit .orbit-float--settings,
+  .course-home--orbit .orbit-mark {
+    animation: none;
+  }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .course-home--orbit::before,
+  .course-home--orbit::after,
+  .course-home--orbit .orbit-float,
+  .course-home--orbit .orbit-mark {
+    animation: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .course-home--orbit::before,
+  .course-home--orbit::after,
+  .course-home--orbit *,
+  .course-home--orbit *::before,
+  .course-home--orbit *::after,
+  .course-home--orbit.is-motion-reduced * {
+    scroll-behavior: auto !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+
+  .orbit-first-mark {
+    display: none;
+  }
+}

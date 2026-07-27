@@ -38,19 +38,43 @@ jobs:
 
       - name: Install dependencies
         working-directory: website
-        run: npm install
+        run: |
+          npm install > /tmp/npm-install.log 2>&1 || {
+            cat /tmp/npm-install.log
+            exit 1
+          }
 
       - name: Build website
         working-directory: website
-        run: npm run docs:build
+        run: |
+          npm run docs:build > /tmp/website-build.log 2>&1 || {
+            cat /tmp/website-build.log
+            exit 1
+          }
 
       - name: Install Chromium
         working-directory: website
-        run: npx playwright install --with-deps chromium
+        run: |
+          npx playwright install --with-deps chromium > /tmp/playwright-install.log 2>&1 || {
+            cat /tmp/playwright-install.log
+            exit 1
+          }
 
       - name: Test responsive layouts
         working-directory: website
-        run: npm run docs:test:responsive
+        run: |
+          npm run docs:test:responsive > /tmp/responsive-test.log 2>&1 || {
+            cat /tmp/responsive-test.log
+            exit 1
+          }
+
+      - name: Upload responsive failure log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: responsive-failure-log
+          path: /tmp/responsive-test.log
+          retention-days: 1
 
       - name: Upload website preview
         uses: actions/upload-artifact@v4
