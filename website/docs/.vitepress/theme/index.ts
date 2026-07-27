@@ -15,6 +15,7 @@ import './orbit-accuracy-fixes.css'
 import './responsive-audit.css'
 import './time-motion.css'
 import './mobile-home.css'
+import './mobile-footer-motion.css'
 
 export default {
   extends: DefaultTheme,
