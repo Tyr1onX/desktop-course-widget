@@ -18,11 +18,6 @@ onMounted(() => {
   const root = homeRoot.value
   if (!root) return
 
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    root.classList.add('is-motion-reduced')
-    return
-  }
-
   let hasSeenIntro = false
   try {
     hasSeenIntro = window.sessionStorage.getItem(introStorageKey) === '1'
