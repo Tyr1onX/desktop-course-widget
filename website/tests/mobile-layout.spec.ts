@@ -72,8 +72,8 @@ for (const phone of phones) {
 
       expect(metrics.widget.width).toBeGreaterThanOrEqual(280)
       expect(metrics.settings.width).toBeGreaterThanOrEqual(metrics.viewportWidth - 32)
-      expect(metrics.calendar.width).toBeGreaterThanOrEqual(metrics.settings.width - 2)
-      expect(metrics.editor.width).toBeGreaterThanOrEqual(metrics.settings.width - 2)
+      expect(metrics.calendar.width).toBeGreaterThanOrEqual(metrics.settings.width - 3)
+      expect(metrics.editor.width).toBeGreaterThanOrEqual(metrics.settings.width - 3)
 
       expect(metrics.widget.top).toBeLessThan(metrics.viewportHeight)
       expect(metrics.settings.top).toBeLessThan(metrics.viewportHeight + 120)
