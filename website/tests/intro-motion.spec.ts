@@ -49,6 +49,6 @@ test.describe('reduced homepage motion', () => {
     const animationDuration = await page.locator('.orbit-mark').evaluate((element) =>
       getComputedStyle(element).animationDuration,
     )
-    expect(animationDuration).toMatch(/0\.001ms|0\.000001s/)
+    expect(animationDuration).toMatch(/0\.001ms|0\.000001s|1e-06s/)
   })
 })
