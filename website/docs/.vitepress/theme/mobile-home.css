@@ -1,0 +1,317 @@
+@media (max-width: 720px) {
+  .course-home--orbit {
+    min-width: 0;
+    padding-top: 52px;
+    overflow-x: clip;
+  }
+
+  .course-home--orbit .orbit-hero {
+    padding:
+      34px max(14px, env(safe-area-inset-right, 0px))
+      30px max(14px, env(safe-area-inset-left, 0px));
+  }
+
+  .course-home--orbit .orbit-hero__inner {
+    gap: 18px;
+  }
+
+  .course-home--orbit .course-kicker {
+    margin-bottom: 10px;
+    font-size: 12px;
+  }
+
+  .course-home--orbit .orbit-hero h1 {
+    font-size: clamp(35px, 9.8vw, 42px);
+    line-height: 1.06;
+    letter-spacing: -0.045em;
+  }
+
+  .course-home--orbit .orbit-hero__lead {
+    max-width: 360px;
+    margin-top: 14px;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  .course-home--orbit .orbit-hero__actions {
+    width: 100%;
+    margin-top: 18px;
+    gap: 5px;
+  }
+
+  .course-home--orbit .course-button--primary {
+    width: min(272px, 100%);
+  }
+
+  .course-home--orbit .orbit-hero__meta {
+    display: none;
+  }
+
+  .course-home--orbit .orbit-scene {
+    display: grid;
+    width: min(440px, 100%);
+    height: auto;
+    min-height: 0;
+    margin: 0 auto;
+    padding-top: 0;
+    justify-items: center;
+    gap: 14px;
+    overflow: visible;
+  }
+
+  .course-home--orbit .orbit-mark,
+  .course-home--orbit .orbit-float {
+    position: static;
+    inset: auto;
+    width: auto;
+    max-width: 100%;
+    margin: 0;
+    translate: none;
+    transform: none;
+    animation: none;
+  }
+
+  .course-home--orbit .orbit-mark {
+    order: 0;
+    width: 78px;
+    margin-bottom: -2px;
+  }
+
+  .course-home--orbit .orbit-mark::before {
+    inset: -22%;
+  }
+
+  .course-home--orbit .orbit-float--widget {
+    order: 1;
+    width: min(320px, 100%);
+  }
+
+  .course-home--orbit .orbit-float--settings {
+    order: 2;
+    width: 100%;
+  }
+
+  .course-home--orbit .orbit-settings {
+    width: 100%;
+    border-radius: 15px;
+  }
+
+  .course-home--orbit .orbit-settings__titlebar {
+    height: 27px;
+  }
+
+  .course-home--orbit .orbit-settings__toolbar {
+    height: 36px;
+    padding-inline: 9px;
+    gap: 6px;
+  }
+
+  .course-home--orbit .orbit-settings__body {
+    display: grid;
+    height: auto;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 178px auto;
+  }
+
+  .course-home--orbit .orbit-settings__calendar {
+    height: 178px;
+    grid-template-rows: 38px minmax(0, 1fr);
+    border-right: 0;
+    border-bottom: 1px solid rgba(31, 35, 40, 0.1);
+  }
+
+  .course-home--orbit .orbit-settings__days {
+    height: 38px;
+  }
+
+  .course-home--orbit .orbit-settings__grid {
+    height: auto;
+    padding: 7px 7px 8px;
+    gap: 4px;
+  }
+
+  .course-home--orbit .orbit-course {
+    min-width: 0;
+    padding: 5px 4px;
+  }
+
+  .course-home--orbit .orbit-course b {
+    font-size: 7.5px;
+  }
+
+  .course-home--orbit .orbit-course span {
+    font-size: 6.5px;
+  }
+
+  .course-home--orbit .orbit-settings__editor {
+    min-height: 164px;
+    grid-template-rows: 36px minmax(0, 1fr) 40px;
+  }
+
+  .course-home--orbit .orbit-settings__editor > header {
+    height: 36px;
+    padding-inline: 12px;
+  }
+
+  .course-home--orbit .orbit-settings__editor > header strong {
+    font-size: 10px;
+  }
+
+  .course-home--orbit .orbit-settings__editor-content {
+    display: grid;
+    padding: 10px 12px 8px;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    align-items: end;
+    gap: 8px 12px;
+  }
+
+  .course-home--orbit .orbit-settings__editor-content label {
+    min-width: 0;
+    margin: 0;
+  }
+
+  .course-home--orbit .orbit-settings__editor-content label:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .course-home--orbit .orbit-settings__editor-content .orbit-settings__colors {
+    margin: 0 0 2px;
+    align-self: end;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .course-home--orbit .orbit-settings__editor label > span {
+    font-size: 8px;
+  }
+
+  .course-home--orbit .orbit-settings__editor label > b {
+    height: 25px;
+    font-size: 8.5px;
+  }
+
+  .course-home--orbit .orbit-settings__editor > footer {
+    min-height: 40px;
+    padding: 7px 10px;
+  }
+
+  .course-home--orbit .orbit-settings__editor > footer span,
+  .course-home--orbit .orbit-settings__editor > footer strong {
+    height: 25px;
+    padding-inline: 9px;
+  }
+
+  .course-home--orbit.is-intro-playing .orbit-float--widget .course-stage--orbit,
+  .course-home--orbit.is-intro-playing .orbit-float--settings .orbit-settings {
+    animation-name: course-mobile-home-fade;
+  }
+
+  .course-home--orbit.is-intro-playing .orbit-mark img {
+    animation: course-mobile-mark-fade 560ms 120ms ease both;
+  }
+}
+
+@keyframes course-mobile-home-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes course-mobile-mark-fade {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (max-width: 430px) {
+  .course-home--orbit .orbit-hero {
+    padding-top: 28px;
+  }
+
+  .course-home--orbit .orbit-hero h1 {
+    font-size: clamp(34px, 9.6vw, 40px);
+  }
+
+  .course-home--orbit .orbit-mark {
+    width: 72px;
+  }
+
+  .course-home--orbit .orbit-float--widget {
+    width: min(306px, 100%);
+  }
+
+  .course-home--orbit .orbit-settings__body {
+    grid-template-rows: 170px auto;
+  }
+
+  .course-home--orbit .orbit-settings__calendar {
+    height: 170px;
+  }
+}
+
+@media (max-width: 380px) {
+  .course-home--orbit .orbit-hero {
+    padding-inline: 12px;
+  }
+
+  .course-home--orbit .orbit-hero h1 {
+    font-size: clamp(33px, 9.4vw, 37px);
+  }
+
+  .course-home--orbit .orbit-hero__lead {
+    font-size: 13.5px;
+  }
+
+  .course-home--orbit .orbit-mark {
+    width: 68px;
+  }
+
+  .course-home--orbit .orbit-float--widget {
+    width: min(292px, 100%);
+  }
+
+  .course-home--orbit .orbit-settings__body {
+    grid-template-rows: 164px auto;
+  }
+
+  .course-home--orbit .orbit-settings__calendar {
+    height: 164px;
+  }
+
+  .course-home--orbit .orbit-settings__editor-content {
+    gap: 7px 9px;
+  }
+
+  .course-home--orbit .orbit-settings__colors i {
+    width: 12px;
+    height: 12px;
+  }
+}
+
+@media (max-width: 900px) and (max-height: 540px) and (orientation: landscape) {
+  .course-home--orbit .orbit-hero {
+    padding: 28px 16px 30px;
+  }
+
+  .course-home--orbit .orbit-hero__inner {
+    gap: 18px;
+  }
+
+  .course-home--orbit .orbit-scene {
+    width: min(520px, 100%);
+    height: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) and (max-width: 720px) {
+  .course-home--orbit .orbit-mark,
+  .course-home--orbit .orbit-float {
+    translate: none !important;
+    transform: none !important;
+  }
+}
