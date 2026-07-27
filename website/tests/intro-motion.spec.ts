@@ -35,21 +35,20 @@ test.describe('homepage motion', () => {
 })
 
 test.describe('reduced homepage motion', () => {
-  test.use({
-    viewport: { width: 1440, height: 900 },
-    reducedMotion: 'reduce',
-  })
+  test.use({ viewport: { width: 1440, height: 900 } })
 
-  test('skips the opening sequence when reduced motion is requested', async ({ page }) => {
+  test('suppresses the opening sequence when reduced motion is requested', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' })
     await page.goto(homePath, { waitUntil: 'networkidle' })
-
-    const root = page.locator('.course-home--orbit')
-    await expect(root).toHaveClass(/is-motion-reduced/)
-    await expect(root).not.toHaveClass(/is-intro-playing/)
 
     const firstMarkDisplay = await page.locator('.orbit-first-mark').evaluate((element) =>
       getComputedStyle(element).display,
     )
     expect(firstMarkDisplay).toBe('none')
+
+    const animationDuration = await page.locator('.orbit-mark').evaluate((element) =>
+      getComputedStyle(element).animationDuration,
+    )
+    expect(animationDuration).toMatch(/0\.001ms|0\.000001s/)
   })
 })
