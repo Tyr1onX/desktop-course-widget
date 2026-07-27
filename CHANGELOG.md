@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- Removed the obsolete in-app updater UI and its unused process/updater dependencies.
+- Reduced the production frontend build to the widget and settings pages.
+- Removed unused website styles, demo states, and duplicate validation configuration.
+- Updated repository documentation for the current release and backup workflow.
+
+## v0.4.0
+
+- Renamed the application to 课刻 and introduced the new application icon.
+- Added complete local backup export and restore with validation, content preview, safety snapshots, and rollback protection.
+- Added the shared time-flow model used by the desktop widget and website presentation.
+- Improved packaged startup stability, window recovery, DPI handling, and multi-display behavior.
+- Added Windows release-build and website validation workflows.
+- Improved Excel import and local timetable handling.
+
 ## v0.3.0
 
 - Added multi-timetable management.
