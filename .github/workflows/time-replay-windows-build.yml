@@ -1,0 +1,54 @@
+name: Time replay Windows test build
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - src/presentation-clock.ts
+      - src/widget-page.ts
+      - src/widget-page.css
+      - package.json
+      - .github/workflows/time-replay-windows-build.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: time-replay-windows-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build-test-installer:
+    runs-on: windows-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout pull request
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Select stable Rust
+        run: rustup default stable
+
+      - name: Run replay checks
+        run: npm run check:presentation-clock
+
+      - name: Build Windows NSIS installer
+        run: npx tauri build --bundles nsis
+
+      - name: Upload test installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: keke-time-replay-windows-test
+          path: src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+          retention-days: 7
