@@ -38,7 +38,10 @@ const options: WidgetOptions = {
   closeControl: desktopRuntime,
 }
 
-const COURSE_TRANSITION_SETTLE_MS = 1800
+const COURSE_EXIT_MS = 2200
+const COURSE_HANDOFF_GAP_MS = 320
+const COURSE_ENTER_MS = 2400
+const COURSE_TRANSITION_SETTLE_MS = 900
 const presentationClock = new PresentationClock()
 let presentationFrame: number | undefined
 let minuteTimeout: number | undefined
@@ -46,14 +49,11 @@ let minuteInterval: number | undefined
 let transitionTimer: number | undefined
 let transitionToken = 0
 let transitionActive = false
+let handoffAnimations: Animation[] = []
 let lastPresentationMinute = Number.NaN
 let lastPublishedPercent = -1
 let presentationMessage = '演示只改变课刻画面，不会修改系统时间或课表数据。'
 let presentationRestore: Pick<WidgetOptions, 'showNav' | 'closeControl' | 'browseDate'> | null = null
-
-type TransitionDocument = Document & {
-  startViewTransition?: (update: () => void) => { finished: Promise<void> }
-}
 
 function buildWidget() {
   return enhanceTimeFlow(createWidget(options, renderWidget), options)
@@ -110,10 +110,59 @@ function syncStableWidget(current: HTMLElement, next: HTMLElement) {
   syncNode(current, next)
 }
 
+function transitionPrimary(widget: HTMLElement | null) {
+  return widget?.querySelector<HTMLElement>('.focus-course, .state-label, .empty-state, .opening-date') ?? null
+}
+
+function transitionSecondary(widget: HTMLElement | null) {
+  return widget?.querySelector<HTMLElement>('.following') ?? null
+}
+
+function rememberAnimation(animation: Animation) {
+  handoffAnimations.push(animation)
+  void animation.finished.finally(() => {
+    handoffAnimations = handoffAnimations.filter((current) => current !== animation)
+  }).catch(() => undefined)
+  return animation.finished.catch(() => undefined)
+}
+
+function animateElement(
+  element: HTMLElement | null,
+  keyframes: Keyframe[],
+  options: KeyframeAnimationOptions,
+) {
+  if (!element) return Promise.resolve()
+  return rememberAnimation(element.animate(keyframes, options))
+}
+
+function waitForHandoff(milliseconds: number) {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds))
+}
+
+function resetPreparedElement(element: HTMLElement | null) {
+  if (!element) return
+  element.style.removeProperty('opacity')
+  element.style.removeProperty('transform')
+  element.style.removeProperty('filter')
+}
+
+function prepareIncomingElement(element: HTMLElement | null, secondary = false) {
+  if (!element) return
+  element.style.opacity = '0'
+  element.style.transform = secondary
+    ? 'translateY(24px) scale(.94)'
+    : 'translateY(42px) scale(.78)'
+  element.style.filter = secondary
+    ? 'blur(7px) brightness(.78) saturate(.86)'
+    : 'blur(12px) brightness(.64) saturate(.76)'
+}
+
 function clearCourseTransition() {
   transitionToken += 1
   if (transitionTimer !== undefined) window.clearTimeout(transitionTimer)
   transitionTimer = undefined
+  handoffAnimations.forEach((animation) => animation.cancel())
+  handoffAnimations = []
   transitionActive = false
   document.documentElement.classList.remove('is-course-transitioning')
 }
@@ -149,10 +198,79 @@ function finishCourseTransition(token: number, resumeAfterTransition: boolean) {
   }, COURSE_TRANSITION_SETTLE_MS)
 }
 
+async function runCourseHandoff(
+  token: number,
+  currentWidget: HTMLElement,
+  nextWidget: HTMLElement,
+  resumeAfterTransition: boolean,
+) {
+  const outgoingPrimary = transitionPrimary(currentWidget)
+  const outgoingSecondary = transitionSecondary(currentWidget)
+
+  await Promise.all([
+    animateElement(outgoingPrimary, [
+      { offset: 0, opacity: 1, transform: 'translateY(0) scale(1)', filter: 'blur(0) brightness(1) saturate(1)' },
+      { offset: .18, opacity: 1, transform: 'translateY(0) scale(1)', filter: 'blur(0) brightness(1) saturate(1)' },
+      { offset: .62, opacity: .56, transform: 'translateY(-18px) scale(.94)', filter: 'blur(2.5px) brightness(.88) saturate(.92)' },
+      { offset: 1, opacity: 0, transform: 'translateY(-48px) scale(.82)', filter: 'blur(11px) brightness(.64) saturate(.74)' },
+    ], {
+      duration: COURSE_EXIT_MS,
+      easing: 'cubic-bezier(.42, 0, .72, .18)',
+      fill: 'both',
+    }),
+    animateElement(outgoingSecondary, [
+      { offset: 0, opacity: 1, transform: 'translateY(0) scale(1)', filter: 'blur(0) brightness(1)' },
+      { offset: .22, opacity: 1, transform: 'translateY(0) scale(1)', filter: 'blur(0) brightness(1)' },
+      { offset: 1, opacity: 0, transform: 'translateY(-26px) scale(.9)', filter: 'blur(8px) brightness(.72)' },
+    ], {
+      duration: COURSE_EXIT_MS - 260,
+      easing: 'cubic-bezier(.42, 0, .72, .18)',
+      fill: 'both',
+    }),
+  ])
+  if (token !== transitionToken) return
+
+  await waitForHandoff(COURSE_HANDOFF_GAP_MS)
+  if (token !== transitionToken) return
+
+  const incomingPrimary = transitionPrimary(nextWidget)
+  const incomingSecondary = transitionSecondary(nextWidget)
+  prepareIncomingElement(incomingPrimary)
+  prepareIncomingElement(incomingSecondary, true)
+  app.replaceChildren(nextWidget)
+
+  await Promise.all([
+    animateElement(incomingPrimary, [
+      { offset: 0, opacity: 0, transform: 'translateY(42px) scale(.78)', filter: 'blur(12px) brightness(.64) saturate(.76)' },
+      { offset: .18, opacity: .1, transform: 'translateY(34px) scale(.84)', filter: 'blur(9px) brightness(.72) saturate(.82)' },
+      { offset: .62, opacity: .78, transform: 'translateY(7px) scale(1.025)', filter: 'blur(1.8px) brightness(1.05) saturate(1.02)' },
+      { offset: .82, opacity: 1, transform: 'translateY(-2px) scale(1.012)', filter: 'blur(0) brightness(1.015) saturate(1)' },
+      { offset: 1, opacity: 1, transform: 'translateY(0) scale(1)', filter: 'blur(0) brightness(1) saturate(1)' },
+    ], {
+      duration: COURSE_ENTER_MS,
+      easing: 'cubic-bezier(.16, 1, .3, 1)',
+      fill: 'both',
+    }),
+    animateElement(incomingSecondary, [
+      { offset: 0, opacity: 0, transform: 'translateY(24px) scale(.94)', filter: 'blur(7px) brightness(.78)' },
+      { offset: .58, opacity: .72, transform: 'translateY(5px) scale(1.01)', filter: 'blur(1.5px) brightness(1.02)' },
+      { offset: 1, opacity: 1, transform: 'translateY(0) scale(1)', filter: 'blur(0) brightness(1)' },
+    ], {
+      duration: COURSE_ENTER_MS - 360,
+      delay: 260,
+      easing: 'cubic-bezier(.16, 1, .3, 1)',
+      fill: 'both',
+    }),
+  ])
+  resetPreparedElement(incomingPrimary)
+  resetPreparedElement(incomingSecondary)
+  if (token !== transitionToken) return
+  finishCourseTransition(token, resumeAfterTransition)
+}
+
 function renderWidget(allowTransition = true, timestamp = performance.now()): boolean {
   const nextWidget = buildWidget()
   const currentWidget = app.querySelector<HTMLElement>('.course-widget')
-  const transitionDocument = document as TransitionDocument
   const stateChanged = transitionKey(currentWidget) !== transitionKey(nextWidget)
 
   if (currentWidget && !stateChanged) {
@@ -164,12 +282,11 @@ function renderWidget(allowTransition = true, timestamp = performance.now()): bo
     && !transitionActive
     && presentationClock.isActive()
     && stateChanged
-    && Boolean(transitionDocument.startViewTransition)
+    && Boolean(currentWidget)
     && !window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  const replace = () => app.replaceChildren(nextWidget)
 
-  if (!shouldAnimate || !transitionDocument.startViewTransition) {
-    replace()
+  if (!shouldAnimate || !currentWidget) {
+    app.replaceChildren(nextWidget)
     return false
   }
 
@@ -183,8 +300,12 @@ function renderWidget(allowTransition = true, timestamp = performance.now()): bo
   const token = ++transitionToken
   publishPresentationStatus(frozen, true)
 
-  const transition = transitionDocument.startViewTransition(replace)
-  void transition.finished.finally(() => finishCourseTransition(token, resumeAfterTransition))
+  void runCourseHandoff(token, currentWidget, nextWidget, resumeAfterTransition).catch((error: unknown) => {
+    console.error('[presentation] course handoff failed', error)
+    if (token !== transitionToken) return
+    app.replaceChildren(nextWidget)
+    finishCourseTransition(token, resumeAfterTransition)
+  })
   return true
 }
 
