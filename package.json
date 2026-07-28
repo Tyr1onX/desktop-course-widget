@@ -10,6 +10,7 @@
     "web:build": "tsc && vite build",
     "check:version": "node scripts/check-version-consistency.mjs",
     "check:time-flow": "node scripts/check-time-flow.mjs",
+    "check:import-review": "node --experimental-strip-types --test scripts/import-review.test.ts",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "preview": "vite preview"

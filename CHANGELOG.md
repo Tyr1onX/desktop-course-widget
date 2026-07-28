@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Added a source-neutral import draft shared by Excel import and future screenshot recognition.
+- Added a course-by-course review and correction screen before importing a timetable.
 - Removed the obsolete in-app updater UI and its unused process/updater dependencies.
 - Reduced the production frontend build to the widget and settings pages.
 - Removed unused website styles, demo states, and duplicate validation configuration.

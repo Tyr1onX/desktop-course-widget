@@ -39,6 +39,9 @@ jobs:
       - name: Check widget time-flow model
         run: npm run check:time-flow
 
+      - name: Check import review helpers
+        run: npm run check:import-review
+
       - name: Build web interface
         id: web_build
         shell: pwsh
