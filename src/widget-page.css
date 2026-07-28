@@ -27,3 +27,212 @@ body {
 .widget-drag-surface.is-desktop-drag:active {
   cursor: move;
 }
+
+.presentation-panel {
+  position: fixed;
+  z-index: 1000;
+  top: 12px;
+  right: 12px;
+  width: min(328px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  box-sizing: border-box;
+  padding: 14px;
+  overflow: auto;
+  color: #1d2530;
+  border: 1px solid rgb(90 108 128 / 22%);
+  border-radius: 18px;
+  background: rgb(248 250 253 / 94%);
+  box-shadow: 0 18px 48px rgb(28 39 52 / 24%);
+  backdrop-filter: blur(24px) saturate(1.1);
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.presentation-panel[hidden] {
+  display: none;
+}
+
+.presentation-panel__header,
+.presentation-actions,
+.presentation-status,
+.presentation-loop {
+  display: flex;
+  align-items: center;
+}
+
+.presentation-panel__header {
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.presentation-panel__header > div {
+  display: grid;
+  gap: 1px;
+}
+
+.presentation-panel__header strong {
+  font-size: 15px;
+}
+
+.presentation-panel__header span,
+.presentation-field span,
+.presentation-status span,
+.presentation-message {
+  color: #657180;
+  font-size: 11px;
+}
+
+.presentation-panel button,
+.presentation-panel input {
+  box-sizing: border-box;
+  font: inherit;
+}
+
+.presentation-panel button {
+  min-height: 32px;
+  padding: 0 11px;
+  color: inherit;
+  border: 1px solid rgb(90 108 128 / 20%);
+  border-radius: 10px;
+  background: rgb(255 255 255 / 72%);
+  cursor: pointer;
+}
+
+.presentation-panel button:hover:not(:disabled) {
+  background: #fff;
+}
+
+.presentation-panel button:disabled {
+  cursor: default;
+  opacity: .42;
+}
+
+.presentation-panel__header button {
+  width: 30px;
+  min-height: 30px;
+  padding: 0;
+  font-size: 18px;
+}
+
+.presentation-panel .presentation-primary {
+  color: #fff;
+  border-color: #527295;
+  background: #527295;
+}
+
+.presentation-panel .presentation-primary:hover:not(:disabled) {
+  background: #466584;
+}
+
+.presentation-panel__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.presentation-field {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.presentation-field--wide {
+  grid-column: 1 / -1;
+}
+
+.presentation-field input {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  padding: 0 9px;
+  color: inherit;
+  border: 1px solid rgb(90 108 128 / 22%);
+  border-radius: 10px;
+  outline: none;
+  background: rgb(255 255 255 / 74%);
+}
+
+.presentation-field input:focus {
+  border-color: #6e8cab;
+  box-shadow: 0 0 0 3px rgb(91 125 159 / 14%);
+}
+
+.presentation-loop {
+  align-self: end;
+  min-height: 34px;
+  gap: 7px;
+  color: #4d5967;
+}
+
+.presentation-loop input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.presentation-status {
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 9px 10px;
+  border-radius: 11px;
+  background: rgb(84 111 139 / 8%);
+}
+
+.presentation-status time {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.presentation-message {
+  min-height: 16px;
+  margin: 7px 2px 8px;
+}
+
+.presentation-actions {
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.is-presentation-replay .course-widget {
+  box-shadow: 0 18px 55px rgb(25 40 58 / 18%);
+}
+
+@media (prefers-color-scheme: dark) {
+  .presentation-panel {
+    color: #edf2f7;
+    border-color: rgb(190 205 220 / 18%);
+    background: rgb(30 36 44 / 94%);
+    box-shadow: 0 18px 48px rgb(0 0 0 / 42%);
+  }
+
+  .presentation-panel__header span,
+  .presentation-field span,
+  .presentation-status span,
+  .presentation-message {
+    color: #aab5c0;
+  }
+
+  .presentation-panel button,
+  .presentation-field input {
+    color: inherit;
+    border-color: rgb(190 205 220 / 18%);
+    background: rgb(255 255 255 / 8%);
+  }
+
+  .presentation-panel button:hover:not(:disabled) {
+    background: rgb(255 255 255 / 14%);
+  }
+
+  .presentation-panel .presentation-primary {
+    border-color: #7191b2;
+    background: #5d7fa2;
+  }
+
+  .presentation-status {
+    background: rgb(151 178 205 / 10%);
+  }
+
+  .presentation-loop {
+    color: #d2d9e0;
+  }
+}
