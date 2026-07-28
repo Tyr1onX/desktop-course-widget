@@ -1,0 +1,65 @@
+name: Time replay demo
+
+on:
+  push:
+    branches:
+      - feat/time-replay-demo
+    paths:
+      - scripts/apply_time_replay_demo.py
+      - .github/workflows/time-replay-demo.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feat/time-replay-demo
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Apply widget clock integration
+        run: python scripts/apply_time_replay_demo.py
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate frontend and helpers
+        shell: pwsh
+        run: |
+          npm run check:version
+          npm run check:time-flow
+          npm run check:import-review
+          npm run check:presentation-clock
+          npm run web:build
+
+      - name: Select stable Rust
+        run: rustup default stable
+
+      - name: Run Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+
+      - name: Commit implementation
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md src/widget.ts
+          git commit -m "feat: integrate hidden time replay mode"
+          git push origin HEAD:feat/time-replay-demo
