@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { PresentationClock, validateReplayConfig, withPresentationDate } from '../src/presentation-clock.ts'
+import { readFileSync } from 'node:fs'
+import { PresentationClock, validateReplayConfig } from '../src/presentation-clock.ts'
 
 const config = {
   date: '2026-09-07',
@@ -44,17 +45,16 @@ assert.equal(snapshot.progress, 0.25)
 assert.equal(snapshot.date.getHours(), 11)
 assert.equal(snapshot.date.getMinutes(), 30)
 
-const realTimestamp = Date.now()
-const fixed = new Date(2026, 8, 7, 13, 25)
-const rendered = withPresentationDate(fixed, () => ({
-  now: new Date(),
-  timestamp: Date.now(),
-  explicit: new Date(2027, 0, 1, 9, 30),
-}))
-assert.equal(rendered.now.getTime(), fixed.getTime())
-assert.equal(rendered.timestamp, fixed.getTime())
-assert.equal(rendered.explicit.getFullYear(), 2027)
-assert.equal(rendered.explicit.getHours(), 9)
-assert.ok(Math.abs(Date.now() - realTimestamp) < 5_000)
+const widgetSource = readFileSync(new URL('../src/widget.ts', import.meta.url), 'utf8')
+const widgetPageSource = readFileSync(new URL('../src/widget-page.ts', import.meta.url), 'utf8')
+const widgetPageCss = readFileSync(new URL('../src/widget-page.css', import.meta.url), 'utf8')
 
-console.log('presentation clock checks passed')
+assert.match(widgetSource, /now\?: Date/)
+assert.match(widgetSource, /const now = options\.now \? new Date\(options\.now\) : new Date\(\)/)
+assert.match(widgetSource, /const today = startOfDay\(options\.now \?\? new Date\(\)\)/)
+assert.match(widgetPageSource, /options\.now = snapshot\.date/)
+assert.match(widgetPageSource, /options\.now = undefined/)
+assert.doesNotMatch(widgetPageSource, /withPresentationDate/)
+assert.match(widgetPageCss, /\.is-presentation-panel-open #app/)
+
+console.log('presentation clock and widget wiring checks passed')
