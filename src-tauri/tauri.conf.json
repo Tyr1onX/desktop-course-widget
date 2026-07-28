@@ -55,6 +55,28 @@
         "visible": false,
         "center": true,
         "zoomHotkeysEnabled": false
+      },
+      {
+        "label": "presentation",
+        "title": "课刻 · 演示控制器",
+        "url": "presentation.html",
+        "width": 520,
+        "height": 640,
+        "minWidth": 420,
+        "minHeight": 560,
+        "resizable": true,
+        "maximizable": false,
+        "minimizable": true,
+        "fullscreen": false,
+        "decorations": true,
+        "transparent": false,
+        "shadow": true,
+        "skipTaskbar": false,
+        "alwaysOnTop": true,
+        "alwaysOnBottom": false,
+        "visible": false,
+        "center": true,
+        "zoomHotkeysEnabled": false
       }
     ],
     "security": {
