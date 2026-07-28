@@ -6,12 +6,14 @@ on:
       - feat/import-draft-foundation
     paths:
       - scripts/apply_import_draft_foundation.py
+      - scripts/run_import_draft_foundation.py
       - .github/workflows/import-draft-foundation.yml
   pull_request:
     branches:
       - main
     paths:
       - scripts/apply_import_draft_foundation.py
+      - scripts/run_import_draft_foundation.py
       - .github/workflows/import-draft-foundation.yml
 
 permissions:
@@ -37,7 +39,7 @@ jobs:
       - name: Apply import draft foundation
         shell: pwsh
         run: |
-          python scripts/apply_import_draft_foundation.py *>&1 | Tee-Object migration.log
+          python scripts/run_import_draft_foundation.py *>&1 | Tee-Object migration.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload migration diagnostics
