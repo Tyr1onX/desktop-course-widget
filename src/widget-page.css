@@ -47,7 +47,7 @@ body { display: inline-block; }
   inline-size: 100%;
 }
 
-.widget-body-handoff > .widget-body.is-handoff-current { z-index: 1; }
+.widget-body-handoff > .widget-body.is-handoff-current { z-index: 5; }
 .widget-body-handoff > .widget-body.is-handoff-target { visibility: hidden; }
 
 .widget-body-handoff.is-size-settling > .widget-body {
@@ -59,12 +59,12 @@ body { display: inline-block; }
 
 .course-shared-morph {
   position: absolute;
-  z-index: 4;
+  z-index: 3;
   overflow: hidden;
   box-sizing: border-box;
   pointer-events: none;
   transform-origin: top left;
-  will-change: width, height, transform, border-radius;
+  will-change: height, opacity;
 }
 
 .course-morph-surface,
@@ -74,30 +74,12 @@ body { display: inline-block; }
   margin: 0 !important;
 }
 
-.course-morph-source {
-  position: absolute;
-  inset: 0 auto auto 0;
-  margin: 0 !important;
-  overflow: visible;
-}
-
 .course-morph-surface {
   z-index: 1;
   width: 100%;
   height: 100%;
   padding: 0;
 }
-
-.course-morph-source {
-  z-index: 3;
-  display: grid;
-  gap: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.course-morph-source.timeline::before { display: none; }
-.course-morph-source li { width: 100%; }
 
 .course-morph-target {
   z-index: 2;
@@ -107,7 +89,41 @@ body { display: inline-block; }
   box-shadow: none !important;
 }
 
-.is-shared-course-source { visibility: hidden; }
+.course-morph-target .is-shared-copy-hidden { opacity: 0 !important; }
+
+.is-course-transitioning .following .section-label,
+.is-course-transitioning .following .more-courses,
+.is-course-transitioning .following .timeline li,
+.is-course-transitioning .following .timeline::before,
+.is-course-transitioning .following .timeline li::after,
+.is-course-transitioning .following .timeline time {
+  transition: opacity 280ms ease, transform 280ms cubic-bezier(.4, 0, .7, .2);
+}
+
+.following.is-promoting-course .section-label,
+.following.is-promoting-course .more-courses,
+.following.is-promoting-course .timeline li:not(.is-promoting-source) {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+.following.is-promoting-course .timeline::before,
+.following.is-promoting-course .is-promoting-source::after,
+.following.is-promoting-course .is-promoting-source > time {
+  opacity: 0;
+}
+
+.is-promoting-source strong,
+.is-promoting-source small {
+  position: relative;
+  z-index: 7;
+  display: block;
+  width: max-content;
+  max-width: none;
+  white-space: nowrap;
+  transform-origin: top left;
+  will-change: transform, color, opacity;
+}
 
 .is-course-transitioning .focus-course,
 .is-course-transitioning .state-label,
