@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added a source-neutral import draft shared by Excel import and future screenshot recognition.
 - Removed the obsolete in-app updater UI and its unused process/updater dependencies.
 - Reduced the production frontend build to the widget and settings pages.
 - Removed unused website styles, demo states, and duplicate validation configuration.

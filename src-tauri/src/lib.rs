@@ -1,5 +1,6 @@
 mod app_settings;
 pub mod excel_import;
+mod import_draft;
 mod schedule_apply;
 mod schedule_catalog;
 mod schedule_store;
@@ -27,18 +28,6 @@ impl Default for RuntimeState {
             quitting: AtomicBool::new(false),
         }
     }
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ExcelImportPreview {
-    file_name: String,
-    detected_term_text: Option<String>,
-    arrangements: usize,
-    highest_week: u8,
-    location_count: usize,
-    warnings: Vec<String>,
-    courses: Vec<excel_import::types::ParsedCourseEntry>,
 }
 
 #[derive(serde::Deserialize)]
@@ -355,7 +344,9 @@ fn save_lesson_times(
 }
 
 #[tauri::command]
-async fn choose_and_parse_excel(app: AppHandle) -> Result<Option<ExcelImportPreview>, String> {
+async fn choose_and_parse_excel(
+    app: AppHandle,
+) -> Result<Option<import_draft::ImportDraft>, String> {
     let selected = app
         .dialog()
         .file()
@@ -370,39 +361,14 @@ async fn choose_and_parse_excel(app: AppHandle) -> Result<Option<ExcelImportPrev
         .into_path()
         .map_err(|_| "无法读取所选 Excel 文件路径".to_owned())?;
     let parsed = excel_import::workbook::parse_xlsx(&path)?;
-    let arrangements = parsed.scheduled_entries.len();
-    let highest_week = parsed
-        .scheduled_entries
-        .iter()
-        .flat_map(|entry| entry.weeks.iter())
-        .copied()
-        .max()
-        .unwrap_or(0);
-    let location_count = parsed
-        .scheduled_entries
-        .iter()
-        .filter(|entry| {
-            entry
-                .location
-                .as_deref()
-                .is_some_and(|location| !location.trim().is_empty())
-        })
-        .count();
     let file_name = path
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("已选择课表.xlsx")
         .to_owned();
-
-    Ok(Some(ExcelImportPreview {
-        file_name,
-        detected_term_text: parsed.detected_term_text,
-        arrangements,
-        highest_week,
-        location_count,
-        warnings: parsed.warnings,
-        courses: parsed.scheduled_entries,
-    }))
+    let draft = import_draft::ImportDraft::from_excel(file_name, parsed);
+    draft.validate()?;
+    Ok(Some(draft))
 }
 
 #[tauri::command]

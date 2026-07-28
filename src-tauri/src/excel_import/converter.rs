@@ -1,8 +1,20 @@
 use super::types::{ParsedWorkbook, SectionTime};
-use crate::schedule_store::{Course, Schedule};
+use crate::{
+    import_draft::{ImportCourse, ImportDraft},
+    schedule_store::{Course, Schedule},
+};
 use chrono::{Datelike, Duration, NaiveDate};
 pub fn preview_schedule(
     parsed: &ParsedWorkbook,
+    first_week_monday: &str,
+    times: &[SectionTime],
+) -> Result<Schedule, String> {
+    let draft = ImportDraft::from_excel("课表.xlsx".into(), parsed.clone());
+    preview_import_schedule(&draft.courses, first_week_monday, times)
+}
+
+pub fn preview_import_schedule(
+    entries: &[ImportCourse],
     first_week_monday: &str,
     times: &[SectionTime],
 ) -> Result<Schedule, String> {
@@ -12,18 +24,18 @@ pub fn preview_schedule(
         return Err("第一教学周日期必须是星期一".into());
     }
     let mut courses = Vec::new();
-    for entry in &parsed.scheduled_entries {
+    for entry in entries {
         let start = times
             .iter()
-            .find(|t| t.section == entry.start_section)
+            .find(|time| time.section == entry.start_section)
             .ok_or("第N节没有配置作息时间")?;
         let end = times
             .iter()
-            .find(|t| t.section == entry.end_section)
+            .find(|time| time.section == entry.end_section)
             .ok_or("第N节没有配置作息时间")?;
         courses.push(Course {
             name: entry.name.clone(),
-            teacher: String::new(),
+            teacher: entry.teacher.clone().unwrap_or_default(),
             weekday: entry.weekday,
             start: start.start.clone(),
             end: end.end.clone(),
@@ -32,8 +44,7 @@ pub fn preview_schedule(
             parity: entry.parity.clone(),
         });
     }
-    let maximum_week = parsed
-        .scheduled_entries
+    let maximum_week = entries
         .iter()
         .flat_map(|entry| entry.weeks.iter().copied())
         .max()
