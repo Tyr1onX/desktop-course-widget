@@ -38,10 +38,12 @@ const options: WidgetOptions = {
   closeControl: desktopRuntime,
 }
 
-const COURSE_EXIT_MS = 1350
-const COURSE_MORPH_DELAY_MS = 320
-const COURSE_MORPH_TRAVEL_MS = 1750
-const COURSE_MORPH_CROSSFADE_MS = 780
+const COURSE_EXIT_MS = 1100
+const COURSE_EXIT_GAP_MS = 140
+const COURSE_PREVIEW_MOVE_MS = 760
+const COURSE_SHELL_EXPAND_MS = 620
+const COURSE_PREVIEW_FADE_MS = 260
+const COURSE_CARD_REVEAL_MS = 440
 const COURSE_RESIZE_MS = 1000
 const COURSE_TRANSITION_SETTLE_MS = 420
 const presentationClock = new PresentationClock()
@@ -140,6 +142,10 @@ function animateElement(
 
 function nextAnimationFrame() {
   return new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
+}
+
+function transitionDelay(milliseconds: number) {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds))
 }
 
 function elementText(root: ParentNode | null, selector: string) {
@@ -253,9 +259,22 @@ async function runCourseHandoff(
   const sharedSource = findSharedCourseSource(currentBody, nextBody)
 
   if (sharedSource && targetPrimary?.classList.contains('focus-course')) {
+  await animateElement(outgoingPrimary, [
+    { opacity: 1, transform: 'translateY(0) scale(1)', filter: 'blur(0)' },
+    { offset: .48, opacity: .84, transform: 'translateY(-13px) scale(.993)', filter: 'blur(.8px)' },
+    { opacity: 0, transform: 'translateY(-54px) scale(.968)', filter: 'blur(5px)' },
+  ], { duration: COURSE_EXIT_MS, easing: 'cubic-bezier(.4, 0, .7, .2)', fill: 'both' })
+  if (token !== transitionToken) return
+
+  await transitionDelay(COURSE_EXIT_GAP_MS)
+  if (token !== transitionToken) return
+
   const stageRect = stage.getBoundingClientRect()
   const sourceRect = sharedSource.getBoundingClientRect()
   const targetRect = targetPrimary.getBoundingClientRect()
+  const targetStyle = getComputedStyle(targetPrimary)
+  const targetInsetX = Number.parseFloat(targetStyle.paddingLeft) || 0
+  const targetInsetY = Number.parseFloat(targetStyle.paddingTop) || 0
   const morph = document.createElement('div')
   morph.className = 'course-shared-morph'
   morph.style.left = `${sourceRect.left - stageRect.left}px`
@@ -284,51 +303,68 @@ async function runCourseHandoff(
 
   const deltaX = targetRect.left - sourceRect.left
   const deltaY = targetRect.top - sourceRect.top
-  const nearDeltaX = deltaX * .82
-  const nearDeltaY = deltaY * .82
-  const nearWidth = sourceRect.width + (targetRect.width - sourceRect.width) * .82
-  const nearHeight = sourceRect.height + (targetRect.height - sourceRect.height) * .82
   const targetRadius = getComputedStyle(targetPrimary).borderRadius
 
   await Promise.all([
-    animateElement(outgoingPrimary, [
-      { opacity: 1, transform: 'translateY(0) scale(1)', filter: 'blur(0)' },
-      { offset: .4, opacity: .86, transform: 'translateY(-11px) scale(.994)', filter: 'blur(.6px)' },
-      { opacity: 0, transform: 'translateY(-50px) scale(.97)', filter: 'blur(5px)' },
-    ], { duration: COURSE_EXIT_MS, easing: 'cubic-bezier(.4, 0, .7, .2)', fill: 'both' }),
+    animateElement(morph, [
+      { transform: 'translate3d(0, 0, 0)' },
+      { offset: .18, transform: 'translate3d(0, -4px, 0)' },
+      { transform: `translate3d(${deltaX}px, ${deltaY}px, 0)` },
+    ], { duration: COURSE_PREVIEW_MOVE_MS, easing: 'cubic-bezier(.22, 1, .36, 1)', fill: 'both' }),
     animateElement(outgoingSecondary, [
       { opacity: 1, transform: 'translateY(0)' },
-      { offset: .34, opacity: .9, transform: 'translateY(-2px)' },
-      { opacity: 0, transform: 'translateY(-14px)' },
-    ], { duration: 980, delay: 620, easing: 'cubic-bezier(.4, 0, .7, .2)', fill: 'both' }),
-    animateElement(morph, [
-      { transform: 'translate3d(0, 0, 0)', width: `${sourceRect.width}px`, height: `${sourceRect.height}px`, borderRadius: '8px' },
-      { offset: .18, transform: 'translate3d(0, -5px, 0)', width: `${sourceRect.width * 1.025}px`, height: `${sourceRect.height * 1.04}px`, borderRadius: '9px' },
-      { offset: .76, transform: `translate3d(${nearDeltaX}px, ${nearDeltaY}px, 0)`, width: `${nearWidth}px`, height: `${nearHeight}px`, borderRadius: targetRadius },
-      { transform: `translate3d(${deltaX}px, ${deltaY}px, 0)`, width: `${targetRect.width}px`, height: `${targetRect.height}px`, borderRadius: targetRadius },
-    ], { duration: COURSE_MORPH_TRAVEL_MS, delay: COURSE_MORPH_DELAY_MS, easing: 'cubic-bezier(.22, 1, .36, 1)', fill: 'both' }),
-    animateElement(surface, [
-      { opacity: 0 },
-      { offset: .28, opacity: .04 },
-      { offset: .72, opacity: .62 },
-      { opacity: 1 },
-    ], { duration: COURSE_MORPH_TRAVEL_MS, delay: COURSE_MORPH_DELAY_MS, easing: 'ease-out', fill: 'both' }),
+      { offset: .35, opacity: .9, transform: 'translateY(-2px)' },
+      { opacity: 0, transform: 'translateY(-12px)' },
+    ], { duration: COURSE_PREVIEW_MOVE_MS - 80, delay: 80, easing: 'cubic-bezier(.4, 0, .7, .2)', fill: 'both' }),
   ])
   if (token !== transitionToken) return
 
   await Promise.all([
+    animateElement(morph, [
+      {
+        transform: `translate3d(${deltaX}px, ${deltaY}px, 0)`,
+        width: `${sourceRect.width}px`,
+        height: `${sourceRect.height}px`,
+        borderRadius: '8px',
+      },
+      {
+        offset: .48,
+        transform: `translate3d(${deltaX}px, ${deltaY}px, 0)`,
+        width: `${targetRect.width}px`,
+        height: `${sourceRect.height}px`,
+        borderRadius: targetRadius,
+      },
+      {
+        transform: `translate3d(${deltaX}px, ${deltaY}px, 0)`,
+        width: `${targetRect.width}px`,
+        height: `${targetRect.height}px`,
+        borderRadius: targetRadius,
+      },
+    ], { duration: COURSE_SHELL_EXPAND_MS, easing: 'cubic-bezier(.22, 1, .36, 1)', fill: 'both' }),
+    animateElement(surface, [
+      { opacity: 0 },
+      { offset: .42, opacity: 0 },
+      { offset: .72, opacity: .55 },
+      { opacity: 1 },
+    ], { duration: COURSE_SHELL_EXPAND_MS, easing: 'ease-out', fill: 'both' }),
     animateElement(sourceLayer, [
-      { opacity: 1, transform: 'translateY(0) scale(1)', filter: 'blur(0)' },
-      { offset: .52, opacity: .96, transform: 'translateY(-1px) scale(.996)', filter: 'blur(0)' },
-      { opacity: 0, transform: 'translateY(-5px) scale(.985)', filter: 'blur(2px)' },
-    ], { duration: COURSE_MORPH_CROSSFADE_MS, easing: 'cubic-bezier(.4, 0, .7, .2)', fill: 'both' }),
-    animateElement(targetLayer, [
-      { opacity: 0, transform: 'translateY(8px) scale(.985)', filter: 'blur(2px)' },
-      { offset: .32, opacity: .06, transform: 'translateY(7px) scale(.987)', filter: 'blur(1.8px)' },
-      { offset: .68, opacity: .72, transform: 'translateY(2px) scale(.997)', filter: 'blur(.5px)' },
-      { opacity: 1, transform: 'translateY(0) scale(1)', filter: 'blur(0)' },
-    ], { duration: COURSE_MORPH_CROSSFADE_MS, easing: 'cubic-bezier(.16, 1, .3, 1)', fill: 'both' }),
+      { transform: 'translate3d(0, 0, 0)' },
+      { transform: `translate3d(${targetInsetX}px, ${targetInsetY}px, 0)` },
+    ], { duration: COURSE_SHELL_EXPAND_MS, easing: 'cubic-bezier(.22, 1, .36, 1)', fill: 'both' }),
   ])
+  if (token !== transitionToken) return
+
+  await animateElement(sourceLayer, [
+    { opacity: 1, transform: `translate3d(${targetInsetX}px, ${targetInsetY}px, 0)`, filter: 'blur(0)' },
+    { opacity: 0, transform: `translate3d(${targetInsetX}px, ${targetInsetY - 4}px, 0)`, filter: 'blur(1.8px)' },
+  ], { duration: COURSE_PREVIEW_FADE_MS, easing: 'cubic-bezier(.4, 0, .7, .2)', fill: 'both' })
+  if (token !== transitionToken) return
+
+  await animateElement(targetLayer, [
+    { opacity: 0, transform: 'translateY(8px) scale(.985)', filter: 'blur(2.4px)' },
+    { offset: .4, opacity: .28, transform: 'translateY(5px) scale(.99)', filter: 'blur(1.4px)' },
+    { opacity: 1, transform: 'translateY(0) scale(1)', filter: 'blur(0)' },
+  ], { duration: COURSE_CARD_REVEAL_MS, easing: 'cubic-bezier(.16, 1, .3, 1)', fill: 'both' })
   if (token !== transitionToken) return
   } else {
     await Promise.all([
