@@ -38,10 +38,10 @@ const options: WidgetOptions = {
   closeControl: desktopRuntime,
 }
 
-const COURSE_EXIT_MS = 2200
-const COURSE_HANDOFF_GAP_MS = 320
-const COURSE_ENTER_MS = 2400
-const COURSE_TRANSITION_SETTLE_MS = 900
+const COURSE_EXIT_MS = 2400
+const COURSE_OVERLAP_DELAY_MS = 760
+const COURSE_ENTER_MS = 2600
+const COURSE_TRANSITION_SETTLE_MS = 700
 const presentationClock = new PresentationClock()
 let presentationFrame: number | undefined
 let minuteTimeout: number | undefined
@@ -59,16 +59,17 @@ function buildWidget() {
   return enhanceTimeFlow(createWidget(options, renderWidget), options)
 }
 
-function transitionKey(widget: HTMLElement | null) {
+function courseIdentityKey(widget: HTMLElement | null) {
   if (!widget) return ''
   const focus = widget.querySelector<HTMLElement>('.focus-course')
-  const phase = focus?.classList.contains('is-current') ? 'current' : focus ? 'upcoming' : 'none'
-  const course = focus?.querySelector<HTMLElement>('h2')?.textContent ?? ''
-  const courseTime = focus?.querySelector<HTMLElement>('.course-time')?.textContent ?? ''
-  const state = widget.querySelector<HTMLElement>('.state-label')?.textContent ?? ''
-  const focusDate = focus?.querySelector<HTMLElement>('.course-date')?.textContent ?? ''
-  const controls = `${Boolean(widget.querySelector('.date-nav'))}|${Boolean(widget.querySelector('.widget-close'))}`
-  return `${phase}|${course}|${courseTime}|${state}|${focusDate}|${controls}`
+  if (focus) {
+    const course = focus.querySelector<HTMLElement>('h2')?.textContent ?? ''
+    const courseTime = focus.querySelector<HTMLElement>('.course-time')?.textContent ?? ''
+    const focusDate = focus.querySelector<HTMLElement>('.course-date')?.textContent ?? ''
+    return `course|${course}|${courseTime}|${focusDate}`
+  }
+  const state = widget.querySelector<HTMLElement>('.state-label, .empty-state, .opening-date')?.textContent ?? ''
+  return `state|${state}`
 }
 
 function syncAttributes(current: Element, next: Element) {
@@ -135,10 +136,6 @@ function animateElement(
   return rememberAnimation(element.animate(keyframes, options))
 }
 
-function waitForHandoff(milliseconds: number) {
-  return new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds))
-}
-
 function resetPreparedElement(element: HTMLElement | null) {
   if (!element) return
   element.style.removeProperty('opacity')
@@ -157,12 +154,28 @@ function prepareIncomingElement(element: HTMLElement | null, secondary = false) 
     : 'blur(12px) brightness(.64) saturate(.76)'
 }
 
+function resetHandoffWidget(widget: HTMLElement) {
+  widget.classList.remove('is-handoff-outgoing', 'is-handoff-incoming')
+  resetPreparedElement(transitionPrimary(widget))
+  resetPreparedElement(transitionSecondary(widget))
+}
+
+function collapseHandoffLayers() {
+  const incoming = app.querySelector<HTMLElement>('.course-widget.is-handoff-incoming')
+  const outgoing = app.querySelector<HTMLElement>('.course-widget.is-handoff-outgoing')
+  const keeper = incoming ?? outgoing
+  if (!keeper) return
+  resetHandoffWidget(keeper)
+  app.replaceChildren(keeper)
+}
+
 function clearCourseTransition() {
   transitionToken += 1
   if (transitionTimer !== undefined) window.clearTimeout(transitionTimer)
   transitionTimer = undefined
   handoffAnimations.forEach((animation) => animation.cancel())
   handoffAnimations = []
+  collapseHandoffLayers()
   transitionActive = false
   document.documentElement.classList.remove('is-course-transitioning')
 }
@@ -206,74 +219,71 @@ async function runCourseHandoff(
 ) {
   const outgoingPrimary = transitionPrimary(currentWidget)
   const outgoingSecondary = transitionSecondary(currentWidget)
+  const incomingPrimary = transitionPrimary(nextWidget)
+  const incomingSecondary = transitionSecondary(nextWidget)
+
+  prepareIncomingElement(incomingPrimary)
+  prepareIncomingElement(incomingSecondary, true)
+  currentWidget.classList.add('is-handoff-outgoing')
+  nextWidget.classList.add('is-handoff-incoming')
+  app.append(nextWidget)
 
   await Promise.all([
     animateElement(outgoingPrimary, [
-      { offset: 0, opacity: 1, transform: 'translateY(0) scale(1)', filter: 'blur(0) brightness(1) saturate(1)' },
-      { offset: .18, opacity: 1, transform: 'translateY(0) scale(1)', filter: 'blur(0) brightness(1) saturate(1)' },
-      { offset: .62, opacity: .56, transform: 'translateY(-18px) scale(.94)', filter: 'blur(2.5px) brightness(.88) saturate(.92)' },
-      { offset: 1, opacity: 0, transform: 'translateY(-48px) scale(.82)', filter: 'blur(11px) brightness(.64) saturate(.74)' },
+      { offset: 0, opacity: 1, transform: 'translateY(0) translateZ(0) scale(1)', filter: 'blur(0) brightness(1) saturate(1)' },
+      { offset: .24, opacity: .98, transform: 'translateY(-2px) translateZ(-8px) scale(.992)', filter: 'blur(.3px) brightness(.99) saturate(.99)' },
+      { offset: .66, opacity: .48, transform: 'translateY(-23px) translateZ(-62px) scale(.91)', filter: 'blur(4px) brightness(.82) saturate(.88)' },
+      { offset: 1, opacity: 0, transform: 'translateY(-52px) translateZ(-128px) scale(.8)', filter: 'blur(12px) brightness(.6) saturate(.7)' },
     ], {
       duration: COURSE_EXIT_MS,
-      easing: 'cubic-bezier(.42, 0, .72, .18)',
+      easing: 'cubic-bezier(.4, 0, .7, .2)',
       fill: 'both',
     }),
     animateElement(outgoingSecondary, [
-      { offset: 0, opacity: 1, transform: 'translateY(0) scale(1)', filter: 'blur(0) brightness(1)' },
-      { offset: .22, opacity: 1, transform: 'translateY(0) scale(1)', filter: 'blur(0) brightness(1)' },
-      { offset: 1, opacity: 0, transform: 'translateY(-26px) scale(.9)', filter: 'blur(8px) brightness(.72)' },
+      { offset: 0, opacity: 1, transform: 'translateY(0) translateZ(0) scale(1)', filter: 'blur(0) brightness(1)' },
+      { offset: .28, opacity: .96, transform: 'translateY(-2px) translateZ(-6px) scale(.99)', filter: 'blur(.2px) brightness(.99)' },
+      { offset: 1, opacity: 0, transform: 'translateY(-30px) translateZ(-86px) scale(.88)', filter: 'blur(9px) brightness(.68)' },
     ], {
-      duration: COURSE_EXIT_MS - 260,
-      easing: 'cubic-bezier(.42, 0, .72, .18)',
+      duration: COURSE_EXIT_MS - 180,
+      easing: 'cubic-bezier(.4, 0, .7, .2)',
       fill: 'both',
     }),
-  ])
-  if (token !== transitionToken) return
-
-  await waitForHandoff(COURSE_HANDOFF_GAP_MS)
-  if (token !== transitionToken) return
-
-  const incomingPrimary = transitionPrimary(nextWidget)
-  const incomingSecondary = transitionSecondary(nextWidget)
-  prepareIncomingElement(incomingPrimary)
-  prepareIncomingElement(incomingSecondary, true)
-  app.replaceChildren(nextWidget)
-
-  await Promise.all([
     animateElement(incomingPrimary, [
-      { offset: 0, opacity: 0, transform: 'translateY(42px) scale(.78)', filter: 'blur(12px) brightness(.64) saturate(.76)' },
-      { offset: .18, opacity: .1, transform: 'translateY(34px) scale(.84)', filter: 'blur(9px) brightness(.72) saturate(.82)' },
-      { offset: .62, opacity: .78, transform: 'translateY(7px) scale(1.025)', filter: 'blur(1.8px) brightness(1.05) saturate(1.02)' },
-      { offset: .82, opacity: 1, transform: 'translateY(-2px) scale(1.012)', filter: 'blur(0) brightness(1.015) saturate(1)' },
-      { offset: 1, opacity: 1, transform: 'translateY(0) scale(1)', filter: 'blur(0) brightness(1) saturate(1)' },
+      { offset: 0, opacity: 0, transform: 'translateY(46px) translateZ(-120px) scale(.78)', filter: 'blur(13px) brightness(.58) saturate(.72)' },
+      { offset: .22, opacity: .16, transform: 'translateY(36px) translateZ(-86px) scale(.84)', filter: 'blur(10px) brightness(.68) saturate(.8)' },
+      { offset: .62, opacity: .8, transform: 'translateY(8px) translateZ(-10px) scale(1.02)', filter: 'blur(2px) brightness(1.04) saturate(1.02)' },
+      { offset: .84, opacity: 1, transform: 'translateY(-2px) translateZ(2px) scale(1.012)', filter: 'blur(0) brightness(1.015) saturate(1)' },
+      { offset: 1, opacity: 1, transform: 'translateY(0) translateZ(0) scale(1)', filter: 'blur(0) brightness(1) saturate(1)' },
     ], {
       duration: COURSE_ENTER_MS,
+      delay: COURSE_OVERLAP_DELAY_MS,
       easing: 'cubic-bezier(.16, 1, .3, 1)',
       fill: 'both',
     }),
     animateElement(incomingSecondary, [
-      { offset: 0, opacity: 0, transform: 'translateY(24px) scale(.94)', filter: 'blur(7px) brightness(.78)' },
-      { offset: .58, opacity: .72, transform: 'translateY(5px) scale(1.01)', filter: 'blur(1.5px) brightness(1.02)' },
-      { offset: 1, opacity: 1, transform: 'translateY(0) scale(1)', filter: 'blur(0) brightness(1)' },
+      { offset: 0, opacity: 0, transform: 'translateY(26px) translateZ(-70px) scale(.93)', filter: 'blur(8px) brightness(.74)' },
+      { offset: .58, opacity: .74, transform: 'translateY(5px) translateZ(-4px) scale(1.01)', filter: 'blur(1.5px) brightness(1.02)' },
+      { offset: 1, opacity: 1, transform: 'translateY(0) translateZ(0) scale(1)', filter: 'blur(0) brightness(1)' },
     ], {
-      duration: COURSE_ENTER_MS - 360,
-      delay: 260,
+      duration: COURSE_ENTER_MS - 320,
+      delay: COURSE_OVERLAP_DELAY_MS + 180,
       easing: 'cubic-bezier(.16, 1, .3, 1)',
       fill: 'both',
     }),
   ])
-  resetPreparedElement(incomingPrimary)
-  resetPreparedElement(incomingSecondary)
   if (token !== transitionToken) return
+
+  currentWidget.remove()
+  resetHandoffWidget(nextWidget)
   finishCourseTransition(token, resumeAfterTransition)
 }
 
 function renderWidget(allowTransition = true, timestamp = performance.now()): boolean {
   const nextWidget = buildWidget()
   const currentWidget = app.querySelector<HTMLElement>('.course-widget')
-  const stateChanged = transitionKey(currentWidget) !== transitionKey(nextWidget)
+  const courseChanged = courseIdentityKey(currentWidget) !== courseIdentityKey(nextWidget)
 
-  if (currentWidget && !stateChanged) {
+  if (currentWidget && !courseChanged) {
     syncStableWidget(currentWidget, nextWidget)
     return false
   }
@@ -281,7 +291,7 @@ function renderWidget(allowTransition = true, timestamp = performance.now()): bo
   const shouldAnimate = allowTransition
     && !transitionActive
     && presentationClock.isActive()
-    && stateChanged
+    && courseChanged
     && Boolean(currentWidget)
     && !window.matchMedia('(prefers-reduced-motion: reduce)').matches
 

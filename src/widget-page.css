@@ -34,6 +34,28 @@ body { display: inline-block; }
   pointer-events: none;
 }
 
+.is-course-transitioning #app > .course-widget {
+  grid-area: 1 / 1;
+}
+
+.is-course-transitioning .course-widget.is-handoff-incoming {
+  z-index: 1;
+}
+
+.is-course-transitioning .course-widget.is-handoff-outgoing {
+  z-index: 2;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.is-course-transitioning .course-widget.is-handoff-outgoing::before {
+  opacity: 0;
+}
+
+.is-course-transitioning .course-widget.is-handoff-incoming .widget-header {
+  visibility: hidden;
+}
+
 .is-course-transitioning .focus-course,
 .is-course-transitioning .state-label,
 .is-course-transitioning .empty-state,
