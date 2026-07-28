@@ -35,7 +35,17 @@ jobs:
           python-version: '3.13'
 
       - name: Apply import draft foundation
-        run: python scripts/apply_import_draft_foundation.py
+        shell: pwsh
+        run: |
+          python scripts/apply_import_draft_foundation.py *>&1 | Tee-Object migration.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload migration diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: import-draft-migration-log
+          path: migration.log
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
