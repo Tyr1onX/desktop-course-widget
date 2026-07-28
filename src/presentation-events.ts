@@ -6,6 +6,7 @@ export const PRESENTATION_STATUS_REQUEST_EVENT = 'presentation:status-request'
 
 export type PresentationCommand =
   | { type: 'start'; config: ReplayConfig }
+  | { type: 'set-speed'; minutesPerSecond: number }
   | { type: 'toggle' }
   | { type: 'restart' }
   | { type: 'stop' }
