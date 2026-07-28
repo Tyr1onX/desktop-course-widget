@@ -76,3 +76,5 @@ if ".is-presentation-panel-open #app" not in text:
     if text.count(marker) != 1:
         raise RuntimeError("widget-page.css app block not found exactly once")
     css.write_text(text.replace(marker, addition, 1), encoding="utf-8")
+
+# This file is intentionally temporary and is removed after the migration succeeds.
