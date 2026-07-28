@@ -108,13 +108,13 @@ body { display: inline-block; }
 }
 
 .following.is-promoting-course .timeline::before,
-.following.is-promoting-course .is-promoting-source::after,
-.following.is-promoting-course .is-promoting-source > time {
+.following.is-promoting-course .is-promoting-source::after {
   opacity: 0;
 }
 
 .is-promoting-source strong,
-.is-promoting-source small {
+.is-promoting-source small,
+.is-promoting-source > time {
   position: relative;
   z-index: 7;
   display: block;
@@ -124,6 +124,24 @@ body { display: inline-block; }
   transform-origin: top left;
   will-change: transform, color, opacity;
 }
+
+.course-time-shared-prefix,
+.course-time-extension { display: inline-block; transform-origin: left center; }
+.course-time-extension { will-change: clip-path, opacity, transform; }
+.course-line-reveal { position: relative; display: block; overflow: hidden; }
+.course-line-reveal-stroke,
+.course-line-reveal-copy { display: block; }
+.course-line-reveal-stroke {
+  position: absolute;
+  inset: 50% 0 auto;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, currentColor, rgba(var(--identity-accent-rgb), .18));
+  transform-origin: left center;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+.course-line-reveal-copy { will-change: clip-path, opacity, transform; }
 
 .is-course-transitioning .focus-course,
 .is-course-transitioning .state-label,

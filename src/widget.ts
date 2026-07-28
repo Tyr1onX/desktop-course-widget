@@ -1,3 +1,4 @@
+import { formatMinutesDuration } from './duration'
 import scheduleData from './data/schedule.json'
 import { isTauri } from '@tauri-apps/api/core'
 import { emit } from '@tauri-apps/api/event'
@@ -322,8 +323,8 @@ function followingMarkup(coursesToShow: DisplayCourse[], total: number) {
 function countdown(model: WidgetModel) {
   if (!model.focus || model.mode === 'browsing') return ''
   const nowMinutes = parseTime(model.now)
-  if (model.mode === 'current') return `<p class="countdown">距下课 ${Math.max(0, parseTime(model.focus.end) - nowMinutes)} 分钟</p>`
-  if (model.mode === 'next') return `<p class="countdown">${Math.max(0, parseTime(model.focus.start) - nowMinutes)} 分钟后开始</p>`
+  if (model.mode === 'current') return `<p class="countdown">距下课 ${formatMinutesDuration(parseTime(model.focus.end) - nowMinutes)}</p>`
+  if (model.mode === 'next') return `<p class="countdown">${formatMinutesDuration(parseTime(model.focus.start) - nowMinutes)}后开始</p>`
   if (model.mode === 'before') return '<p class="countdown">开学后开始上课</p>'
   return ''
 }

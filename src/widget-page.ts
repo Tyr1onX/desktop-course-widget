@@ -40,9 +40,10 @@ const options: WidgetOptions = {
 
 const COURSE_EXIT_MS = 1080
 const COURSE_EXIT_GAP_MS = 120
-const COURSE_SHARED_TEXT_MOVE_MS = 980
-const COURSE_CARD_FORM_MS = 980
-const COURSE_TEXT_HANDOFF_MS = 110
+const COURSE_SHARED_TEXT_MOVE_MS = 1120
+const COURSE_CARD_FORM_MS = 1120
+const COURSE_LINE_REVEAL_MS = 820
+const COURSE_TEXT_HANDOFF_MS = 90
 const COURSE_RESIZE_MS = 1000
 const COURSE_TRANSITION_SETTLE_MS = 420
 const presentationClock = new PresentationClock()
@@ -184,6 +185,17 @@ function sharedTextMotion(source: HTMLElement | null, target: HTMLElement | null
   }
 }
 
+function prepareLineReveal(element: HTMLElement) {
+  const copy = document.createElement('span')
+  copy.className = 'course-line-reveal-copy'
+  copy.textContent = element.textContent ?? ''
+  const stroke = document.createElement('span')
+  stroke.className = 'course-line-reveal-stroke'
+  element.replaceChildren(stroke, copy)
+  element.classList.add('course-line-reveal')
+  return { root: element, stroke, copy }
+}
+
 function elementText(root: ParentNode | null, selector: string) {
   return root?.querySelector<HTMLElement>(selector)?.textContent?.trim() ?? ''
 }
@@ -311,11 +323,15 @@ async function runCourseHandoff(
 
   const sourceTitle = sharedSource.querySelector<HTMLElement>('strong')
   const sourceLocation = sharedSource.querySelector<HTMLElement>('small')
+  const sourceTime = sharedSource.querySelector<HTMLElement>('time')
   const targetTitle = targetPrimary.querySelector<HTMLElement>('h2')
   const targetLocation = targetPrimary.querySelector<HTMLElement>('.course-location')
+  const targetTime = targetPrimary.querySelector<HTMLElement>('.course-time')
   const titleMotion = sharedTextMotion(sourceTitle, targetTitle)
   const locationMotion = sharedTextMotion(sourceLocation, targetLocation)
-  const sharedMotions = [titleMotion, locationMotion].filter((motion): motion is NonNullable<typeof motion> => Boolean(motion))
+  const timeMotion = sharedTextMotion(sourceTime, targetTime)
+  const sharedMotions = [titleMotion, locationMotion, timeMotion]
+    .filter((motion): motion is NonNullable<typeof motion> => Boolean(motion))
 
   const stageRect = stage.getBoundingClientRect()
   const targetRect = targetPrimary.getBoundingClientRect()
@@ -339,16 +355,44 @@ async function runCourseHandoff(
   const targetLayer = targetPrimary.cloneNode(true) as HTMLElement
   targetLayer.classList.add('course-morph-target')
   targetLayer.style.opacity = '1'
-  const targetCopies = Array.from(targetLayer.querySelectorAll<HTMLElement>('h2, .course-location'))
+  const targetTitleCopy = targetLayer.querySelector<HTMLElement>('h2')
+  const targetLocationCopy = targetLayer.querySelector<HTMLElement>('.course-location')
+  const targetTimeCopy = targetLayer.querySelector<HTMLElement>('.course-time')
+  const fullTargetTime = targetTimeCopy?.textContent?.trim() ?? ''
+  const [targetStartTime = '', ...targetEndParts] = fullTargetTime.split(/[–-]/)
+  const targetEndTime = targetEndParts.join('–').trim()
+  let targetTimePrefix: HTMLElement | null = null
+  let targetTimeExtension: HTMLElement | null = null
+  if (targetTimeCopy && targetStartTime) {
+    targetTimePrefix = document.createElement('span')
+    targetTimePrefix.className = 'course-time-shared-prefix is-shared-copy-hidden'
+    targetTimePrefix.textContent = targetStartTime.trim()
+    targetTimeExtension = document.createElement('span')
+    targetTimeExtension.className = 'course-time-extension'
+    targetTimeExtension.textContent = targetEndTime ? `–${targetEndTime}` : ''
+    targetTimeCopy.replaceChildren(targetTimePrefix, targetTimeExtension)
+  }
+  const targetCopies = [targetTitleCopy, targetLocationCopy, targetTimePrefix]
+    .filter((copy): copy is HTMLElement => Boolean(copy))
   targetCopies.forEach((copy) => copy.classList.add('is-shared-copy-hidden'))
-  const targetRevealParts = Array.from(targetLayer.querySelectorAll<HTMLElement>(
-    '.focus-kicker, .course-date, .course-time, .countdown, .course-flow',
-  ))
-  targetRevealParts.forEach((part) => {
-    part.style.opacity = '0'
-    part.style.transform = 'translateY(8px)'
-    part.style.filter = 'blur(2px)'
+  const lineRevealParts = Array.from(targetLayer.querySelectorAll<HTMLElement>('.focus-kicker, .countdown'))
+    .map(prepareLineReveal)
+  const softRevealParts = Array.from(targetLayer.querySelectorAll<HTMLElement>('.course-date, .course-flow'))
+  lineRevealParts.forEach(({ stroke, copy }) => {
+    stroke.style.opacity = '.28'
+    stroke.style.transform = 'scaleX(.08)'
+    copy.style.opacity = '0'
+    copy.style.clipPath = 'inset(0 100% 0 0)'
   })
+  softRevealParts.forEach((part) => {
+    part.style.opacity = '0'
+    part.style.clipPath = 'inset(0 100% 0 0)'
+    part.style.transform = 'translateY(5px)'
+  })
+  if (targetTimeExtension) {
+    targetTimeExtension.style.opacity = '0'
+    targetTimeExtension.style.clipPath = 'inset(0 100% 0 0)'
+  }
   morph.append(surface, targetLayer)
   stage.append(morph)
 
@@ -374,16 +418,28 @@ async function runCourseHandoff(
       { offset: .58, opacity: .56 },
       { opacity: 1 },
     ], { duration: COURSE_CARD_FORM_MS, easing: 'ease-out', fill: 'both' }),
-    ...targetRevealParts.map((part, index) => animateElement(part, [
-      { opacity: 0, transform: 'translateY(8px)', filter: 'blur(2px)' },
-      { offset: .28, opacity: 0, transform: 'translateY(7px)', filter: 'blur(1.8px)' },
-      { opacity: 1, transform: 'translateY(0)', filter: 'blur(0)' },
-    ], {
-      duration: Math.max(520, COURSE_CARD_FORM_MS - index * 35),
-      delay: 120 + index * 45,
-      easing: 'cubic-bezier(.16, 1, .3, 1)',
-      fill: 'both',
-    })),
+    ...(targetTimeExtension ? [animateElement(targetTimeExtension, [
+    { opacity: .08, clipPath: 'inset(0 100% 0 0)', transform: 'translateX(-2px)' },
+    { offset: .48, opacity: .45, clipPath: 'inset(0 42% 0 0)', transform: 'translateX(-1px)' },
+    { opacity: 1, clipPath: 'inset(0 0 0 0)', transform: 'translateX(0)' },
+  ], { duration: COURSE_LINE_REVEAL_MS, delay: 230, easing: 'cubic-bezier(.16, 1, .3, 1)', fill: 'both' })] : []),
+  ...lineRevealParts.flatMap(({ stroke, copy }, index) => [
+    animateElement(stroke, [
+      { opacity: .22, transform: 'scaleX(.08)' },
+      { offset: .58, opacity: .56, transform: 'scaleX(1)' },
+      { opacity: 0, transform: 'scaleX(1)' },
+    ], { duration: COURSE_LINE_REVEAL_MS, delay: 180 + index * 80, easing: 'cubic-bezier(.22, 1, .36, 1)', fill: 'both' }),
+    animateElement(copy, [
+      { opacity: 0, clipPath: 'inset(0 100% 0 0)', transform: 'translateY(2px)' },
+      { offset: .34, opacity: .14, clipPath: 'inset(0 76% 0 0)', transform: 'translateY(1px)' },
+      { opacity: 1, clipPath: 'inset(0 0 0 0)', transform: 'translateY(0)' },
+    ], { duration: COURSE_LINE_REVEAL_MS, delay: 250 + index * 80, easing: 'cubic-bezier(.16, 1, .3, 1)', fill: 'both' }),
+  ]),
+  ...softRevealParts.map((part, index) => animateElement(part, [
+    { opacity: 0, clipPath: 'inset(0 100% 0 0)', transform: 'translateY(5px)' },
+    { offset: .4, opacity: .22, clipPath: 'inset(0 64% 0 0)', transform: 'translateY(3px)' },
+    { opacity: 1, clipPath: 'inset(0 0 0 0)', transform: 'translateY(0)' },
+  ], { duration: COURSE_LINE_REVEAL_MS, delay: 300 + index * 70, easing: 'cubic-bezier(.16, 1, .3, 1)', fill: 'both' })),
   ])
   if (token !== transitionToken) return
 
@@ -407,12 +463,20 @@ async function runCourseHandoff(
     clearElementAnimations(copy)
     copy.style.removeProperty('opacity')
   })
-  targetRevealParts.forEach((part) => {
+  lineRevealParts.forEach(({ root, stroke, copy }) => {
+  clearElementAnimations(stroke)
+  clearElementAnimations(copy)
+  root.classList.remove('course-line-reveal')
+  root.textContent = copy.textContent ?? ''
+})
+  softRevealParts.forEach((part) => {
     clearElementAnimations(part)
     part.style.removeProperty('opacity')
+    part.style.removeProperty('clip-path')
     part.style.removeProperty('transform')
-    part.style.removeProperty('filter')
   })
+  if (targetTimeExtension) clearElementAnimations(targetTimeExtension)
+  if (targetTimeCopy) targetTimeCopy.textContent = fullTargetTime
   targetPrimary.replaceWith(targetLayer)
   targetLayer.classList.remove('course-morph-target')
   targetLayer.style.removeProperty('opacity')

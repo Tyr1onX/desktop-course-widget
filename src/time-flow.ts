@@ -1,3 +1,4 @@
+import { formatMinutesDuration } from './duration'
 export type TemporalTone = 'morning' | 'day' | 'evening' | 'night'
 export type UpcomingUrgency = 'calm' | 'soon' | 'imminent'
 
@@ -70,7 +71,7 @@ function appendProgress(widget: HTMLElement, progress: number, minutesUntilEnd: 
   `
   focus.append(flow)
   const countdown = focus.querySelector<HTMLElement>('.countdown')
-  if (countdown) countdown.textContent = `还剩 ${Math.max(0, minutesUntilEnd)} 分钟`
+  if (countdown) countdown.textContent = `还剩 ${formatMinutesDuration(minutesUntilEnd)}`
 }
 
 export function enhanceTimeFlow(widget: HTMLElement, options: TimeFlowOptions): HTMLElement {
