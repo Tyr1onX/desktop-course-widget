@@ -1,0 +1,276 @@
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #182130;
+  background: #eef2f6;
+  font-synthesis: none;
+}
+
+* { box-sizing: border-box; }
+
+html,
+body,
+#app {
+  min-width: 0;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  background:
+    radial-gradient(circle at 14% 0%, rgb(132 177 215 / 22%), transparent 35%),
+    linear-gradient(145deg, #f7f9fc, #e9eef4);
+}
+
+button,
+input { font: inherit; }
+
+button { cursor: pointer; }
+button:disabled { cursor: default; opacity: .42; }
+
+.controller-shell {
+  display: grid;
+  gap: 14px;
+  width: min(100%, 560px);
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.controller-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.eyebrow,
+.controller-header p,
+.section-heading p,
+.controller-card p,
+.controller-footer { margin: 0; }
+
+.eyebrow {
+  color: #5e7b98;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.controller-header h1 {
+  margin: 5px 0 4px;
+  font-size: 28px;
+  letter-spacing: -.04em;
+}
+
+.controller-header > div > p:last-child {
+  max-width: 390px;
+  color: #667383;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.controller-badge {
+  flex: 0 0 auto;
+  padding: 6px 9px;
+  color: #5d7085;
+  border: 1px solid rgb(95 116 138 / 16%);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 58%);
+  font-size: 11px;
+}
+
+.controller-card {
+  padding: 17px;
+  border: 1px solid rgb(84 106 130 / 14%);
+  border-radius: 18px;
+  background: rgb(255 255 255 / 78%);
+  box-shadow: 0 12px 36px rgb(47 65 83 / 8%);
+  backdrop-filter: blur(20px) saturate(1.08);
+}
+
+.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.section-heading p {
+  color: #718092;
+  font-size: 11px;
+}
+
+.section-heading h2 {
+  margin: 2px 0 0;
+  font-size: 17px;
+  letter-spacing: -.02em;
+}
+
+.quiet-button,
+.controller-actions button {
+  min-height: 38px;
+  padding: 0 13px;
+  color: #34465a;
+  border: 1px solid rgb(82 105 129 / 17%);
+  border-radius: 11px;
+  background: rgb(255 255 255 / 68%);
+}
+
+.quiet-button:hover,
+.controller-actions button:hover:not(:disabled) { background: #fff; }
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 11px;
+}
+
+.field {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.field-wide { grid-column: 1 / -1; }
+
+.field span,
+.check-field span {
+  color: #687789;
+  font-size: 12px;
+}
+
+.field input {
+  width: 100%;
+  min-width: 0;
+  height: 42px;
+  padding: 0 11px;
+  color: #202b38;
+  border: 1px solid rgb(85 107 131 / 19%);
+  border-radius: 12px;
+  outline: none;
+  background: rgb(249 251 253 / 88%);
+}
+
+.field input:focus {
+  border-color: #6688aa;
+  box-shadow: 0 0 0 3px rgb(92 128 163 / 13%);
+}
+
+.check-field {
+  display: flex;
+  align-items: center;
+  align-self: end;
+  min-height: 42px;
+  gap: 8px;
+}
+
+.check-field input {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+}
+
+.field-hint {
+  margin-top: 11px !important;
+  color: #758293;
+  font-size: 11px;
+}
+
+.status-card { display: grid; gap: 11px; }
+
+.status-copy {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.status-copy span {
+  color: #607187;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.status-copy strong {
+  font-size: 25px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.03em;
+}
+
+.progress-track {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: rgb(81 107 134 / 11%);
+}
+
+.progress-track span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #6889aa, #8eabc5);
+  transition: width 120ms linear;
+}
+
+.status-card > p {
+  color: #718092;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.controller-actions {
+  display: grid;
+  grid-template-columns: 1.45fr repeat(3, 1fr);
+  gap: 9px;
+}
+
+.controller-actions .primary-action {
+  color: #fff;
+  border-color: #536f8c;
+  background: #536f8c;
+  font-weight: 700;
+}
+
+.controller-actions .primary-action:hover:not(:disabled) { background: #47637f; }
+
+.controller-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 3px;
+  color: #7b8795;
+  font-size: 10px;
+}
+
+@media (max-width: 460px) {
+  .controller-shell { padding: 18px; }
+  .controller-header { display: grid; }
+  .controller-badge { width: max-content; }
+  .section-heading { align-items: flex-start; flex-direction: column; }
+  .controller-actions { grid-template-columns: repeat(2, 1fr); }
+  .controller-footer { display: grid; gap: 3px; }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root { color: #eef3f8; background: #1f252d; }
+  body {
+    background:
+      radial-gradient(circle at 14% 0%, rgb(91 128 162 / 18%), transparent 35%),
+      linear-gradient(145deg, #222a33, #191f26);
+  }
+  .controller-card,
+  .controller-badge { border-color: rgb(196 211 226 / 12%); background: rgb(40 48 58 / 82%); }
+  .controller-header > div > p:last-child,
+  .field span,
+  .check-field span,
+  .field-hint,
+  .status-card > p,
+  .controller-footer { color: #a9b5c1; }
+  .field input,
+  .quiet-button,
+  .controller-actions button { color: #edf3f8; border-color: rgb(196 211 226 / 14%); background: rgb(255 255 255 / 7%); }
+  .quiet-button:hover,
+  .controller-actions button:hover:not(:disabled) { background: rgb(255 255 255 / 12%); }
+}
