@@ -5,7 +5,8 @@
 - Removed the obsolete in-app updater UI and its unused process/updater dependencies.
 - Reduced the production frontend build to the widget and settings pages.
 - Removed unused website styles, demo states, and duplicate validation configuration.
-- Updated repository documentation for the current release and backup workflow.
+- Removed the low-frequency manual backup and restore surface to keep the settings experience focused.
+- Updated repository documentation for the current release.
 
 ## v0.4.0
 
