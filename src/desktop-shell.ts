@@ -20,20 +20,20 @@ export async function startDesktopShell(app: HTMLDivElement) {
 
   const appWindow = getCurrentWindow()
   let lastAppliedHeight: number | undefined
+  let pendingHeight: number | undefined
   let resizeFrame: number | undefined
+  let sizePump: Promise<void> | undefined
 
-  const applySize = async () => {
-    const widget = app.querySelector<HTMLElement>('.course-widget')
-    if (!widget) return
-    const height = widgetWindowHeight(widget)
+  const applyHeight = async (height: number) => {
     if (lastAppliedHeight !== undefined && Math.abs(lastAppliedHeight - height) < 0.5) return
 
     await appWindow.setSize(new LogicalSize(FIXED_LOGICAL_WIDTH, height))
     lastAppliedHeight = height
 
+    const widget = app.querySelector<HTMLElement>('.course-widget')
     const scaleFactor = await appWindow.scaleFactor()
     console.info('[desktop-shell] size applied', {
-      widgetCss: widget.getBoundingClientRect().toJSON(),
+      widgetCss: widget?.getBoundingClientRect().toJSON(),
       logical: { width: FIXED_LOGICAL_WIDTH, height },
       physical: {
         width: roundDimension(FIXED_LOGICAL_WIDTH * scaleFactor),
@@ -41,6 +41,34 @@ export async function startDesktopShell(app: HTMLDivElement) {
       },
       scaleFactor,
     })
+  }
+
+  const pumpSizes = () => {
+    if (sizePump) return sizePump
+
+    sizePump = (async () => {
+      try {
+        while (pendingHeight !== undefined) {
+          const height = pendingHeight
+          pendingHeight = undefined
+          await applyHeight(height)
+        }
+      } finally {
+        sizePump = undefined
+        if (pendingHeight !== undefined) {
+          void pumpSizes().catch((error: unknown) => console.error('[desktop-shell] queued size update failed', error))
+        }
+      }
+    })()
+
+    return sizePump
+  }
+
+  const applySize = async () => {
+    const widget = app.querySelector<HTMLElement>('.course-widget')
+    if (!widget) return
+    pendingHeight = widgetWindowHeight(widget)
+    await pumpSizes()
   }
 
   const queueSize = () => {
@@ -52,8 +80,8 @@ export async function startDesktopShell(app: HTMLDivElement) {
   }
 
   const observer = new ResizeObserver(queueSize)
-  // Navigation re-renders the widget element. The stable app container lets
-  // us continue to observe its next rendered height without a second bridge.
+  // Navigation and replay can replace internal widget content. Observing the
+  // stable app container keeps native window sizing attached to the result.
   observer.observe(app)
   const unlistenScale = await appWindow.onScaleChanged(({ payload }) => {
     console.info('[desktop-shell] scale changed', { scaleFactor: payload.scaleFactor, logicalWidth: FIXED_LOGICAL_WIDTH })
@@ -67,7 +95,7 @@ export async function startDesktopShell(app: HTMLDivElement) {
       await emit('widget:visibility-changed').catch((error: unknown) => console.error('[desktop-shell] tray visibility sync failed', error))
       console.info('[desktop-shell] widget shown after initial render')
     } catch (error) {
-      console.error('[desktop-shell] window show failed', error)
+      console.error('[desktop-shell] widget show failed', error)
     }
   }
 
