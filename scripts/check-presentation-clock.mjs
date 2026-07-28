@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { PresentationClock, validateReplayConfig } from '../src/presentation-clock.ts'
+import { PresentationClock, validateReplayConfig, withPresentationDate } from '../src/presentation-clock.ts'
 
 const config = {
   date: '2026-09-07',
@@ -43,5 +43,18 @@ assert.equal(snapshot.finished, false)
 assert.equal(snapshot.progress, 0.25)
 assert.equal(snapshot.date.getHours(), 11)
 assert.equal(snapshot.date.getMinutes(), 30)
+
+const realTimestamp = Date.now()
+const fixed = new Date(2026, 8, 7, 13, 25)
+const rendered = withPresentationDate(fixed, () => ({
+  now: new Date(),
+  timestamp: Date.now(),
+  explicit: new Date(2027, 0, 1, 9, 30),
+}))
+assert.equal(rendered.now.getTime(), fixed.getTime())
+assert.equal(rendered.timestamp, fixed.getTime())
+assert.equal(rendered.explicit.getFullYear(), 2027)
+assert.equal(rendered.explicit.getHours(), 9)
+assert.ok(Math.abs(Date.now() - realTimestamp) < 5_000)
 
 console.log('presentation clock checks passed')
