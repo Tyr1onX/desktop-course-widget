@@ -1,0 +1,127 @@
+name: Update PR 64 semantic shared-text check
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  update-semantic-shared-text-check:
+    if: github.event.pull_request.number == 64 && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: feat/time-replay-demo
+          fetch-depth: 0
+
+      - name: Update semantic shared text checks
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected one match, found {count}')
+              return text.replace(old, new, 1)
+
+          path = Path('scripts/check-presentation-clock.mjs')
+          check = path.read_text(encoding='utf-8')
+          check = replace_once(
+              check,
+              """assert.match(widgetPageSource, /COURSE_EXIT_MS = 1100/)
+          assert.match(widgetPageSource, /COURSE_EXIT_GAP_MS = 140/)
+          assert.match(widgetPageSource, /COURSE_PREVIEW_MOVE_MS = 760/)
+          assert.match(widgetPageSource, /COURSE_SHELL_EXPAND_MS = 620/)
+          assert.match(widgetPageSource, /COURSE_PREVIEW_FADE_MS = 260/)
+          assert.match(widgetPageSource, /COURSE_CARD_REVEAL_MS = 440/)
+          assert.doesNotMatch(widgetPageSource, /COURSE_MORPH_(?:DELAY|TRAVEL|CROSSFADE|MS)/)""",
+              """assert.match(widgetPageSource, /COURSE_EXIT_MS = 1080/)
+          assert.match(widgetPageSource, /COURSE_EXIT_GAP_MS = 120/)
+          assert.match(widgetPageSource, /COURSE_SHARED_TEXT_MOVE_MS = 900/)
+          assert.match(widgetPageSource, /COURSE_SHELL_EXPAND_MS = 720/)
+          assert.match(widgetPageSource, /COURSE_TEXT_HANDOFF_MS = 160/)
+          assert.doesNotMatch(widgetPageSource, /COURSE_(?:PREVIEW_MOVE|PREVIEW_FADE|CARD_REVEAL|MORPH_DELAY|MORPH_TRAVEL|MORPH_CROSSFADE)_MS/)""",
+              'timing assertions',
+          )
+          check = replace_once(
+              check,
+              """assert.match(widgetPageSource, /course-shared-morph/)
+          assert.match(widgetPageSource, /sharedSource\.classList\.add\('is-shared-course-source'\)/)
+          assert.match(widgetPageSource, /sourceLayer\.style\.width = `\$\{sourceRect\.width\}px`/)
+          assert.match(widgetPageSource, /sourceLayer\.style\.height = `\$\{sourceRect\.height\}px`/)
+          assert.match(widgetPageSource, /sourceLayer\.style\.opacity = '1'/)
+          assert.match(widgetPageSource, /targetLayer\.style\.opacity = '0'/)
+          assert.match(widgetPageSource, /await animateElement\(outgoingPrimary,[\s\S]*duration: COURSE_EXIT_MS[\s\S]*await transitionDelay\(COURSE_EXIT_GAP_MS\)[\s\S]*const stageRect/)
+          assert.match(widgetPageSource, /animateElement\(morph,[\s\S]*duration: COURSE_PREVIEW_MOVE_MS/)
+          assert.match(widgetPageSource, /animateElement\(morph,[\s\S]*width: `\$\{targetRect\.width\}px`[\s\S]*duration: COURSE_SHELL_EXPAND_MS/)
+          assert.match(widgetPageSource, /await animateElement\(sourceLayer,[\s\S]*duration: COURSE_PREVIEW_FADE_MS[\s\S]*await animateElement\(targetLayer,[\s\S]*duration: COURSE_CARD_REVEAL_MS/)
+          assert.match(widgetPageSource, /targetInsetX/)
+          assert.match(widgetPageSource, /targetInsetY/)""",
+              """assert.match(widgetPageSource, /course-shared-morph/)
+          assert.match(widgetPageSource, /function sharedTextMotion/)
+          assert.match(widgetPageSource, /source\.classList\.add\('course-shared-text'\)/)
+          assert.match(widgetPageSource, /following\?\.classList\.add\('is-promoting-course'\)/)
+          assert.match(widgetPageSource, /sharedSource\.classList\.add\('is-promoting-source'\)/)
+          assert.match(widgetPageSource, /const sourceTitle = sharedSource\.querySelector<HTMLElement>\('strong'\)/)
+          assert.match(widgetPageSource, /const targetTitle = targetPrimary\.querySelector<HTMLElement>\('h2'\)/)
+          assert.match(widgetPageSource, /const sourceLocation = sharedSource\.querySelector<HTMLElement>\('small'\)/)
+          assert.match(widgetPageSource, /const targetLocation = targetPrimary\.querySelector<HTMLElement>\('\.course-location'\)/)
+          assert.match(widgetPageSource, /duration: COURSE_SHARED_TEXT_MOVE_MS/)
+          assert.match(widgetPageSource, /targetCopies = Array\.from\(targetLayer\.querySelectorAll<HTMLElement>\('h2, \.course-location'\)\)/)
+          assert.match(widgetPageSource, /duration: COURSE_TEXT_HANDOFF_MS/)
+          assert.doesNotMatch(widgetPageSource, /sourceLayer/)
+          assert.doesNotMatch(widgetPageSource, /is-shared-course-source/)
+          assert.doesNotMatch(widgetPageSource, /targetInsetX|targetInsetY/)""",
+              'semantic shared text assertions',
+          )
+          check = replace_once(
+              check,
+              """assert.match(widgetPageCss, /\.course-morph-source/)
+          assert.match(widgetPageCss, /\.course-morph-target/)
+          assert.match(widgetPageCss, /\.course-morph-source\.timeline::before \{ display: none; \}/)
+          assert.match(widgetPageCss, /inset: 0 auto auto 0/)
+          assert.match(widgetPageCss, /is-shared-course-source/)""",
+              """assert.match(widgetPageCss, /\.course-morph-target/)
+          assert.match(widgetPageCss, /\.course-morph-target \.is-shared-copy-hidden/)
+          assert.match(widgetPageCss, /following\.is-promoting-course \.section-label/)
+          assert.match(widgetPageCss, /following\.is-promoting-course \.timeline::before/)
+          assert.match(widgetPageCss, /is-promoting-source > time/)
+          assert.match(widgetPageCss, /is-promoting-source strong/)
+          assert.match(widgetPageCss, /course-shared-text/)
+          assert.doesNotMatch(widgetPageCss, /\.course-morph-source/)
+          assert.doesNotMatch(widgetPageCss, /is-shared-course-source/)""",
+              'semantic css assertions',
+          )
+          check = check.replace(
+              'sequential three-stage shared-course morphs',
+              'semantic shared-title and location morphs',
+          )
+          path.write_text(check, encoding='utf-8')
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check semantic shared text
+        run: npm run check:presentation-clock
+
+      - name: Build web interface
+        run: npm run build
+
+      - name: Commit checks
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add scripts/check-presentation-clock.mjs
+          git diff --cached --check
+          git commit -m "test: verify semantic shared course text morph"
+          git push origin HEAD:feat/time-replay-demo
