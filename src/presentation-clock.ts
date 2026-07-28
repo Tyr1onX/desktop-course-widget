@@ -2,7 +2,7 @@ export type ReplayConfig = {
   date: string
   start: string
   end: string
-  durationSeconds: number
+  minutesPerSecond: number
   loop: boolean
 }
 
@@ -33,14 +33,18 @@ function parseLocalDate(value: string): Date {
   return result
 }
 
+function validateSpeed(minutesPerSecond: number): void {
+  if (!Number.isFinite(minutesPerSecond) || minutesPerSecond < 1 || minutesPerSecond > 5) {
+    throw new Error('时间流速必须在 1–5 分钟/秒之间')
+  }
+}
+
 export function validateReplayConfig(config: ReplayConfig): void {
   const start = parseClock(config.start)
   const end = parseClock(config.end)
   parseLocalDate(config.date)
   if (end <= start) throw new Error('结束时间必须晚于开始时间')
-  if (!Number.isFinite(config.durationSeconds) || config.durationSeconds < 3 || config.durationSeconds > 300) {
-    throw new Error('演示时长必须在 3–300 秒之间')
-  }
+  validateSpeed(config.minutesPerSecond)
 }
 
 function dateAtMinute(base: Date, minute: number): Date {
@@ -55,7 +59,7 @@ export class PresentationClock {
   private active = false
   private playing = false
   private originTimestamp = 0
-  private elapsedBeforeOrigin = 0
+  private simulatedMinutesBeforeOrigin = 0
 
   start(config: ReplayConfig, timestamp: number): ReplaySnapshot {
     validateReplayConfig(config)
@@ -63,7 +67,7 @@ export class PresentationClock {
     this.active = true
     this.playing = true
     this.originTimestamp = timestamp
-    this.elapsedBeforeOrigin = 0
+    this.simulatedMinutesBeforeOrigin = 0
     return this.snapshot(timestamp)
   }
 
@@ -72,7 +76,7 @@ export class PresentationClock {
     this.playing = false
     this.config = null
     this.originTimestamp = 0
-    this.elapsedBeforeOrigin = 0
+    this.simulatedMinutesBeforeOrigin = 0
   }
 
   restart(timestamp: number): ReplaySnapshot {
@@ -80,13 +84,13 @@ export class PresentationClock {
     this.active = true
     this.playing = true
     this.originTimestamp = timestamp
-    this.elapsedBeforeOrigin = 0
+    this.simulatedMinutesBeforeOrigin = 0
     return this.snapshot(timestamp)
   }
 
   pause(timestamp: number): ReplaySnapshot {
     if (!this.config || !this.active) throw new Error('演示模式尚未启动')
-    if (this.playing) this.elapsedBeforeOrigin = this.elapsed(timestamp)
+    if (this.playing) this.simulatedMinutesBeforeOrigin = this.simulatedElapsed(timestamp)
     this.playing = false
     return this.snapshot(timestamp)
   }
@@ -94,8 +98,8 @@ export class PresentationClock {
   resume(timestamp: number): ReplaySnapshot {
     if (!this.config || !this.active) throw new Error('演示模式尚未启动')
     if (!this.playing) {
-      const duration = this.config.durationSeconds * 1_000
-      if (!this.config.loop && this.elapsedBeforeOrigin >= duration) this.elapsedBeforeOrigin = 0
+      const span = parseClock(this.config.end) - parseClock(this.config.start)
+      if (!this.config.loop && this.simulatedMinutesBeforeOrigin >= span) this.simulatedMinutesBeforeOrigin = 0
       this.originTimestamp = timestamp
       this.playing = true
     }
@@ -104,6 +108,15 @@ export class PresentationClock {
 
   toggle(timestamp: number): ReplaySnapshot {
     return this.playing ? this.pause(timestamp) : this.resume(timestamp)
+  }
+
+  setSpeed(minutesPerSecond: number, timestamp: number): ReplaySnapshot {
+    if (!this.config || !this.active) throw new Error('演示模式尚未启动')
+    validateSpeed(minutesPerSecond)
+    if (this.playing) this.simulatedMinutesBeforeOrigin = this.simulatedElapsed(timestamp)
+    this.config.minutesPerSecond = minutesPerSecond
+    this.originTimestamp = timestamp
+    return this.snapshot(timestamp)
   }
 
   isActive(): boolean {
@@ -123,28 +136,28 @@ export class PresentationClock {
       return { active: false, playing: false, date: new Date(), progress: 0, finished: false }
     }
 
-    const duration = this.config.durationSeconds * 1_000
-    const elapsed = this.elapsed(timestamp)
-    const finished = !this.config.loop && elapsed >= duration
-    const normalizedElapsed = this.config.loop
-      ? elapsed % duration
-      : Math.min(elapsed, duration)
-    const progress = Math.min(1, Math.max(0, normalizedElapsed / duration))
     const start = parseClock(this.config.start)
     const end = parseClock(this.config.end)
-    const simulatedMinute = start + (end - start) * progress
-    const date = dateAtMinute(parseLocalDate(this.config.date), simulatedMinute)
+    const span = end - start
+    const elapsed = this.simulatedElapsed(timestamp)
+    const finished = !this.config.loop && elapsed >= span
+    const normalizedElapsed = this.config.loop
+      ? elapsed % span
+      : Math.min(elapsed, span)
+    const progress = Math.min(1, Math.max(0, normalizedElapsed / span))
+    const date = dateAtMinute(parseLocalDate(this.config.date), start + normalizedElapsed)
 
     if (finished && this.playing) {
-      this.elapsedBeforeOrigin = duration
+      this.simulatedMinutesBeforeOrigin = span
       this.playing = false
     }
 
     return { active: true, playing: this.playing, date, progress, finished }
   }
 
-  private elapsed(timestamp: number): number {
-    if (!this.playing) return this.elapsedBeforeOrigin
-    return Math.max(0, this.elapsedBeforeOrigin + timestamp - this.originTimestamp)
+  private simulatedElapsed(timestamp: number): number {
+    if (!this.config || !this.playing) return this.simulatedMinutesBeforeOrigin
+    const realSeconds = Math.max(0, timestamp - this.originTimestamp) / 1_000
+    return this.simulatedMinutesBeforeOrigin + realSeconds * this.config.minutesPerSecond
   }
 }
