@@ -1,4 +1,4 @@
-import { formatMinutesDuration } from './duration'
+import { formatMinutesDuration } from './duration.js'
 export type TemporalTone = 'morning' | 'day' | 'evening' | 'night'
 export type UpcomingUrgency = 'calm' | 'soon' | 'imminent'
 
