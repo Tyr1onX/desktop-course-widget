@@ -75,6 +75,13 @@ function clearCourseTransition() {
   document.documentElement.classList.remove('is-course-transitioning')
 }
 
+function presentationPlayingMessage(prefix = '演示播放中') {
+  const speed = presentationClock.currentConfig()?.minutesPerSecond
+  return speed
+    ? `${prefix} · ${speed} 分钟/秒。课程交接时会自动停表。`
+    : `${prefix}。课程交接时会自动停表。`
+}
+
 function finishCourseTransition(token: number, resumeAfterTransition: boolean) {
   if (token !== transitionToken) return
   transitionTimer = window.setTimeout(() => {
@@ -87,7 +94,7 @@ function finishCourseTransition(token: number, resumeAfterTransition: boolean) {
     const current = presentationClock.snapshot(timestamp)
     if (resumeAfterTransition && current.active && !current.finished) {
       const resumed = presentationClock.resume(timestamp)
-      presentationMessage = '演示播放中。课程交接时会自动停表。'
+      presentationMessage = presentationPlayingMessage()
       publishPresentationStatus(resumed, true)
       clearPresentationFrame()
       presentationFrame = window.requestAnimationFrame(presentationTick)
@@ -213,7 +220,7 @@ function startPresentation(config: ReplayConfig) {
     options.showNav = false
     options.closeControl = false
     options.browseDate = undefined
-    presentationMessage = '演示播放中。课程交接时会自动停表。'
+    presentationMessage = presentationPlayingMessage()
     document.documentElement.classList.add('is-presentation-replay')
     clearClockTimers()
     clearPresentationFrame()
@@ -231,10 +238,22 @@ function togglePresentation() {
   if (!presentationClock.isActive() || transitionActive) return
   try {
     const snapshot = presentationClock.toggle(performance.now())
-    presentationMessage = snapshot.playing ? '演示播放中。课程交接时会自动停表。' : '演示已暂停。'
+    presentationMessage = snapshot.playing ? presentationPlayingMessage() : '演示已暂停。'
     clearPresentationFrame()
     applyPresentationSnapshot(snapshot, true, performance.now(), false)
     if (snapshot.playing) presentationFrame = window.requestAnimationFrame(presentationTick)
+  } catch (error) {
+    presentationMessage = error instanceof Error ? error.message : String(error)
+    publishPresentationStatus(undefined, true)
+  }
+}
+
+function setPresentationSpeed(minutesPerSecond: number) {
+  if (!presentationClock.isActive() || transitionActive) return
+  try {
+    const snapshot = presentationClock.setSpeed(minutesPerSecond, performance.now())
+    presentationMessage = presentationPlayingMessage('流速已调整')
+    publishPresentationStatus(snapshot, true)
   } catch (error) {
     presentationMessage = error instanceof Error ? error.message : String(error)
     publishPresentationStatus(undefined, true)
@@ -245,7 +264,7 @@ function restartPresentation() {
   if (!presentationClock.isActive()) return
   clearCourseTransition()
   const snapshot = presentationClock.restart(performance.now())
-  presentationMessage = '演示已重播。课程交接时会自动停表。'
+  presentationMessage = presentationPlayingMessage('演示已重播')
   clearPresentationFrame()
   lastPresentationMinute = Number.NaN
   lastPublishedPercent = -1
@@ -278,6 +297,7 @@ function stopPresentation() {
 
 function handlePresentationCommand(command: PresentationCommand) {
   if (command.type === 'start') startPresentation(command.config)
+  if (command.type === 'set-speed') setPresentationSpeed(command.minutesPerSecond)
   if (command.type === 'toggle') togglePresentation()
   if (command.type === 'restart') restartPresentation()
   if (command.type === 'stop') stopPresentation()
