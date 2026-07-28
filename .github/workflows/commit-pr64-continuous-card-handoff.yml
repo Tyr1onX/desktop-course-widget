@@ -1,0 +1,217 @@
+name: Commit PR 64 continuous card handoff
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  commit-continuous-card-handoff:
+    if: github.event.pull_request.number == 64 && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: feat/time-replay-demo
+          fetch-depth: 0
+
+      - name: Patch continuous final-card handoff
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          page_path = Path('src/widget-page.ts')
+          page = page_path.read_text(encoding='utf-8')
+          page, count = re.subn(
+              r"const COURSE_EXIT_MS = 1080\nconst COURSE_EXIT_GAP_MS = 120\nconst COURSE_SHARED_TEXT_MOVE_MS = 900\nconst COURSE_SHELL_EXPAND_MS = 720\nconst COURSE_TEXT_HANDOFF_MS = 160\nconst COURSE_RESIZE_MS = 1000",
+              "const COURSE_EXIT_MS = 1080\nconst COURSE_EXIT_GAP_MS = 120\nconst COURSE_SHARED_TEXT_MOVE_MS = 980\nconst COURSE_CARD_FORM_MS = 980\nconst COURSE_TEXT_HANDOFF_MS = 110\nconst COURSE_RESIZE_MS = 1000",
+              page,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit(f'constants: expected one replacement, found {count}')
+
+          helper_anchor = "function nextAnimationFrame() {\n  return new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))\n}"
+          if helper_anchor not in page:
+              raise SystemExit('nextAnimationFrame anchor missing')
+          page = page.replace(
+              helper_anchor,
+              "function clearElementAnimations(element: HTMLElement | null) {\n  element?.getAnimations().forEach((animation) => animation.cancel())\n}\n\n" + helper_anchor,
+              1,
+          )
+
+          start_marker = "  if (sharedSource && targetPrimary?.classList.contains('focus-course')) {"
+          end_marker = "  } else {"
+          start = page.index(start_marker)
+          end = page.index(end_marker, start)
+          shared_block = """  if (sharedSource && targetPrimary?.classList.contains('focus-course')) {
+            const following = transitionSecondary(currentBody)
+            following?.classList.add('is-promoting-course')
+            sharedSource.classList.add('is-promoting-source')
+
+            await animateElement(outgoingPrimary, [
+              { opacity: 1, transform: 'translateY(0) scale(1)', filter: 'blur(0)' },
+              { offset: .48, opacity: .84, transform: 'translateY(-13px) scale(.993)', filter: 'blur(.8px)' },
+              { opacity: 0, transform: 'translateY(-54px) scale(.968)', filter: 'blur(5px)' },
+            ], { duration: COURSE_EXIT_MS, easing: 'cubic-bezier(.4, 0, .7, .2)', fill: 'both' })
+            if (token !== transitionToken) return
+
+            await transitionDelay(COURSE_EXIT_GAP_MS)
+            if (token !== transitionToken) return
+
+            const sourceTitle = sharedSource.querySelector<HTMLElement>('strong')
+            const sourceLocation = sharedSource.querySelector<HTMLElement>('small')
+            const targetTitle = targetPrimary.querySelector<HTMLElement>('h2')
+            const targetLocation = targetPrimary.querySelector<HTMLElement>('.course-location')
+            const titleMotion = sharedTextMotion(sourceTitle, targetTitle)
+            const locationMotion = sharedTextMotion(sourceLocation, targetLocation)
+            const sharedMotions = [titleMotion, locationMotion].filter((motion): motion is NonNullable<typeof motion> => Boolean(motion))
+
+            const stageRect = stage.getBoundingClientRect()
+            const targetRect = targetPrimary.getBoundingClientRect()
+            const targetStyle = getComputedStyle(targetPrimary)
+            const targetLocationRect = targetLocation?.getBoundingClientRect()
+            const compactHeight = Math.min(
+              targetRect.height,
+              Math.max(62, (targetLocationRect?.bottom ?? targetRect.top + 62) - targetRect.top + 10),
+            )
+            const morph = document.createElement('div')
+            morph.className = 'course-shared-morph'
+            morph.style.left = `${targetRect.left - stageRect.left}px`
+            morph.style.top = `${targetRect.top - stageRect.top}px`
+            morph.style.width = `${targetRect.width}px`
+            morph.style.height = `${compactHeight}px`
+            morph.style.borderRadius = targetStyle.borderRadius
+
+            const surface = targetPrimary.cloneNode(false) as HTMLElement
+            surface.classList.add('course-morph-surface')
+            surface.style.opacity = '0'
+            const targetLayer = targetPrimary.cloneNode(true) as HTMLElement
+            targetLayer.classList.add('course-morph-target')
+            targetLayer.style.opacity = '1'
+            const targetCopies = Array.from(targetLayer.querySelectorAll<HTMLElement>('h2, .course-location'))
+            targetCopies.forEach((copy) => copy.classList.add('is-shared-copy-hidden'))
+            const targetRevealParts = Array.from(targetLayer.querySelectorAll<HTMLElement>(
+              '.focus-kicker, .course-date, .course-time, .countdown, .course-flow',
+            ))
+            targetRevealParts.forEach((part) => {
+              part.style.opacity = '0'
+              part.style.transform = 'translateY(8px)'
+              part.style.filter = 'blur(2px)'
+            })
+            morph.append(surface, targetLayer)
+            stage.append(morph)
+
+            await Promise.all([
+              ...sharedMotions.map((motion, index) => animateElement(
+                motion.element,
+                motion.keyframes,
+                {
+                  duration: COURSE_SHARED_TEXT_MOVE_MS,
+                  delay: index * 45,
+                  easing: 'cubic-bezier(.22, 1, .36, 1)',
+                  fill: 'both',
+                },
+              )),
+              animateElement(morph, [
+                { height: `${compactHeight}px` },
+                { offset: .28, height: `${compactHeight}px` },
+                { height: `${targetRect.height}px` },
+              ], { duration: COURSE_CARD_FORM_MS, easing: 'cubic-bezier(.22, 1, .36, 1)', fill: 'both' }),
+              animateElement(surface, [
+                { opacity: 0 },
+                { offset: .2, opacity: .03 },
+                { offset: .58, opacity: .56 },
+                { opacity: 1 },
+              ], { duration: COURSE_CARD_FORM_MS, easing: 'ease-out', fill: 'both' }),
+              ...targetRevealParts.map((part, index) => animateElement(part, [
+                { opacity: 0, transform: 'translateY(8px)', filter: 'blur(2px)' },
+                { offset: .28, opacity: 0, transform: 'translateY(7px)', filter: 'blur(1.8px)' },
+                { opacity: 1, transform: 'translateY(0)', filter: 'blur(0)' },
+              ], {
+                duration: Math.max(520, COURSE_CARD_FORM_MS - index * 35),
+                delay: 120 + index * 45,
+                easing: 'cubic-bezier(.16, 1, .3, 1)',
+                fill: 'both',
+              })),
+            ])
+            if (token !== transitionToken) return
+
+            targetCopies.forEach((copy) => {
+              copy.classList.remove('is-shared-copy-hidden')
+              copy.style.opacity = '0'
+            })
+            await Promise.all([
+              ...sharedMotions.map((motion) => animateElement(motion.element, [
+                { opacity: 1 },
+                { opacity: 0 },
+              ], { duration: COURSE_TEXT_HANDOFF_MS, easing: 'linear', fill: 'both' })),
+              ...targetCopies.map((copy) => animateElement(copy, [
+                { opacity: 0 },
+                { opacity: 1 },
+              ], { duration: COURSE_TEXT_HANDOFF_MS, easing: 'linear', fill: 'both' })),
+            ])
+            if (token !== transitionToken) return
+
+            targetCopies.forEach((copy) => {
+              clearElementAnimations(copy)
+              copy.style.removeProperty('opacity')
+            })
+            targetRevealParts.forEach((part) => {
+              clearElementAnimations(part)
+              part.style.removeProperty('opacity')
+              part.style.removeProperty('transform')
+              part.style.removeProperty('filter')
+            })
+            targetPrimary.replaceWith(targetLayer)
+            targetLayer.classList.remove('course-morph-target')
+            targetLayer.style.removeProperty('opacity')
+            morph.remove()
+          """
+          page = page[:start] + shared_block + page[end:]
+
+          old_render = "  if (!shouldAnimate || !currentWidget) {\n    app.replaceChildren(nextWidget)\n    return false\n  }"
+          if old_render not in page:
+              raise SystemExit('render replacement anchor missing')
+          page = page.replace(
+              old_render,
+              "  if (!shouldAnimate || !currentWidget) {\n    if (!currentWidget) {\n      nextWidget.classList.add('is-initial-mount')\n      window.setTimeout(() => nextWidget.classList.remove('is-initial-mount'), 520)\n    }\n    app.replaceChildren(nextWidget)\n    return false\n  }",
+              1,
+          )
+          page_path.write_text(page, encoding='utf-8')
+
+          css_path = Path('src/time-flow.css')
+          css = css_path.read_text(encoding='utf-8')
+          css, count = re.subn(
+              r"\n  animation: time-flow-enter 420ms cubic-bezier\(\.22, 1, \.36, 1\) both;\n  transition: background-color 220ms ease, box-shadow 220ms ease, transform 220ms ease;\n}",
+              "\n  transition: background-color 220ms ease, box-shadow 220ms ease, transform 220ms ease;\n}\n\n.course-widget.is-initial-mount .focus-course {\n  animation: time-flow-enter 420ms cubic-bezier(.22, 1, .36, 1) both;\n}",
+              css,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit(f'time-flow animation: expected one replacement, found {count}')
+          css_path.write_text(css, encoding='utf-8')
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web interface
+        run: npm run build
+
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/widget-page.ts src/time-flow.css
+          git diff --cached --check
+          git commit -m "fix: complete course card during shared-text motion"
+          git push origin HEAD:feat/time-replay-demo
