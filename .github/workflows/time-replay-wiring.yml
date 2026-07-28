@@ -1,9 +1,9 @@
 name: Time replay wiring
 
 on:
-  push:
+  pull_request:
     branches:
-      - feat/time-replay-demo
+      - main
     paths:
       - scripts/apply_time_replay_wiring.py
       - .github/workflows/time-replay-wiring.yml
