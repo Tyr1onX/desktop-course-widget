@@ -5,8 +5,8 @@ import { PresentationClock, validateReplayConfig } from '../src/presentation-clo
 const config = {
   date: '2026-09-07',
   start: '08:00',
-  end: '22:00',
-  durationSeconds: 14,
+  end: '08:10',
+  minutesPerSecond: 2,
   loop: false,
 }
 
@@ -17,33 +17,44 @@ assert.equal(snapshot.date.getHours(), 8)
 assert.equal(snapshot.date.getMinutes(), 0)
 assert.equal(snapshot.playing, true)
 
-snapshot = clock.snapshot(8_000)
+snapshot = clock.snapshot(3_500)
 assert.equal(snapshot.progress, 0.5)
-assert.equal(snapshot.date.getHours(), 15)
-assert.equal(snapshot.date.getMinutes(), 0)
+assert.equal(snapshot.date.getHours(), 8)
+assert.equal(snapshot.date.getMinutes(), 5)
 
-snapshot = clock.pause(8_000)
+snapshot = clock.pause(3_500)
 assert.equal(snapshot.playing, false)
 assert.equal(clock.snapshot(20_000).progress, 0.5)
 
 snapshot = clock.resume(20_000)
 assert.equal(snapshot.playing, true)
-snapshot = clock.snapshot(27_000)
+snapshot = clock.snapshot(22_500)
 assert.equal(snapshot.finished, true)
 assert.equal(snapshot.playing, false)
-assert.equal(snapshot.date.getHours(), 22)
-assert.equal(snapshot.date.getMinutes(), 0)
+assert.equal(snapshot.date.getHours(), 8)
+assert.equal(snapshot.date.getMinutes(), 10)
 
 assert.throws(() => validateReplayConfig({ ...config, end: '07:00' }), /结束时间必须晚于开始时间/)
-assert.throws(() => validateReplayConfig({ ...config, durationSeconds: 2 }), /3–300 秒/)
+assert.throws(() => validateReplayConfig({ ...config, minutesPerSecond: 0 }), /1–5 分钟\/秒/)
+assert.throws(() => validateReplayConfig({ ...config, minutesPerSecond: 6 }), /1–5 分钟\/秒/)
+
+const adjustable = new PresentationClock()
+adjustable.start(config, 0)
+snapshot = adjustable.snapshot(1_000)
+assert.equal(snapshot.date.getMinutes(), 2)
+snapshot = adjustable.setSpeed(5, 1_000)
+assert.equal(snapshot.date.getMinutes(), 2)
+snapshot = adjustable.snapshot(1_600)
+assert.equal(snapshot.progress, 0.5)
+assert.equal(snapshot.date.getMinutes(), 5)
 
 const looping = new PresentationClock()
-looping.start({ ...config, durationSeconds: 10, loop: true }, 0)
-snapshot = looping.snapshot(12_500)
+looping.start({ ...config, loop: true }, 0)
+snapshot = looping.snapshot(7_500)
 assert.equal(snapshot.finished, false)
-assert.equal(snapshot.progress, 0.25)
-assert.equal(snapshot.date.getHours(), 11)
-assert.equal(snapshot.date.getMinutes(), 30)
+assert.equal(snapshot.progress, 0.5)
+assert.equal(snapshot.date.getHours(), 8)
+assert.equal(snapshot.date.getMinutes(), 5)
 
 const widgetSource = readFileSync(new URL('../src/widget.ts', import.meta.url), 'utf8')
 const widgetPageSource = readFileSync(new URL('../src/widget-page.ts', import.meta.url), 'utf8')
@@ -59,17 +70,21 @@ assert.match(widgetPageSource, /options\.now = snapshot\.date/)
 assert.match(widgetPageSource, /WebviewWindow\.getByLabel\('presentation'\)/)
 assert.match(widgetPageSource, /PRESENTATION_COMMAND_EVENT/)
 assert.match(widgetPageSource, /presentationClock\.pause\(timestamp\)/)
+assert.match(widgetPageSource, /presentationClock\.setSpeed\(minutesPerSecond/)
 assert.match(widgetPageSource, /COURSE_TRANSITION_SETTLE_MS = 900/)
 assert.match(widgetPageSource, /transitioning: transitionActive/)
 assert.match(controllerSource, /PRESENTATION_STATUS_REQUEST_EVENT/)
 assert.match(controllerSource, /录制时只捕获课刻窗口/)
-assert.match(controllerSource, /宣传预设 · 36 秒/)
+assert.match(controllerSource, /min="1" max="5"/)
+assert.match(controllerSource, /快速观察 · 5 分钟\/秒/)
+assert.match(controllerSource, /不含课程转场停顿/)
+assert.match(controllerSource, /type: 'set-speed'/)
 assert.match(controllerSource, /课程转场/)
-assert.match(eventSource, /transitioning: boolean/)
+assert.match(eventSource, /type: 'set-speed'/)
 assert.match(widgetPageCss, /::view-transition-old\(replay-focus-course\)/)
 assert.match(widgetPageCss, /animation-duration: 980ms/)
 assert.match(tauriConfig, /"label": "presentation"/)
 assert.doesNotMatch(widgetPageSource, /presentation-panel/)
 assert.doesNotMatch(widgetPageSource, /withPresentationDate/)
 
-console.log('presentation clock, paced transitions, controller, and widget wiring checks passed')
+console.log('presentation clock, live speed control, paced transitions, controller, and widget wiring checks passed')
