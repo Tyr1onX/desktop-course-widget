@@ -1,7 +1,8 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import type { ImportDraft } from './import-draft'
+import type { ImportCourse, ImportDraft } from './import-draft'
+import { parseWeeksText, refreshImportDraftSummary, validateImportCourse, validateImportDraft, weeksToText } from './import-review'
 import scheduleData from './data/schedule.json'
 import './settings.css'
 
@@ -144,6 +145,9 @@ let initialDraftSnapshot = ''
 let scheduleDraft: ScheduleDraft | null = null
 let initialScheduleDraftSnapshot = ''
 let importDraft: ImportDraft | null = null
+let importNameDraft = ''
+let importFirstWeekDraft = ''
+let expandedImportCourseIndex = 0
 let surfaceMessage = ''
 let autostartEnabled = false
 let timeDraft = structuredClone(settings.lessonTimes)
@@ -585,13 +589,81 @@ function slotMarkup(slot: DraftSlot, index: number, maxWeek: number): string {
   `
 }
 
+function importCourseReviewMarkup(course: ImportCourse, index: number): string {
+  const issues = validateImportCourse(course, settings.lessonTimes.length)
+  const weekday = weekdayLabels[course.weekday - 1] ?? '星期待确认'
+  const sectionText = course.startSection === course.endSection
+    ? `第 ${course.startSection} 节`
+    : `第 ${course.startSection}–${course.endSection} 节`
+  const weekText = weeksToText(course.weeks)
+  const lessonOptions = settings.lessonTimes.map((item) => `<option value="${item.section}">${item.section}</option>`).join('')
+  const startOptions = lessonOptions.replace(`value="${course.startSection}"`, `value="${course.startSection}" selected`)
+  const endOptions = lessonOptions.replace(`value="${course.endSection}"`, `value="${course.endSection}" selected`)
+  return `
+    <details class="import-course-review${issues.length ? ' has-issues' : ''}" data-import-course-details="${index}"${expandedImportCourseIndex === index ? ' open' : ''}>
+      <summary>
+        <span class="import-course-copy">
+          <strong>${escapeHtml(course.name.trim() || `未命名课程 ${index + 1}`)}</strong>
+          <small>${escapeHtml(`${weekday} · ${sectionText} · ${weekText || '周次待确认'}周`)}</small>
+        </span>
+        <span class="import-course-state">${issues.length ? `${issues.length} 项待确认` : '信息完整'}</span>
+      </summary>
+      <div class="import-course-review-grid">
+        <label class="field field--full">
+          <span>课程名称</span>
+          <input value="${escapeHtml(course.name)}" maxlength="160" data-import-course="${index}" data-import-field="name" />
+        </label>
+        <label class="field">
+          <span>星期</span>
+          <select data-import-course="${index}" data-import-field="weekday">
+            ${weekdayLabels.map((label, offset) => `<option value="${offset + 1}"${course.weekday === offset + 1 ? ' selected' : ''}>${label}</option>`).join('')}
+          </select>
+        </label>
+        <label class="field">
+          <span>重复</span>
+          <select data-import-course="${index}" data-import-field="parity">
+            <option value="all"${course.parity === 'all' ? ' selected' : ''}>每周</option>
+            <option value="odd"${course.parity === 'odd' ? ' selected' : ''}>单周</option>
+            <option value="even"${course.parity === 'even' ? ' selected' : ''}>双周</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>开始节次</span>
+          <select data-import-course="${index}" data-import-field="startSection">${startOptions}</select>
+        </label>
+        <label class="field">
+          <span>结束节次</span>
+          <select data-import-course="${index}" data-import-field="endSection">${endOptions}</select>
+        </label>
+        <label class="field field--full">
+          <span>教学周</span>
+          <input value="${escapeHtml(weekText)}" placeholder="例如 1-8, 10-16" data-import-course="${index}" data-import-field="weeks" />
+        </label>
+        <label class="field">
+          <span>地点</span>
+          <input value="${escapeHtml(course.location ?? '')}" maxlength="160" placeholder="选填" data-import-course="${index}" data-import-field="location" />
+        </label>
+        <label class="field">
+          <span>老师</span>
+          <input value="${escapeHtml(course.teacher ?? '')}" maxlength="160" placeholder="选填" data-import-course="${index}" data-import-field="teacher" />
+        </label>
+      </div>
+      ${issues.length ? `<ul class="import-course-issues">${issues.map((issue) => `<li>${escapeHtml(issue)}</li>`).join('')}</ul>` : ''}
+    </details>
+  `
+}
+
 function importSurfaceMarkup(): string {
   const draft = importDraft
-  return surfaceShell('导入新课表', `
-    <div class="surface-scroll simple-surface">
+  const issueCount = draft
+    ? draft.courses.reduce((total, course) => total + validateImportCourse(course, settings.lessonTimes.length).length, 0)
+    : 0
+  const reviewCards = draft?.courses.map(importCourseReviewMarkup).join('') ?? ''
+  return surfaceShell('检查并导入课表', `
+    <div class="surface-scroll simple-surface import-review-surface">
       <div class="surface-intro">
         <h3>从 Excel 创建独立课表</h3>
-        <p>每次导入都会新建一份课表并自动切换过去，已有课表不会被覆盖。</p>
+        <p>先逐项检查识别结果，再创建新课表；已有课表不会被覆盖。</p>
       </div>
       <button class="import-picker" type="button" data-action="choose-excel">
         <strong>${escapeHtml(draft?.sourceName ?? '选择一份 .xlsx 课表')}</strong>
@@ -601,18 +673,30 @@ function importSurfaceMarkup(): string {
         <div class="import-summary">
           <div><span>课程安排</span><strong>${draft.summary.arrangements} 项</strong></div>
           <div><span>最高教学周</span><strong>${draft.summary.highestWeek} 周</strong></div>
-          <div><span>有效地点</span><strong>${draft.summary.locationCount} 项</strong></div>
+          <div><span>待确认</span><strong>${issueCount} 项</strong></div>
         </div>
-        <label class="field field--full"><span>课表名称</span><input id="import-name" value="${escapeHtml(draft.suggestedName)}" /></label>
-        <label class="field field--full"><span>第一周星期一</span><input id="import-first-week" type="date" value="${schedule.semesterStart}" /></label>
-        ${draft.warnings.length ? `<p class="warning-note">解析器给出了 ${draft.warnings.length} 条提示，创建后可继续检查课程。</p>` : ''}
+        <div class="import-basics">
+          <label class="field field--full"><span>课表名称</span><input id="import-name" value="${escapeHtml(importNameDraft || draft.suggestedName)}" /></label>
+          <label class="field field--full"><span>第一周星期一</span><input id="import-first-week" type="date" value="${escapeHtml(importFirstWeekDraft || schedule.semesterStart)}" /></label>
+        </div>
+        ${draft.warnings.length ? `
+          <section class="import-parser-warnings">
+            <strong>解析提示</strong>
+            <ul>${draft.warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join('')}</ul>
+          </section>
+        ` : ''}
+        <div class="import-review-heading">
+          <div><h3>逐项检查</h3><p>展开课程可修改星期、节次、周次、地点和老师。</p></div>
+          <span>${draft.courses.length} 项</span>
+        </div>
+        <div class="import-review-list">${reviewCards}</div>
       ` : ''}
       <p class="surface-message" role="status">${escapeHtml(surfaceMessage)}</p>
     </div>
     <footer class="surface-actions surface-actions--end">
-      <button class="primary-button" type="button" data-action="create-imported-schedule"${draft ? '' : ' disabled'}>创建并启用课表</button>
+      <button class="primary-button" type="button" data-action="create-imported-schedule"${draft && issueCount === 0 ? '' : ' disabled'}>确认并创建课表</button>
     </footer>
-  `)
+  `, true)
 }
 
 function timesSurfaceMarkup(): string {
@@ -1176,6 +1260,44 @@ async function saveSchedule(): Promise<void> {
 function bindImportEvents(): void {
   document.querySelector('[data-action="choose-excel"]')?.addEventListener('click', () => void chooseExcel())
   document.querySelector('[data-action="create-imported-schedule"]')?.addEventListener('click', () => void createImportedSchedule())
+  document.querySelector<HTMLInputElement>('#import-name')?.addEventListener('input', (event) => {
+    importNameDraft = (event.currentTarget as HTMLInputElement).value
+  })
+  document.querySelector<HTMLInputElement>('#import-first-week')?.addEventListener('input', (event) => {
+    importFirstWeekDraft = (event.currentTarget as HTMLInputElement).value
+  })
+  for (const details of document.querySelectorAll<HTMLDetailsElement>('[data-import-course-details]')) {
+    details.addEventListener('toggle', () => {
+      if (details.open) expandedImportCourseIndex = Number(details.dataset.importCourseDetails ?? 0)
+    })
+  }
+  for (const control of document.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-import-field]')) {
+    control.addEventListener('change', () => updateImportCourseField(control))
+  }
+}
+
+function updateImportCourseField(control: HTMLInputElement | HTMLSelectElement): void {
+  if (!importDraft) return
+  const index = Number(control.dataset.importCourse)
+  const field = control.dataset.importField
+  const course = importDraft.courses[index]
+  if (!course || !field) return
+  expandedImportCourseIndex = index
+  try {
+    if (field === 'name') course.name = control.value
+    if (field === 'weekday') course.weekday = Number(control.value)
+    if (field === 'startSection') course.startSection = Number(control.value)
+    if (field === 'endSection') course.endSection = Number(control.value)
+    if (field === 'weeks') course.weeks = parseWeeksText(control.value)
+    if (field === 'parity') course.parity = control.value as ImportCourse['parity']
+    if (field === 'location') course.location = control.value
+    if (field === 'teacher') course.teacher = control.value
+    refreshImportDraftSummary(importDraft)
+    surfaceMessage = ''
+  } catch (error) {
+    surfaceMessage = errorText(error)
+  }
+  render()
 }
 
 async function chooseExcel(): Promise<void> {
@@ -1188,7 +1310,16 @@ async function chooseExcel(): Promise<void> {
   render()
   try {
     importDraft = await invoke<ImportDraft | null>('choose_and_parse_excel')
-    surfaceMessage = importDraft ? '解析完成，请确认课表名称和第一周日期。' : '已取消选择。'
+    if (importDraft) {
+      importNameDraft = importDraft.suggestedName
+      importFirstWeekDraft = schedule.semesterStart
+      expandedImportCourseIndex = 0
+      refreshImportDraftSummary(importDraft)
+    } else {
+      importNameDraft = ''
+      importFirstWeekDraft = ''
+    }
+    surfaceMessage = importDraft ? '解析完成，请逐项检查课程信息。' : '已取消选择。'
   } catch (error) {
     surfaceMessage = `解析失败：${errorText(error)}`
   }
@@ -1197,11 +1328,14 @@ async function chooseExcel(): Promise<void> {
 
 async function createImportedSchedule(): Promise<void> {
   if (!importDraft) return
-  const name = document.querySelector<HTMLInputElement>('#import-name')?.value.trim() ?? ''
-  const firstWeekMonday = document.querySelector<HTMLInputElement>('#import-first-week')?.value ?? ''
+  const name = importNameDraft.trim()
+  const firstWeekMonday = importFirstWeekDraft
   try {
     if (!name) throw new Error('请填写课表名称')
     if (!firstWeekMonday) throw new Error('请确认第一周星期一')
+    const issues = validateImportDraft(importDraft, settings.lessonTimes.length)
+    if (issues.length) throw new Error(issues.slice(0, 3).join('；'))
+    refreshImportDraftSummary(importDraft)
     if (desktopRuntime) {
       await invoke(plugin('create_schedule_from_import'), {
         request: {
@@ -1215,6 +1349,9 @@ async function createImportedSchedule(): Promise<void> {
       await reloadDesktopState()
     }
     importDraft = null
+    importNameDraft = ''
+    importFirstWeekDraft = ''
+    expandedImportCourseIndex = 0
     surface = null
     currentWeek = initialWeek(schedule)
     render()
