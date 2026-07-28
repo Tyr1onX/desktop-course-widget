@@ -47,14 +47,61 @@ body { display: inline-block; }
   inline-size: 100%;
 }
 
-.widget-body-handoff > .widget-body.is-handoff-incoming { z-index: 1; }
-.widget-body-handoff > .widget-body.is-handoff-outgoing { z-index: 2; }
+.widget-body-handoff > .widget-body.is-handoff-current { z-index: 1; }
+.widget-body-handoff > .widget-body.is-handoff-target { visibility: hidden; }
 
 .widget-body-handoff.is-size-settling > .widget-body {
   position: relative;
   inset: auto;
   z-index: auto;
+  visibility: visible;
 }
+
+.course-shared-morph {
+  position: absolute;
+  z-index: 4;
+  overflow: hidden;
+  box-sizing: border-box;
+  pointer-events: none;
+  transform-origin: top left;
+  will-change: width, height, transform, border-radius;
+}
+
+.course-morph-surface,
+.course-morph-source,
+.course-morph-target {
+  position: absolute;
+  inset: 0;
+  margin: 0 !important;
+}
+
+.course-morph-surface {
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+}
+
+.course-morph-source {
+  z-index: 3;
+  display: grid;
+  gap: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.course-morph-source.timeline::before { bottom: 0; }
+.course-morph-source li { width: 100%; }
+
+.course-morph-target {
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.is-shared-course-source { visibility: hidden; }
 
 .is-course-transitioning .focus-course,
 .is-course-transitioning .state-label,

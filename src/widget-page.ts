@@ -38,11 +38,11 @@ const options: WidgetOptions = {
   closeControl: desktopRuntime,
 }
 
-const COURSE_EXIT_MS = 2400
-const COURSE_OVERLAP_DELAY_MS = 760
-const COURSE_ENTER_MS = 2600
-const COURSE_RESIZE_MS = 1100
-const COURSE_TRANSITION_SETTLE_MS = 500
+const COURSE_EXIT_MS = 1450
+const COURSE_MORPH_DELAY_MS = 420
+const COURSE_MORPH_MS = 2300
+const COURSE_RESIZE_MS = 1000
+const COURSE_TRANSITION_SETTLE_MS = 420
 const presentationClock = new PresentationClock()
 let presentationFrame: number | undefined
 let minuteTimeout: number | undefined
@@ -137,36 +137,39 @@ function animateElement(
   return rememberAnimation(element.animate(keyframes, options))
 }
 
-function resetPreparedElement(element: HTMLElement | null) {
-  if (!element) return
-  element.style.removeProperty('opacity')
-  element.style.removeProperty('transform')
-  element.style.removeProperty('filter')
+function nextAnimationFrame() {
+  return new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
 }
 
-function prepareIncomingElement(element: HTMLElement | null, secondary = false) {
-  if (!element) return
-  element.style.opacity = '0'
-  element.style.transform = secondary
-    ? 'translateY(24px) scale(.94)'
-    : 'translateY(42px) scale(.78)'
-  element.style.filter = secondary
-    ? 'blur(7px) brightness(.78) saturate(.86)'
-    : 'blur(12px) brightness(.64) saturate(.76)'
+function elementText(root: ParentNode | null, selector: string) {
+  return root?.querySelector<HTMLElement>(selector)?.textContent?.trim() ?? ''
+}
+
+function findSharedCourseSource(currentBody: HTMLElement, nextBody: HTMLElement) {
+  const nextFocus = nextBody.querySelector<HTMLElement>('.focus-course')
+  const nextName = elementText(nextFocus, 'h2')
+  const nextStart = elementText(nextFocus, '.course-time').split(/[–-]/)[0]?.trim() ?? ''
+  if (!nextName || !nextStart) return null
+
+  return Array.from(currentBody.querySelectorAll<HTMLElement>('.following .timeline li')).find((item) => {
+    return elementText(item, 'strong') === nextName && elementText(item, 'time') === nextStart
+  }) ?? null
 }
 
 function resetHandoffBody(body: HTMLElement) {
-  body.classList.remove('is-handoff-outgoing', 'is-handoff-incoming')
-  resetPreparedElement(transitionPrimary(body))
-  resetPreparedElement(transitionSecondary(body))
+  body.classList.remove('is-handoff-current', 'is-handoff-target')
+  body.querySelectorAll<HTMLElement>('.is-shared-course-source').forEach((item) => {
+    item.classList.remove('is-shared-course-source')
+  })
 }
 
 function collapseHandoffStage() {
   const stage = app.querySelector<HTMLElement>('.widget-body-handoff')
   if (!stage) return
-  const incoming = stage.querySelector<HTMLElement>('.widget-body.is-handoff-incoming')
-  const outgoing = stage.querySelector<HTMLElement>('.widget-body.is-handoff-outgoing')
-  const keeper = incoming ?? outgoing
+  const target = stage.querySelector<HTMLElement>('.widget-body.is-handoff-target')
+  const current = stage.querySelector<HTMLElement>('.widget-body.is-handoff-current')
+  const keeper = target ?? current
+  stage.querySelector<HTMLElement>('.course-shared-morph')?.remove()
   if (!keeper) {
     stage.remove()
     return
@@ -235,64 +238,135 @@ async function runCourseHandoff(
   const stage = document.createElement('div')
   stage.className = 'widget-body-handoff'
   stage.style.height = `${currentHeight}px`
-
-  const outgoingPrimary = transitionPrimary(currentBody)
-  const outgoingSecondary = transitionSecondary(currentBody)
-  const incomingPrimary = transitionPrimary(nextBody)
-  const incomingSecondary = transitionSecondary(nextBody)
-
-  prepareIncomingElement(incomingPrimary)
-  prepareIncomingElement(incomingSecondary, true)
-  currentBody.classList.add('is-handoff-outgoing')
-  nextBody.classList.add('is-handoff-incoming')
+  currentBody.classList.add('is-handoff-current')
+  nextBody.classList.add('is-handoff-target')
   currentBody.replaceWith(stage)
   stage.append(currentBody, nextBody)
 
-  await Promise.all([
-    animateElement(outgoingPrimary, [
-      { offset: 0, opacity: 1, transform: 'translateY(0) translateZ(0) scale(1)', filter: 'blur(0) brightness(1) saturate(1)' },
-      { offset: .24, opacity: .98, transform: 'translateY(-2px) translateZ(-8px) scale(.992)', filter: 'blur(.3px) brightness(.99) saturate(.99)' },
-      { offset: .66, opacity: .48, transform: 'translateY(-23px) translateZ(-62px) scale(.91)', filter: 'blur(4px) brightness(.82) saturate(.88)' },
-      { offset: 1, opacity: 0, transform: 'translateY(-52px) translateZ(-128px) scale(.8)', filter: 'blur(12px) brightness(.6) saturate(.7)' },
-    ], { duration: COURSE_EXIT_MS, easing: 'cubic-bezier(.4, 0, .7, .2)', fill: 'both' }),
-    animateElement(outgoingSecondary, [
-      { offset: 0, opacity: 1, transform: 'translateY(0) translateZ(0) scale(1)', filter: 'blur(0) brightness(1)' },
-      { offset: .28, opacity: .96, transform: 'translateY(-2px) translateZ(-6px) scale(.99)', filter: 'blur(.2px) brightness(.99)' },
-      { offset: 1, opacity: 0, transform: 'translateY(-30px) translateZ(-86px) scale(.88)', filter: 'blur(9px) brightness(.68)' },
-    ], { duration: COURSE_EXIT_MS - 180, easing: 'cubic-bezier(.4, 0, .7, .2)', fill: 'both' }),
-    animateElement(incomingPrimary, [
-      { offset: 0, opacity: 0, transform: 'translateY(46px) translateZ(-120px) scale(.78)', filter: 'blur(13px) brightness(.58) saturate(.72)' },
-      { offset: .22, opacity: .16, transform: 'translateY(36px) translateZ(-86px) scale(.84)', filter: 'blur(10px) brightness(.68) saturate(.8)' },
-      { offset: .62, opacity: .8, transform: 'translateY(8px) translateZ(-10px) scale(1.02)', filter: 'blur(2px) brightness(1.04) saturate(1.02)' },
-      { offset: .84, opacity: 1, transform: 'translateY(-2px) translateZ(2px) scale(1.012)', filter: 'blur(0) brightness(1.015) saturate(1)' },
-      { offset: 1, opacity: 1, transform: 'translateY(0) translateZ(0) scale(1)', filter: 'blur(0) brightness(1) saturate(1)' },
-    ], { duration: COURSE_ENTER_MS, delay: COURSE_OVERLAP_DELAY_MS, easing: 'cubic-bezier(.16, 1, .3, 1)', fill: 'both' }),
-    animateElement(incomingSecondary, [
-      { offset: 0, opacity: 0, transform: 'translateY(26px) translateZ(-70px) scale(.93)', filter: 'blur(8px) brightness(.74)' },
-      { offset: .58, opacity: .74, transform: 'translateY(5px) translateZ(-4px) scale(1.01)', filter: 'blur(1.5px) brightness(1.02)' },
-      { offset: 1, opacity: 1, transform: 'translateY(0) translateZ(0) scale(1)', filter: 'blur(0) brightness(1)' },
-    ], { duration: COURSE_ENTER_MS - 320, delay: COURSE_OVERLAP_DELAY_MS + 180, easing: 'cubic-bezier(.16, 1, .3, 1)', fill: 'both' }),
-  ])
+  await nextAnimationFrame()
   if (token !== transitionToken) return
 
-  currentBody.remove()
-  resetHandoffBody(nextBody)
-  stage.replaceChildren(nextBody)
-  stage.classList.add('is-size-settling')
+  const outgoingPrimary = transitionPrimary(currentBody)
+  const outgoingSecondary = transitionSecondary(currentBody)
+  const targetPrimary = transitionPrimary(nextBody)
+  const sharedSource = findSharedCourseSource(currentBody, nextBody)
+
+  if (sharedSource && targetPrimary?.classList.contains('focus-course')) {
+    const stageRect = stage.getBoundingClientRect()
+    const sourceRect = sharedSource.getBoundingClientRect()
+    const targetRect = targetPrimary.getBoundingClientRect()
+    const morph = document.createElement('div')
+    morph.className = 'course-shared-morph'
+    morph.style.left = `${sourceRect.left - stageRect.left}px`
+    morph.style.top = `${sourceRect.top - stageRect.top}px`
+    morph.style.width = `${sourceRect.width}px`
+    morph.style.height = `${sourceRect.height}px`
+    morph.style.borderRadius = '8px'
+
+    const surface = targetPrimary.cloneNode(false) as HTMLElement
+    surface.classList.add('course-morph-surface')
+    const sourceLayer = document.createElement('ol')
+    sourceLayer.className = 'timeline course-morph-source'
+    sourceLayer.append(sharedSource.cloneNode(true))
+    const targetLayer = targetPrimary.cloneNode(true) as HTMLElement
+    targetLayer.classList.add('course-morph-target')
+    morph.append(surface, sourceLayer, targetLayer)
+
+    sharedSource.classList.add('is-shared-course-source')
+    stage.append(morph)
+
+    const deltaX = targetRect.left - sourceRect.left
+    const deltaY = targetRect.top - sourceRect.top
+    const targetRadius = getComputedStyle(targetPrimary).borderRadius
+
+    await Promise.all([
+      animateElement(outgoingPrimary, [
+        { opacity: 1, transform: 'translateY(0) scale(1)', filter: 'blur(0)' },
+        { offset: .42, opacity: .82, transform: 'translateY(-12px) scale(.992)', filter: 'blur(.8px)' },
+        { opacity: 0, transform: 'translateY(-48px) scale(.965)', filter: 'blur(5px)' },
+      ], { duration: COURSE_EXIT_MS, easing: 'cubic-bezier(.4, 0, .7, .2)', fill: 'both' }),
+      animateElement(outgoingSecondary, [
+        { opacity: 1, transform: 'translateY(0)' },
+        { offset: .28, opacity: .92, transform: 'translateY(0)' },
+        { opacity: 0, transform: 'translateY(-14px)' },
+      ], { duration: 1180, delay: 260, easing: 'cubic-bezier(.4, 0, .7, .2)', fill: 'both' }),
+      animateElement(morph, [
+        { transform: 'translate3d(0, 0, 0)', width: `${sourceRect.width}px`, height: `${sourceRect.height}px`, borderRadius: '8px' },
+        { offset: .18, transform: 'translate3d(0, -5px, 0)', width: `${sourceRect.width * 1.04}px`, height: `${sourceRect.height * 1.06}px`, borderRadius: '9px' },
+        { transform: `translate3d(${deltaX}px, ${deltaY}px, 0)`, width: `${targetRect.width}px`, height: `${targetRect.height}px`, borderRadius: targetRadius },
+      ], { duration: COURSE_MORPH_MS, delay: COURSE_MORPH_DELAY_MS, easing: 'cubic-bezier(.22, 1, .36, 1)', fill: 'both' }),
+      animateElement(surface, [
+        { opacity: 0 },
+        { offset: .2, opacity: .08 },
+        { offset: .52, opacity: .72 },
+        { opacity: 1 },
+      ], { duration: COURSE_MORPH_MS, delay: COURSE_MORPH_DELAY_MS, easing: 'ease-out', fill: 'both' }),
+      animateElement(sourceLayer, [
+        { opacity: 1, transform: 'translateY(0) scale(1)', filter: 'blur(0)' },
+        { offset: .3, opacity: .96, transform: 'translateY(-2px) scale(.99)', filter: 'blur(0)' },
+        { offset: .68, opacity: .18, transform: 'translateY(-8px) scale(.96)', filter: 'blur(2px)' },
+        { opacity: 0, transform: 'translateY(-12px) scale(.94)', filter: 'blur(4px)' },
+      ], { duration: 1600, delay: COURSE_MORPH_DELAY_MS, easing: 'cubic-bezier(.4, 0, .7, .2)', fill: 'both' }),
+      animateElement(targetLayer, [
+        { opacity: 0, transform: 'translateY(13px) scale(.96)', filter: 'blur(4px)' },
+        { offset: .34, opacity: 0, transform: 'translateY(11px) scale(.97)', filter: 'blur(3px)' },
+        { offset: .62, opacity: .58, transform: 'translateY(4px) scale(.99)', filter: 'blur(1px)' },
+        { opacity: 1, transform: 'translateY(0) scale(1)', filter: 'blur(0)' },
+      ], { duration: COURSE_MORPH_MS, delay: COURSE_MORPH_DELAY_MS, easing: 'cubic-bezier(.16, 1, .3, 1)', fill: 'both' }),
+    ])
+    if (token !== transitionToken) return
+  } else {
+    await Promise.all([
+      animateElement(outgoingPrimary, [
+        { opacity: 1, transform: 'translateY(0) scale(1)', filter: 'blur(0)' },
+        { opacity: 0, transform: 'translateY(-46px) scale(.97)', filter: 'blur(5px)' },
+      ], { duration: COURSE_EXIT_MS, easing: 'cubic-bezier(.4, 0, .7, .2)', fill: 'both' }),
+      animateElement(outgoingSecondary, [
+        { opacity: 1, transform: 'translateY(0)' },
+        { opacity: 0, transform: 'translateY(-16px)' },
+      ], { duration: COURSE_EXIT_MS - 180, easing: 'cubic-bezier(.4, 0, .7, .2)', fill: 'both' }),
+    ])
+    if (token !== transitionToken) return
+  }
 
   const currentHeader = currentWidget.querySelector<HTMLElement>('.widget-header')
   const nextHeader = nextWidget.querySelector<HTMLElement>('.widget-header')
   if (currentHeader && nextHeader) syncNode(currentHeader, nextHeader)
 
+  resetHandoffBody(nextBody)
+  stage.replaceChildren(nextBody)
+
+  if (!sharedSource || !targetPrimary?.classList.contains('focus-course')) {
+    const incomingPrimary = transitionPrimary(nextBody)
+    await animateElement(incomingPrimary, [
+      { opacity: 0, transform: 'translateY(34px) scale(.96)', filter: 'blur(5px)' },
+      { opacity: 1, transform: 'translateY(0) scale(1)', filter: 'blur(0)' },
+    ], { duration: 1500, easing: 'cubic-bezier(.16, 1, .3, 1)', fill: 'both' })
+    if (token !== transitionToken) return
+  }
+
+  stage.classList.add('is-size-settling')
   const targetHeight = nextBody.getBoundingClientRect().height
-  await animateElement(stage, [
-    { height: `${currentHeight}px` },
-    { height: `${targetHeight}px` },
-  ], {
-    duration: COURSE_RESIZE_MS,
-    easing: 'cubic-bezier(.22, 1, .36, 1)',
-    fill: 'both',
-  })
+  const nextFollowing = transitionSecondary(nextBody)
+  await Promise.all([
+    animateElement(stage, [
+      { height: `${currentHeight}px` },
+      { height: `${targetHeight}px` },
+    ], {
+      duration: COURSE_RESIZE_MS,
+      easing: 'cubic-bezier(.22, 1, .36, 1)',
+      fill: 'both',
+    }),
+    animateElement(nextFollowing, [
+      { opacity: 0, transform: 'translateY(14px)' },
+      { opacity: 1, transform: 'translateY(0)' },
+    ], {
+      duration: 720,
+      delay: 140,
+      easing: 'cubic-bezier(.16, 1, .3, 1)',
+      fill: 'both',
+    }),
+  ])
   if (token !== transitionToken) return
 
   stage.style.removeProperty('height')
