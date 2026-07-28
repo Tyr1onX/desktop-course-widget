@@ -68,11 +68,17 @@ body { display: inline-block; }
 }
 
 .course-morph-surface,
-.course-morph-source,
 .course-morph-target {
   position: absolute;
   inset: 0;
   margin: 0 !important;
+}
+
+.course-morph-source {
+  position: absolute;
+  inset: 0 auto auto 0;
+  margin: 0 !important;
+  overflow: visible;
 }
 
 .course-morph-surface {
@@ -90,7 +96,7 @@ body { display: inline-block; }
   list-style: none;
 }
 
-.course-morph-source.timeline::before { bottom: 0; }
+.course-morph-source.timeline::before { display: none; }
 .course-morph-source li { width: 100%; }
 
 .course-morph-target {
