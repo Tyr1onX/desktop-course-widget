@@ -1,0 +1,104 @@
+name: Diagnose PR 64 line reveal targets
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose-line-reveal-targets:
+    if: github.event.pull_request.number == 64 && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/time-replay-demo
+      - name: Record target counts
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from textwrap import dedent
+          def b(value): return dedent(value).strip('\n')
+          page = Path('src/widget-page.ts').read_text(encoding='utf-8')
+          css = Path('src/widget-page.css').read_text(encoding='utf-8')
+          widget = Path('src/widget.ts').read_text(encoding='utf-8')
+          flow = Path('src/time-flow.ts').read_text(encoding='utf-8')
+          targets = {
+            'widget-current': "if (model.mode === 'current') return `<p class=\"countdown\">距下课 ${Math.max(0, parseTime(model.focus.end) - nowMinutes)} 分钟</p>`",
+            'widget-next': "if (model.mode === 'next') return `<p class=\"countdown\">${Math.max(0, parseTime(model.focus.start) - nowMinutes)} 分钟后开始</p>`",
+            'flow-current': "if (countdown) countdown.textContent = `还剩 ${Math.max(0, minutesUntilEnd)} 分钟`",
+            'timings': b('''
+              const COURSE_SHARED_TEXT_MOVE_MS = 980
+              const COURSE_CARD_FORM_MS = 980
+              const COURSE_TEXT_HANDOFF_MS = 110
+            '''),
+            'semantic': b('''
+              const sourceTitle = sharedSource.querySelector<HTMLElement>('strong')
+              const sourceLocation = sharedSource.querySelector<HTMLElement>('small')
+              const targetTitle = targetPrimary.querySelector<HTMLElement>('h2')
+              const targetLocation = targetPrimary.querySelector<HTMLElement>('.course-location')
+              const titleMotion = sharedTextMotion(sourceTitle, targetTitle)
+              const locationMotion = sharedTextMotion(sourceLocation, targetLocation)
+              const sharedMotions = [titleMotion, locationMotion].filter((motion): motion is NonNullable<typeof motion> => Boolean(motion))
+            '''),
+            'target-structure': b('''
+              const targetCopies = Array.from(targetLayer.querySelectorAll<HTMLElement>('h2, .course-location'))
+              targetCopies.forEach((copy) => copy.classList.add('is-shared-copy-hidden'))
+              const targetRevealParts = Array.from(targetLayer.querySelectorAll<HTMLElement>(
+                '.focus-kicker, .course-date, .course-time, .countdown, .course-flow',
+              ))
+              targetRevealParts.forEach((part) => {
+                part.style.opacity = '0'
+                part.style.transform = 'translateY(8px)'
+                part.style.filter = 'blur(2px)'
+              })
+            '''),
+            'parallel': b('''
+                ...targetRevealParts.map((part, index) => animateElement(part, [
+                  { opacity: 0, transform: 'translateY(8px)', filter: 'blur(2px)' },
+                  { offset: .28, opacity: 0, transform: 'translateY(7px)', filter: 'blur(1.8px)' },
+                  { opacity: 1, transform: 'translateY(0)', filter: 'blur(0)' },
+                ], {
+                  duration: Math.max(520, COURSE_CARD_FORM_MS - index * 35),
+                  delay: 120 + index * 45,
+                  easing: 'cubic-bezier(.16, 1, .3, 1)',
+                  fill: 'both',
+                })),
+            '''),
+            'cleanup': b('''
+              targetRevealParts.forEach((part) => {
+                clearElementAnimations(part)
+                part.style.removeProperty('opacity')
+                part.style.removeProperty('transform')
+                part.style.removeProperty('filter')
+              })
+            '''),
+            'css-time': b('''
+              .following.is-promoting-course .timeline::before,
+              .following.is-promoting-course .is-promoting-source::after,
+              .following.is-promoting-course .is-promoting-source > time {
+                opacity: 0;
+              }
+            '''),
+            'css-source': b('''
+              .is-promoting-source strong,
+              .is-promoting-source small {
+            '''),
+          }
+          sources = {
+            'widget-current': widget, 'widget-next': widget, 'flow-current': flow,
+            'timings': page, 'semantic': page, 'target-structure': page,
+            'parallel': page, 'cleanup': page, 'css-time': css, 'css-source': css,
+          }
+          lines = [f'{name}: {sources[name].count(value)}' for name, value in targets.items()]
+          Path('.github/line-reveal-diagnostics.txt').write_text('\n'.join(lines) + '\n', encoding='utf-8')
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .github/line-reveal-diagnostics.txt
+          git commit -m "chore: record line reveal patch diagnostics"
+          git push origin HEAD:feat/time-replay-demo
