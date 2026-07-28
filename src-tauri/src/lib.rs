@@ -1,5 +1,4 @@
 mod app_settings;
-mod data_backup;
 pub mod excel_import;
 mod schedule_apply;
 mod schedule_catalog;
@@ -443,9 +442,7 @@ fn apply_imported_schedule(
     let course_count = schedule.courses.len();
     let mut warnings = schedule_apply::apply_schedule(&app, &schedule)?;
 
-    if let Err(error) =
-        app_settings::save_lesson_times(&app, request.times, equal_duration, true)
-    {
+    if let Err(error) = app_settings::save_lesson_times(&app, request.times, equal_duration, true) {
         warnings.push(format!("作息设置保存失败：{error}"));
     }
 
@@ -578,9 +575,6 @@ pub fn run() {
             save_lesson_times,
             choose_and_parse_excel,
             apply_imported_schedule,
-            data_backup::export_backup,
-            data_backup::choose_backup_for_restore,
-            data_backup::restore_backup
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
