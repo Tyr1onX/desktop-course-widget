@@ -38,10 +38,14 @@ const options: WidgetOptions = {
   closeControl: desktopRuntime,
 }
 
+const COURSE_TRANSITION_SETTLE_MS = 900
 const presentationClock = new PresentationClock()
 let presentationFrame: number | undefined
 let minuteTimeout: number | undefined
 let minuteInterval: number | undefined
+let transitionTimer: number | undefined
+let transitionToken = 0
+let transitionActive = false
 let lastPresentationMinute = Number.NaN
 let lastPublishedPercent = -1
 let presentationMessage = '演示只改变课刻画面，不会修改系统时间或课表数据。'
@@ -63,22 +67,69 @@ function stateKey(widget: HTMLElement | null) {
   return `${state}|${course}|${courseTime}`
 }
 
-function renderWidget() {
+function clearCourseTransition() {
+  transitionToken += 1
+  if (transitionTimer !== undefined) window.clearTimeout(transitionTimer)
+  transitionTimer = undefined
+  transitionActive = false
+  document.documentElement.classList.remove('is-course-transitioning')
+}
+
+function finishCourseTransition(token: number, resumeAfterTransition: boolean) {
+  if (token !== transitionToken) return
+  transitionTimer = window.setTimeout(() => {
+    if (token !== transitionToken) return
+    transitionTimer = undefined
+    transitionActive = false
+    document.documentElement.classList.remove('is-course-transitioning')
+
+    const timestamp = performance.now()
+    const current = presentationClock.snapshot(timestamp)
+    if (resumeAfterTransition && current.active && !current.finished) {
+      const resumed = presentationClock.resume(timestamp)
+      presentationMessage = '演示播放中。课程交接时会自动停表。'
+      publishPresentationStatus(resumed, true)
+      clearPresentationFrame()
+      presentationFrame = window.requestAnimationFrame(presentationTick)
+      return
+    }
+
+    presentationMessage = current.finished ? '回放完成。' : '演示已暂停。'
+    publishPresentationStatus(current, true)
+  }, COURSE_TRANSITION_SETTLE_MS)
+}
+
+function renderWidget(allowTransition = true, timestamp = performance.now()): boolean {
   const nextWidget = buildWidget()
   const currentWidget = app.querySelector<HTMLElement>('.course-widget')
-  const shouldAnimate = presentationClock.isActive()
-    && stateKey(currentWidget) !== stateKey(nextWidget)
-    && !window.matchMedia('(prefers-reduced-motion: reduce)').matches
   const transitionDocument = document as TransitionDocument
+  const stateChanged = stateKey(currentWidget) !== stateKey(nextWidget)
+  const shouldAnimate = allowTransition
+    && !transitionActive
+    && presentationClock.isActive()
+    && stateChanged
+    && Boolean(transitionDocument.startViewTransition)
+    && !window.matchMedia('(prefers-reduced-motion: reduce)').matches
   const replace = () => app.replaceChildren(nextWidget)
 
-  if (shouldAnimate && transitionDocument.startViewTransition) {
-    document.documentElement.classList.add('is-course-transitioning')
-    const transition = transitionDocument.startViewTransition(replace)
-    void transition.finished.finally(() => document.documentElement.classList.remove('is-course-transitioning'))
-  } else {
+  if (!shouldAnimate || !transitionDocument.startViewTransition) {
     replace()
+    return false
   }
+
+  const resumeAfterTransition = presentationClock.isPlaying()
+  const frozen = resumeAfterTransition
+    ? presentationClock.pause(timestamp)
+    : presentationClock.snapshot(timestamp)
+  transitionActive = true
+  presentationMessage = '课程正在交接，演示时间已暂停。'
+  document.documentElement.classList.add('is-course-transitioning')
+  const token = ++transitionToken
+  publishPresentationStatus(frozen, true)
+
+  const transition = transitionDocument.startViewTransition(replace)
+  void transition.finished.finally(() => finishCourseTransition(token, resumeAfterTransition))
+  return true
 }
 
 function clearClockTimers() {
@@ -102,6 +153,7 @@ function presentationStatus(snapshot?: ReplaySnapshot): PresentationStatus {
   return {
     active: Boolean(current?.active),
     playing: Boolean(current?.playing),
+    transitioning: transitionActive,
     finished: Boolean(current?.finished),
     progress: current?.progress ?? 0,
     time: current ? formatPresentationTime(current.date) : '',
@@ -118,30 +170,42 @@ function publishPresentationStatus(snapshot?: ReplaySnapshot, force = false) {
   void emit(PRESENTATION_STATUS_EVENT, status)
 }
 
-function applyPresentationSnapshot(snapshot: ReplaySnapshot, force = false) {
+function applyPresentationSnapshot(
+  snapshot: ReplaySnapshot,
+  force = false,
+  timestamp = performance.now(),
+  allowTransition = true,
+): boolean {
   options.now = snapshot.date
   const minute = Math.floor(snapshot.date.getTime() / 60_000)
   if (force || minute !== lastPresentationMinute) {
     lastPresentationMinute = minute
-    renderWidget()
+    if (renderWidget(allowTransition, timestamp)) return true
   }
   publishPresentationStatus(snapshot, force)
+  return false
 }
 
 function presentationTick(timestamp: number) {
+  if (transitionActive) return
   const snapshot = presentationClock.snapshot(timestamp)
-  applyPresentationSnapshot(snapshot)
+  const transitionStarted = applyPresentationSnapshot(snapshot, false, timestamp, true)
+  if (transitionStarted) {
+    presentationFrame = undefined
+    return
+  }
   if (snapshot.playing) {
     presentationFrame = window.requestAnimationFrame(presentationTick)
   } else {
     presentationFrame = undefined
-    applyPresentationSnapshot(snapshot, true)
+    applyPresentationSnapshot(snapshot, true, timestamp, true)
   }
 }
 
 function startPresentation(config: ReplayConfig) {
   if (options.runtime !== 'live') return
   try {
+    clearCourseTransition()
     const snapshot = presentationClock.start(config, performance.now())
     if (!presentationRestore) {
       presentationRestore = { showNav: options.showNav, closeControl: options.closeControl, browseDate: options.browseDate }
@@ -149,13 +213,13 @@ function startPresentation(config: ReplayConfig) {
     options.showNav = false
     options.closeControl = false
     options.browseDate = undefined
-    presentationMessage = '演示只改变课刻画面，不会修改系统时间或课表数据。'
+    presentationMessage = '演示播放中。课程交接时会自动停表。'
     document.documentElement.classList.add('is-presentation-replay')
     clearClockTimers()
     clearPresentationFrame()
     lastPresentationMinute = Number.NaN
     lastPublishedPercent = -1
-    applyPresentationSnapshot(snapshot, true)
+    applyPresentationSnapshot(snapshot, true, performance.now(), false)
     presentationFrame = window.requestAnimationFrame(presentationTick)
   } catch (error) {
     presentationMessage = error instanceof Error ? error.message : String(error)
@@ -164,11 +228,12 @@ function startPresentation(config: ReplayConfig) {
 }
 
 function togglePresentation() {
-  if (!presentationClock.isActive()) return
+  if (!presentationClock.isActive() || transitionActive) return
   try {
     const snapshot = presentationClock.toggle(performance.now())
+    presentationMessage = snapshot.playing ? '演示播放中。课程交接时会自动停表。' : '演示已暂停。'
     clearPresentationFrame()
-    applyPresentationSnapshot(snapshot, true)
+    applyPresentationSnapshot(snapshot, true, performance.now(), false)
     if (snapshot.playing) presentationFrame = window.requestAnimationFrame(presentationTick)
   } catch (error) {
     presentationMessage = error instanceof Error ? error.message : String(error)
@@ -178,15 +243,18 @@ function togglePresentation() {
 
 function restartPresentation() {
   if (!presentationClock.isActive()) return
+  clearCourseTransition()
   const snapshot = presentationClock.restart(performance.now())
+  presentationMessage = '演示已重播。课程交接时会自动停表。'
   clearPresentationFrame()
   lastPresentationMinute = Number.NaN
   lastPublishedPercent = -1
-  applyPresentationSnapshot(snapshot, true)
+  applyPresentationSnapshot(snapshot, true, performance.now(), false)
   presentationFrame = window.requestAnimationFrame(presentationTick)
 }
 
 function stopPresentation() {
+  clearCourseTransition()
   if (!presentationClock.isActive()) {
     publishPresentationStatus(undefined, true)
     return
@@ -230,17 +298,21 @@ async function openPresentationController() {
 function syncLiveWidget() {
   if (options.runtime !== 'live') return
   if (presentationClock.isActive()) {
-    applyPresentationSnapshot(presentationClock.snapshot(performance.now()), true)
+    if (transitionActive) {
+      publishPresentationStatus(undefined, true)
+      return
+    }
+    applyPresentationSnapshot(presentationClock.snapshot(performance.now()), true, performance.now(), false)
     return
   }
   options.now = undefined
-  renderWidget()
+  renderWidget(false)
   clearClockTimers()
   const now = new Date()
   const untilNextMinute = 60_000 - now.getSeconds() * 1_000 - now.getMilliseconds()
   minuteTimeout = window.setTimeout(() => {
-    renderWidget()
-    minuteInterval = window.setInterval(renderWidget, 60_000)
+    renderWidget(false)
+    minuteInterval = window.setInterval(() => renderWidget(false), 60_000)
   }, untilNextMinute)
 }
 
@@ -314,8 +386,9 @@ if (options.runtime === 'live') {
   window.addEventListener('beforeunload', () => {
     clearClockTimers()
     clearPresentationFrame()
+    clearCourseTransition()
   })
   if (desktopRuntime) void startDesktopWidget().catch((error: unknown) => console.error('[widget] desktop startup failed', error))
 } else {
-  renderWidget()
+  renderWidget(false)
 }
