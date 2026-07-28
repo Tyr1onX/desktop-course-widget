@@ -56,7 +56,11 @@ function buildWidget() {
 }
 
 function stateKey(widget: HTMLElement | null) {
-  return widget ? `${widget.dataset.mode ?? ''}|${widget.dataset.focusKey ?? ''}` : ''
+  if (!widget) return ''
+  const state = widget.querySelector<HTMLElement>('.focus-kicker, .state-label')?.textContent ?? ''
+  const course = widget.querySelector<HTMLElement>('.focus-course h2')?.textContent ?? ''
+  const courseTime = widget.querySelector<HTMLElement>('.focus-course .course-time')?.textContent ?? ''
+  return `${state}|${course}|${courseTime}`
 }
 
 function renderWidget() {
