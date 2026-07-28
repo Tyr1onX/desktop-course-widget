@@ -1,0 +1,327 @@
+name: Commit PR 64 semantic shared text
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  commit-semantic-shared-text:
+    if: github.event.pull_request.number == 64 && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: feat/time-replay-demo
+          fetch-depth: 0
+
+      - name: Patch semantic shared text handoff
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected one match, found {count}')
+              return text.replace(old, new, 1)
+
+          page_path = Path('src/widget-page.ts')
+          page = page_path.read_text(encoding='utf-8')
+          page = replace_once(
+              page,
+              """const COURSE_EXIT_MS = 1100
+          const COURSE_EXIT_GAP_MS = 140
+          const COURSE_PREVIEW_MOVE_MS = 760
+          const COURSE_SHELL_EXPAND_MS = 620
+          const COURSE_PREVIEW_FADE_MS = 260
+          const COURSE_CARD_REVEAL_MS = 440
+          const COURSE_RESIZE_MS = 1000
+          const COURSE_TRANSITION_SETTLE_MS = 420""",
+              """const COURSE_EXIT_MS = 1080
+          const COURSE_EXIT_GAP_MS = 120
+          const COURSE_SHARED_TEXT_MOVE_MS = 900
+          const COURSE_SHELL_EXPAND_MS = 720
+          const COURSE_TEXT_HANDOFF_MS = 160
+          const COURSE_RESIZE_MS = 1000
+          const COURSE_TRANSITION_SETTLE_MS = 420""",
+              'transition constants',
+          )
+
+          page = replace_once(
+              page,
+              """function transitionDelay(milliseconds: number) {
+            return new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds))
+          }
+
+          function elementText""",
+              """function transitionDelay(milliseconds: number) {
+            return new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds))
+          }
+
+          function sharedTextMotion(source: HTMLElement | null, target: HTMLElement | null) {
+            if (!source || !target) return null
+            const sourceRect = source.getBoundingClientRect()
+            const targetRect = target.getBoundingClientRect()
+            const sourceStyle = getComputedStyle(source)
+            const targetStyle = getComputedStyle(target)
+            const sourceSize = Number.parseFloat(sourceStyle.fontSize) || 1
+            const targetSize = Number.parseFloat(targetStyle.fontSize) || sourceSize
+            const scale = targetSize / sourceSize
+            const deltaX = targetRect.left - sourceRect.left
+            const deltaY = targetRect.top - sourceRect.top
+            source.classList.add('course-shared-text')
+            return {
+              element: source,
+              keyframes: [
+                { opacity: 1, color: sourceStyle.color, transform: 'translate3d(0, 0, 0) scale(1)' },
+                {
+                  offset: .38,
+                  opacity: 1,
+                  color: targetStyle.color,
+                  transform: `translate3d(${deltaX * .46}px, ${deltaY * .34 - 5}px, 0) scale(${1 + (scale - 1) * .38})`,
+                },
+                {
+                  opacity: 1,
+                  color: targetStyle.color,
+                  fontWeight: targetStyle.fontWeight,
+                  letterSpacing: targetStyle.letterSpacing,
+                  transform: `translate3d(${deltaX}px, ${deltaY}px, 0) scale(${scale})`,
+                },
+              ] satisfies Keyframe[],
+            }
+          }
+
+          function elementText""",
+              'shared text helper',
+          )
+
+          page = replace_once(
+              page,
+              """function resetHandoffBody(body: HTMLElement) {
+            body.classList.remove('is-handoff-current', 'is-handoff-target')
+            body.querySelectorAll<HTMLElement>('.is-shared-course-source').forEach((item) => {
+              item.classList.remove('is-shared-course-source')
+            })
+          }""",
+              """function resetHandoffBody(body: HTMLElement) {
+            body.classList.remove('is-handoff-current', 'is-handoff-target')
+            body.querySelectorAll<HTMLElement>('.is-promoting-course, .is-promoting-source, .course-shared-text').forEach((item) => {
+              item.classList.remove('is-promoting-course', 'is-promoting-source', 'course-shared-text')
+            })
+          }""",
+              'handoff reset',
+          )
+
+          start_marker = "  if (sharedSource && targetPrimary?.classList.contains('focus-course')) {"
+          end_marker = "  } else {"
+          start = page.index(start_marker)
+          end = page.index(end_marker, start)
+          shared_block = """  if (sharedSource && targetPrimary?.classList.contains('focus-course')) {
+            const following = transitionSecondary(currentBody)
+            following?.classList.add('is-promoting-course')
+            sharedSource.classList.add('is-promoting-source')
+
+            await animateElement(outgoingPrimary, [
+              { opacity: 1, transform: 'translateY(0) scale(1)', filter: 'blur(0)' },
+              { offset: .48, opacity: .84, transform: 'translateY(-13px) scale(.993)', filter: 'blur(.8px)' },
+              { opacity: 0, transform: 'translateY(-54px) scale(.968)', filter: 'blur(5px)' },
+            ], { duration: COURSE_EXIT_MS, easing: 'cubic-bezier(.4, 0, .7, .2)', fill: 'both' })
+            if (token !== transitionToken) return
+
+            await transitionDelay(COURSE_EXIT_GAP_MS)
+            if (token !== transitionToken) return
+
+            const sourceTitle = sharedSource.querySelector<HTMLElement>('strong')
+            const sourceLocation = sharedSource.querySelector<HTMLElement>('small')
+            const targetTitle = targetPrimary.querySelector<HTMLElement>('h2')
+            const targetLocation = targetPrimary.querySelector<HTMLElement>('.course-location')
+            const titleMotion = sharedTextMotion(sourceTitle, targetTitle)
+            const locationMotion = sharedTextMotion(sourceLocation, targetLocation)
+            const sharedMotions = [titleMotion, locationMotion].filter((motion): motion is NonNullable<typeof motion> => Boolean(motion))
+
+            await Promise.all(sharedMotions.map((motion, index) => animateElement(
+              motion.element,
+              motion.keyframes,
+              {
+                duration: COURSE_SHARED_TEXT_MOVE_MS,
+                delay: index * 45,
+                easing: 'cubic-bezier(.22, 1, .36, 1)',
+                fill: 'both',
+              },
+            )))
+            if (token !== transitionToken) return
+
+            const stageRect = stage.getBoundingClientRect()
+            const targetRect = targetPrimary.getBoundingClientRect()
+            const targetStyle = getComputedStyle(targetPrimary)
+            const targetLocationRect = targetLocation?.getBoundingClientRect()
+            const compactHeight = Math.min(
+              targetRect.height,
+              Math.max(62, (targetLocationRect?.bottom ?? targetRect.top + 62) - targetRect.top + 10),
+            )
+            const morph = document.createElement('div')
+            morph.className = 'course-shared-morph'
+            morph.style.left = `${targetRect.left - stageRect.left}px`
+            morph.style.top = `${targetRect.top - stageRect.top}px`
+            morph.style.width = `${targetRect.width}px`
+            morph.style.height = `${compactHeight}px`
+            morph.style.borderRadius = targetStyle.borderRadius
+
+            const surface = targetPrimary.cloneNode(false) as HTMLElement
+            surface.classList.add('course-morph-surface')
+            surface.style.opacity = '0'
+            const targetLayer = targetPrimary.cloneNode(true) as HTMLElement
+            targetLayer.classList.add('course-morph-target')
+            targetLayer.style.opacity = '0'
+            const targetCopies = Array.from(targetLayer.querySelectorAll<HTMLElement>('h2, .course-location'))
+            targetCopies.forEach((copy) => copy.classList.add('is-shared-copy-hidden'))
+            morph.append(surface, targetLayer)
+            stage.append(morph)
+
+            await Promise.all([
+              animateElement(morph, [
+                { height: `${compactHeight}px` },
+                { height: `${targetRect.height}px` },
+              ], { duration: COURSE_SHELL_EXPAND_MS, easing: 'cubic-bezier(.22, 1, .36, 1)', fill: 'both' }),
+              animateElement(surface, [
+                { opacity: 0 },
+                { offset: .42, opacity: .04 },
+                { offset: .72, opacity: .58 },
+                { opacity: 1 },
+              ], { duration: COURSE_SHELL_EXPAND_MS, easing: 'ease-out', fill: 'both' }),
+              animateElement(targetLayer, [
+                { opacity: 0 },
+                { offset: .52, opacity: 0 },
+                { opacity: 1 },
+              ], { duration: COURSE_SHELL_EXPAND_MS, easing: 'cubic-bezier(.16, 1, .3, 1)', fill: 'both' }),
+            ])
+            if (token !== transitionToken) return
+
+            targetCopies.forEach((copy) => {
+              copy.classList.remove('is-shared-copy-hidden')
+              copy.style.opacity = '0'
+            })
+            await Promise.all([
+              ...sharedMotions.map((motion) => animateElement(motion.element, [
+                { opacity: 1 },
+                { opacity: 0 },
+              ], { duration: COURSE_TEXT_HANDOFF_MS, easing: 'linear', fill: 'both' })),
+              ...targetCopies.map((copy) => animateElement(copy, [
+                { opacity: 0 },
+                { opacity: 1 },
+              ], { duration: COURSE_TEXT_HANDOFF_MS, easing: 'linear', fill: 'both' })),
+            ])
+            if (token !== transitionToken) return
+          """
+          page = page[:start] + shared_block + page[end:]
+          page_path.write_text(page, encoding='utf-8')
+
+          css_path = Path('src/widget-page.css')
+          css = css_path.read_text(encoding='utf-8')
+          css_start = css.index('.widget-body-handoff > .widget-body.is-handoff-current')
+          css_end = css.index('.is-course-transitioning .focus-course', css_start)
+          replacement = """.widget-body-handoff > .widget-body.is-handoff-current { z-index: 5; }
+          .widget-body-handoff > .widget-body.is-handoff-target { visibility: hidden; }
+
+          .widget-body-handoff.is-size-settling > .widget-body {
+            position: relative;
+            inset: auto;
+            z-index: auto;
+            visibility: visible;
+          }
+
+          .course-shared-morph {
+            position: absolute;
+            z-index: 3;
+            overflow: hidden;
+            box-sizing: border-box;
+            pointer-events: none;
+            transform-origin: top left;
+            will-change: height, opacity;
+          }
+
+          .course-morph-surface,
+          .course-morph-target {
+            position: absolute;
+            inset: 0;
+            margin: 0 !important;
+          }
+
+          .course-morph-surface {
+            z-index: 1;
+            width: 100%;
+            height: 100%;
+            padding: 0;
+          }
+
+          .course-morph-target {
+            z-index: 2;
+            width: 100%;
+            height: 100%;
+            background: transparent !important;
+            box-shadow: none !important;
+          }
+
+          .course-morph-target .is-shared-copy-hidden { opacity: 0 !important; }
+
+          .is-course-transitioning .following .section-label,
+          .is-course-transitioning .following .more-courses,
+          .is-course-transitioning .following .timeline li,
+          .is-course-transitioning .following .timeline::before,
+          .is-course-transitioning .following .timeline li::after,
+          .is-course-transitioning .following .timeline time {
+            transition: opacity 280ms ease, transform 280ms cubic-bezier(.4, 0, .7, .2);
+          }
+
+          .following.is-promoting-course .section-label,
+          .following.is-promoting-course .more-courses,
+          .following.is-promoting-course .timeline li:not(.is-promoting-source) {
+            opacity: 0;
+            transform: translateY(-6px);
+          }
+
+          .following.is-promoting-course .timeline::before,
+          .following.is-promoting-course .is-promoting-source::after,
+          .following.is-promoting-course .is-promoting-source > time {
+            opacity: 0;
+          }
+
+          .is-promoting-source strong,
+          .is-promoting-source small {
+            position: relative;
+            z-index: 7;
+            display: block;
+            width: max-content;
+            max-width: none;
+            white-space: nowrap;
+            transform-origin: top left;
+            will-change: transform, color, opacity;
+          }
+
+          """
+          css = css[:css_start] + replacement + css[css_end:]
+          css_path.write_text(css, encoding='utf-8')
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web interface
+        run: npm run build
+
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/widget-page.ts src/widget-page.css
+          git diff --cached --check
+          git commit -m "fix: morph shared course text into focus card"
+          git push origin HEAD:feat/time-replay-demo
