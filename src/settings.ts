@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import type { ImportDraft } from './import-draft'
 import scheduleData from './data/schedule.json'
 import './settings.css'
 
@@ -48,27 +49,6 @@ type ScheduleSummary = {
   semesterEnd?: string | null
   courseCount: number
   active: boolean
-}
-
-type ExcelCourse = {
-  code?: string | null
-  name: string
-  weekday: number
-  startSection: number
-  endSection: number
-  weeks: number[]
-  parity: string
-  location?: string | null
-}
-
-type ExcelImportPreview = {
-  fileName: string
-  detectedTermText: string | null
-  arrangements: number
-  highestWeek: number
-  locationCount: number
-  warnings: string[]
-  courses: ExcelCourse[]
 }
 
 type DraftSlot = {
@@ -163,7 +143,7 @@ let courseDraft: CourseDraft | null = null
 let initialDraftSnapshot = ''
 let scheduleDraft: ScheduleDraft | null = null
 let initialScheduleDraftSnapshot = ''
-let importPreview: ExcelImportPreview | null = null
+let importDraft: ImportDraft | null = null
 let surfaceMessage = ''
 let autostartEnabled = false
 let timeDraft = structuredClone(settings.lessonTimes)
@@ -606,7 +586,7 @@ function slotMarkup(slot: DraftSlot, index: number, maxWeek: number): string {
 }
 
 function importSurfaceMarkup(): string {
-  const preview = importPreview
+  const draft = importDraft
   return surfaceShell('导入新课表', `
     <div class="surface-scroll simple-surface">
       <div class="surface-intro">
@@ -614,23 +594,23 @@ function importSurfaceMarkup(): string {
         <p>每次导入都会新建一份课表并自动切换过去，已有课表不会被覆盖。</p>
       </div>
       <button class="import-picker" type="button" data-action="choose-excel">
-        <strong>${escapeHtml(preview?.fileName ?? '选择一份 .xlsx 课表')}</strong>
+        <strong>${escapeHtml(draft?.sourceName ?? '选择一份 .xlsx 课表')}</strong>
         <span>${desktopRuntime ? '文件只在本机解析，不会上传' : '浏览器预览中不会读取本机文件'}</span>
       </button>
-      ${preview ? `
+      ${draft ? `
         <div class="import-summary">
-          <div><span>课程安排</span><strong>${preview.arrangements} 项</strong></div>
-          <div><span>最高教学周</span><strong>${preview.highestWeek} 周</strong></div>
-          <div><span>有效地点</span><strong>${preview.locationCount} 项</strong></div>
+          <div><span>课程安排</span><strong>${draft.summary.arrangements} 项</strong></div>
+          <div><span>最高教学周</span><strong>${draft.summary.highestWeek} 周</strong></div>
+          <div><span>有效地点</span><strong>${draft.summary.locationCount} 项</strong></div>
         </div>
-        <label class="field field--full"><span>课表名称</span><input id="import-name" value="${escapeHtml(preview.detectedTermText ?? preview.fileName.replace(/\.xlsx$/i, ''))}" /></label>
+        <label class="field field--full"><span>课表名称</span><input id="import-name" value="${escapeHtml(draft.suggestedName)}" /></label>
         <label class="field field--full"><span>第一周星期一</span><input id="import-first-week" type="date" value="${schedule.semesterStart}" /></label>
-        ${preview.warnings.length ? `<p class="warning-note">解析器给出了 ${preview.warnings.length} 条提示，创建后可继续检查课程。</p>` : ''}
+        ${draft.warnings.length ? `<p class="warning-note">解析器给出了 ${draft.warnings.length} 条提示，创建后可继续检查课程。</p>` : ''}
       ` : ''}
       <p class="surface-message" role="status">${escapeHtml(surfaceMessage)}</p>
     </div>
     <footer class="surface-actions surface-actions--end">
-      <button class="primary-button" type="button" data-action="create-imported-schedule"${preview ? '' : ' disabled'}>创建并启用课表</button>
+      <button class="primary-button" type="button" data-action="create-imported-schedule"${draft ? '' : ' disabled'}>创建并启用课表</button>
     </footer>
   `)
 }
@@ -1207,8 +1187,8 @@ async function chooseExcel(): Promise<void> {
   surfaceMessage = '等待选择或解析…'
   render()
   try {
-    importPreview = await invoke<ExcelImportPreview | null>('choose_and_parse_excel')
-    surfaceMessage = importPreview ? '解析完成，请确认课表名称和第一周日期。' : '已取消选择。'
+    importDraft = await invoke<ImportDraft | null>('choose_and_parse_excel')
+    surfaceMessage = importDraft ? '解析完成，请确认课表名称和第一周日期。' : '已取消选择。'
   } catch (error) {
     surfaceMessage = `解析失败：${errorText(error)}`
   }
@@ -1216,7 +1196,7 @@ async function chooseExcel(): Promise<void> {
 }
 
 async function createImportedSchedule(): Promise<void> {
-  if (!importPreview) return
+  if (!importDraft) return
   const name = document.querySelector<HTMLInputElement>('#import-name')?.value.trim() ?? ''
   const firstWeekMonday = document.querySelector<HTMLInputElement>('#import-first-week')?.value ?? ''
   try {
@@ -1227,14 +1207,14 @@ async function createImportedSchedule(): Promise<void> {
         request: {
           name,
           firstWeekMonday,
-          courses: importPreview.courses,
+          draft: importDraft,
           times: settings.lessonTimes,
           equalDuration: settings.equalDuration,
         },
       })
       await reloadDesktopState()
     }
-    importPreview = null
+    importDraft = null
     surface = null
     currentWeek = initialWeek(schedule)
     render()

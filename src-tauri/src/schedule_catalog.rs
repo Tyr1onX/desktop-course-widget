@@ -11,10 +11,8 @@ use tauri_plugin_autostart::ManagerExt;
 
 use crate::{
     app_settings,
-    excel_import::{
-        self,
-        types::{ParsedCourseEntry, ParsedWorkbook, SectionTime},
-    },
+    excel_import::{self, types::SectionTime},
+    import_draft::{ImportCourse, ImportDraft},
     schedule_apply,
     schedule_store::{self, Course, Schedule},
 };
@@ -85,7 +83,7 @@ pub struct ScheduleSummary {
 pub struct CreateScheduleFromImportRequest {
     name: String,
     first_week_monday: String,
-    courses: Vec<ParsedCourseEntry>,
+    draft: ImportDraft,
     times: Vec<SectionTime>,
     equal_duration: bool,
 }
@@ -269,18 +267,11 @@ fn create_schedule_from_import(
     if index.schedule_ids.len() >= MAX_SCHEDULES {
         return Err(format!("最多保留 {MAX_SCHEDULES} 份课表"));
     }
-    if request.courses.is_empty() {
-        return Err("没有可创建的课程安排".into());
-    }
+    request.draft.validate()?;
 
-    let source_entries = request.courses;
-    let parsed = ParsedWorkbook {
-        detected_term_text: None,
-        scheduled_entries: source_entries.clone(),
-        warnings: vec![],
-    };
-    let converted = excel_import::converter::preview_schedule(
-        &parsed,
+    let source_entries = request.draft.courses;
+    let converted = excel_import::converter::preview_import_schedule(
+        &source_entries,
         &request.first_week_monday,
         &request.times,
     )?;
@@ -515,10 +506,7 @@ fn catalog_from_legacy(
     }
 }
 
-fn imported_catalog_courses(
-    courses: Vec<Course>,
-    entries: &[ParsedCourseEntry],
-) -> Vec<CatalogCourse> {
+fn imported_catalog_courses(courses: Vec<Course>, entries: &[ImportCourse]) -> Vec<CatalogCourse> {
     let mut groups: HashMap<String, (String, String)> = HashMap::new();
     let mut next_group = 0usize;
     courses
