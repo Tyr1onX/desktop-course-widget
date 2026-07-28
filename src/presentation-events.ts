@@ -13,6 +13,7 @@ export type PresentationCommand =
 export type PresentationStatus = {
   active: boolean
   playing: boolean
+  transitioning: boolean
   finished: boolean
   progress: number
   time: string
