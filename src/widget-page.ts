@@ -350,7 +350,7 @@ document.addEventListener('keydown', (event) => {
   const editing = Boolean(target?.closest('input, select, textarea'))
   if (event.ctrlKey && event.shiftKey && event.code === 'KeyD') {
     event.preventDefault()
-    setPresentationPanelVisible(ensurePresentationPanel().hidden)
+    setPresentationPanelVisible(Boolean(ensurePresentationPanel().hidden))
     updatePresentationControls()
     return
   }
