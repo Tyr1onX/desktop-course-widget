@@ -28,16 +28,20 @@ app.innerHTML = `
 
     <section class="controller-card" aria-labelledby="timeline-title">
       <div class="section-heading">
-        <div><p>回放范围</p><h2 id="timeline-title">压缩一天的时间</h2></div>
-        <button type="button" class="quiet-button" data-preset>宣传预设 · 36 秒</button>
+        <div><p>回放范围</p><h2 id="timeline-title">按分钟观察时间流动</h2></div>
+        <button type="button" class="quiet-button" data-preset>快速观察 · 5 分钟/秒</button>
       </div>
       <div class="form-grid">
         <label class="field field-wide"><span>演示日期</span><input type="date" data-date /></label>
         <label class="field"><span>开始</span><input type="time" value="08:00" data-start /></label>
         <label class="field"><span>结束</span><input type="time" value="22:00" data-end /></label>
-        <label class="field"><span>时长（秒）</span><input type="number" min="3" max="300" step="1" value="45" data-duration /></label>
+        <label class="field field-wide">
+          <span>时间流速（模拟分钟 / 真实秒）</span>
+          <input type="range" min="1" max="5" step="1" value="2" data-speed />
+        </label>
         <label class="check-field"><input type="checkbox" checked data-loop /><span>循环播放</span></label>
       </div>
+      <p class="field-hint" data-speed-hint>当前 2 分钟/秒。</p>
       <p class="field-hint" data-date-hint>正在读取当前课表并选择课程较多的一天…</p>
       <p class="field-hint">课程切换时会自动暂停演示时间，转场完成后才继续。</p>
     </section>
@@ -69,16 +73,18 @@ app.innerHTML = `
 const dateInput = app.querySelector<HTMLInputElement>('[data-date]')!
 const startInput = app.querySelector<HTMLInputElement>('[data-start]')!
 const endInput = app.querySelector<HTMLInputElement>('[data-end]')!
-const durationInput = app.querySelector<HTMLInputElement>('[data-duration]')!
+const speedInput = app.querySelector<HTMLInputElement>('[data-speed]')!
 const loopInput = app.querySelector<HTMLInputElement>('[data-loop]')!
 const stateText = app.querySelector<HTMLElement>('[data-state]')!
 const timeText = app.querySelector<HTMLElement>('[data-time]')!
 const progressBar = app.querySelector<HTMLElement>('[data-progress-bar]')!
 const messageText = app.querySelector<HTMLElement>('[data-message]')!
+const speedHint = app.querySelector<HTMLElement>('[data-speed-hint]')!
 const dateHint = app.querySelector<HTMLElement>('[data-date-hint]')!
 const toggleButton = app.querySelector<HTMLButtonElement>('[data-toggle]')!
 const restartButton = app.querySelector<HTMLButtonElement>('[data-restart]')!
 const stopButton = app.querySelector<HTMLButtonElement>('[data-stop]')!
+let currentStatus: PresentationStatus | null = null
 
 function localDateKey(date: Date): string {
   const year = date.getFullYear()
@@ -92,6 +98,31 @@ function parseLocalDate(value: string): Date | null {
   if (!year || !month || !day) return null
   const date = new Date(year, month - 1, day)
   return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day ? date : null
+}
+
+function parseClock(value: string): number | null {
+  const [hour, minute] = value.split(':').map(Number)
+  if (!Number.isInteger(hour) || !Number.isInteger(minute)) return null
+  return hour * 60 + minute
+}
+
+function formatDuration(totalSeconds: number): string {
+  const rounded = Math.max(1, Math.round(totalSeconds))
+  if (rounded < 60) return `${rounded} 秒`
+  const minutes = Math.floor(rounded / 60)
+  const seconds = rounded % 60
+  return seconds ? `${minutes} 分 ${seconds} 秒` : `${minutes} 分钟`
+}
+
+function updateSpeedHint() {
+  const speed = Number(speedInput.value)
+  const start = parseClock(startInput.value)
+  const end = parseClock(endInput.value)
+  if (start === null || end === null || end <= start) {
+    speedHint.textContent = `当前 ${speed} 分钟/秒。请先设置有效的起止时间。`
+    return
+  }
+  speedHint.textContent = `当前 ${speed} 分钟/秒；完整回放约 ${formatDuration((end - start) / speed)}，不含课程转场停顿。`
 }
 
 function addDays(date: Date, days: number): Date {
@@ -129,7 +160,7 @@ function replayConfig(): ReplayConfig {
     date: dateInput.value,
     start: startInput.value,
     end: endInput.value,
-    durationSeconds: Number(durationInput.value),
+    minutesPerSecond: Number(speedInput.value),
     loop: loopInput.checked,
   }
 }
@@ -139,6 +170,7 @@ async function send(command: PresentationCommand) {
 }
 
 function updateStatus(status: PresentationStatus) {
+  currentStatus = status
   stateText.textContent = status.transitioning
     ? '课程转场'
     : status.active
@@ -151,6 +183,7 @@ function updateStatus(status: PresentationStatus) {
   timeText.textContent = status.time || '--:--'
   progressBar.style.width = `${Math.round(status.progress * 100)}%`
   messageText.textContent = status.message || '演示只改变课刻画面，不会修改系统时间或课表数据。'
+  speedInput.disabled = status.transitioning
   toggleButton.disabled = !status.active || status.transitioning
   restartButton.disabled = !status.active || status.transitioning
   stopButton.disabled = !status.active
@@ -171,10 +204,19 @@ async function loadRecommendedDate() {
 app.querySelector('[data-preset]')?.addEventListener('click', () => {
   startInput.value = '07:30'
   endInput.value = '22:00'
-  durationInput.value = '36'
+  speedInput.value = '5'
   loopInput.checked = true
+  updateSpeedHint()
 })
 app.querySelector('[data-start-button]')?.addEventListener('click', () => void send({ type: 'start', config: replayConfig() }))
+startInput.addEventListener('input', updateSpeedHint)
+endInput.addEventListener('input', updateSpeedHint)
+speedInput.addEventListener('input', () => {
+  updateSpeedHint()
+  if (currentStatus?.active && !currentStatus.transitioning) {
+    void send({ type: 'set-speed', minutesPerSecond: Number(speedInput.value) })
+  }
+})
 toggleButton.addEventListener('click', () => void send({ type: 'toggle' }))
 restartButton.addEventListener('click', () => void send({ type: 'restart' }))
 stopButton.addEventListener('click', () => void send({ type: 'stop' }))
@@ -201,4 +243,5 @@ await controllerWindow.onFocusChanged(({ payload }) => {
   if (payload) void emit(PRESENTATION_STATUS_REQUEST_EVENT)
 })
 await loadRecommendedDate()
+updateSpeedHint()
 await emit(PRESENTATION_STATUS_REQUEST_EVENT)
