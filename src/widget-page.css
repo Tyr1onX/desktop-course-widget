@@ -34,6 +34,7 @@ body { display: inline-block; }
 
 .is-presentation-replay .focus-course {
   view-transition-name: replay-focus-course;
+  animation: none;
 }
 
 .is-presentation-replay .following {
@@ -47,45 +48,68 @@ body { display: inline-block; }
 ::view-transition-group(replay-focus-course),
 ::view-transition-group(replay-following-courses),
 ::view-transition-group(replay-clock) {
-  animation-duration: 980ms;
+  animation-duration: 1960ms;
   animation-timing-function: cubic-bezier(.18, .78, .22, 1);
 }
 
+::view-transition-image-pair(replay-focus-course),
+::view-transition-image-pair(replay-following-courses) {
+  isolation: isolate;
+}
+
+::view-transition-old(replay-focus-course),
+::view-transition-new(replay-focus-course),
+::view-transition-old(replay-following-courses),
+::view-transition-new(replay-following-courses) {
+  mix-blend-mode: normal;
+}
+
 ::view-transition-old(replay-focus-course) {
-  animation: replay-focus-out 660ms cubic-bezier(.45, 0, .78, .22) both;
+  z-index: 2;
+  animation: replay-focus-out 1320ms cubic-bezier(.45, 0, .78, .22) both;
 }
 
 ::view-transition-new(replay-focus-course) {
-  animation: replay-focus-in 980ms cubic-bezier(.14, .86, .25, 1) both;
+  z-index: 1;
+  animation: replay-focus-in 1440ms cubic-bezier(.14, .86, .25, 1) 520ms both;
 }
 
 ::view-transition-old(replay-following-courses) {
-  animation: replay-list-out 620ms ease both;
+  z-index: 2;
+  animation: replay-list-out 1240ms ease both;
 }
 
 ::view-transition-new(replay-following-courses) {
-  animation: replay-list-in 920ms cubic-bezier(.14, .86, .25, 1) both;
+  z-index: 1;
+  animation: replay-list-in 1420ms cubic-bezier(.14, .86, .25, 1) 500ms both;
 }
 
 ::view-transition-old(replay-clock),
 ::view-transition-new(replay-clock) {
-  animation-duration: 420ms;
+  animation-duration: 840ms;
   animation-timing-function: ease;
+  mix-blend-mode: normal;
 }
 
 @keyframes replay-focus-out {
+  0%,
+  18% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
   to {
     opacity: 0;
-    transform: translateY(-42px) scale(.955);
-    filter: blur(4px);
+    transform: translateY(-56px) scale(.95);
+    filter: blur(5px);
   }
 }
 
 @keyframes replay-focus-in {
   from {
     opacity: 0;
-    transform: translateY(52px) scale(.97);
-    filter: blur(5px);
+    transform: translateY(64px) scale(.965);
+    filter: blur(6px);
   }
   62% { opacity: 1; }
   to {
@@ -96,16 +120,21 @@ body { display: inline-block; }
 }
 
 @keyframes replay-list-out {
+  0%,
+  18% {
+    opacity: 1;
+    transform: translateY(0);
+  }
   to {
-    opacity: .12;
-    transform: translateY(-24px);
+    opacity: .08;
+    transform: translateY(-32px);
   }
 }
 
 @keyframes replay-list-in {
   from {
     opacity: 0;
-    transform: translateY(34px);
+    transform: translateY(42px);
   }
   to {
     opacity: 1;
@@ -118,5 +147,6 @@ body { display: inline-block; }
   ::view-transition-old(*),
   ::view-transition-new(*) {
     animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
   }
 }
