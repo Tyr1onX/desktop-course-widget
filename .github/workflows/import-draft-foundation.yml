@@ -7,6 +7,12 @@ on:
     paths:
       - scripts/apply_import_draft_foundation.py
       - .github/workflows/import-draft-foundation.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - scripts/apply_import_draft_foundation.py
+      - .github/workflows/import-draft-foundation.yml
 
 permissions:
   contents: write
