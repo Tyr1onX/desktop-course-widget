@@ -2,6 +2,15 @@ import './style.css'
 import './widget-page.css'
 import './time-flow.css'
 import { isTauri } from '@tauri-apps/api/core'
+import { emit, listen } from '@tauri-apps/api/event'
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
+import {
+  PRESENTATION_COMMAND_EVENT,
+  PRESENTATION_STATUS_EVENT,
+  PRESENTATION_STATUS_REQUEST_EVENT,
+  type PresentationCommand,
+  type PresentationStatus,
+} from './presentation-events'
 import { PresentationClock, type ReplayConfig, type ReplaySnapshot } from './presentation-clock'
 import { enhanceTimeFlow } from './time-flow'
 import { clearActiveSchedule, createWidget, defaultOptions, setActiveSchedule, type ScheduleSource, type WidgetOptions } from './widget'
@@ -30,16 +39,42 @@ const options: WidgetOptions = {
 }
 
 const presentationClock = new PresentationClock()
-let activeSchedule: ScheduleSource | null = null
-let presentationPanel: HTMLElement | null = null
 let presentationFrame: number | undefined
 let minuteTimeout: number | undefined
 let minuteInterval: number | undefined
 let lastPresentationMinute = Number.NaN
+let lastPublishedPercent = -1
+let presentationMessage = '演示只改变课刻画面，不会修改系统时间或课表数据。'
 let presentationRestore: Pick<WidgetOptions, 'showNav' | 'closeControl' | 'browseDate'> | null = null
 
+type TransitionDocument = Document & {
+  startViewTransition?: (update: () => void) => { finished: Promise<void> }
+}
+
+function buildWidget() {
+  return enhanceTimeFlow(createWidget(options, renderWidget), options)
+}
+
+function stateKey(widget: HTMLElement | null) {
+  return widget ? `${widget.dataset.mode ?? ''}|${widget.dataset.focusKey ?? ''}` : ''
+}
+
 function renderWidget() {
-  app.replaceChildren(enhanceTimeFlow(createWidget(options, renderWidget), options))
+  const nextWidget = buildWidget()
+  const currentWidget = app.querySelector<HTMLElement>('.course-widget')
+  const shouldAnimate = presentationClock.isActive()
+    && stateKey(currentWidget) !== stateKey(nextWidget)
+    && !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const transitionDocument = document as TransitionDocument
+  const replace = () => app.replaceChildren(nextWidget)
+
+  if (shouldAnimate && transitionDocument.startViewTransition) {
+    document.documentElement.classList.add('is-course-transitioning')
+    const transition = transitionDocument.startViewTransition(replace)
+    void transition.finished.finally(() => document.documentElement.classList.remove('is-course-transitioning'))
+  } else {
+    replace()
+  }
 }
 
 function clearClockTimers() {
@@ -54,134 +89,29 @@ function clearPresentationFrame() {
   presentationFrame = undefined
 }
 
-function localDateKey(date: Date): string {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
+function formatPresentationTime(date: Date) {
+  return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
 }
 
-function parseLocalDate(value: string): Date | null {
-  const [year, month, day] = value.split('-').map(Number)
-  if (!year || !month || !day) return null
-  const date = new Date(year, month - 1, day)
-  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day ? date : null
-}
-
-function addDays(date: Date, days: number): Date {
-  const result = new Date(date.getFullYear(), date.getMonth(), date.getDate())
-  result.setDate(result.getDate() + days)
-  return result
-}
-
-function recommendedPresentationDate(schedule: ScheduleSource): string {
-  const semesterStart = parseLocalDate(schedule.semesterStart)
-  const weeks = schedule.courses.flatMap((course) => course.weeks)
-  const firstWeek = weeks.length ? Math.min(...weeks) : 1
-  if (!semesterStart || !schedule.courses.length) return localDateKey(new Date())
-
-  const weekStart = addDays(semesterStart, Math.max(0, firstWeek - 1) * 7)
-  let bestDate = weekStart
-  let bestCourseCount = -1
-  for (let offset = 0; offset < 7; offset += 1) {
-    const candidate = addDays(weekStart, offset)
-    const weekday = candidate.getDay()
-    const count = schedule.courses.filter((course) => {
-      const courseWeekday = course.weekday % 7
-      const parityMatches = course.parity === 'all' || (course.parity === 'odd' ? firstWeek % 2 === 1 : firstWeek % 2 === 0)
-      return courseWeekday === weekday && course.weeks.includes(firstWeek) && parityMatches
-    }).length
-    if (count > bestCourseCount) {
-      bestCourseCount = count
-      bestDate = candidate
-    }
-  }
-  return localDateKey(bestDate)
-}
-
-function setPresentationMessage(message: string) {
-  const target = presentationPanel?.querySelector<HTMLElement>('[data-presentation-message]')
-  if (target) target.textContent = message
-}
-
-function setPresentationPanelVisible(visible: boolean) {
-  const panel = ensurePresentationPanel()
-  panel.hidden = !visible
-  document.documentElement.classList.toggle('is-presentation-panel-open', visible)
-  if (visible) panel.querySelector<HTMLInputElement>('[data-presentation-date]')?.focus()
-}
-
-function ensurePresentationPanel(): HTMLElement {
-  if (presentationPanel) return presentationPanel
-  const panel = document.createElement('section')
-  panel.className = 'presentation-panel'
-  panel.hidden = true
-  panel.setAttribute('aria-label', '时间回放演示模式')
-  panel.innerHTML = `
-    <header class="presentation-panel__header">
-      <div><strong>时间回放</strong><span>隐藏演示工具</span></div>
-      <button type="button" data-presentation-hide aria-label="隐藏控制面板">×</button>
-    </header>
-    <div class="presentation-panel__grid">
-      <label class="presentation-field presentation-field--wide"><span>演示日期</span><input type="date" data-presentation-date /></label>
-      <label class="presentation-field"><span>开始</span><input type="time" value="08:00" data-presentation-start /></label>
-      <label class="presentation-field"><span>结束</span><input type="time" value="22:00" data-presentation-end /></label>
-      <label class="presentation-field"><span>压缩为</span><input type="number" min="3" max="300" step="1" value="15" data-presentation-duration /></label>
-      <label class="presentation-loop"><input type="checkbox" checked data-presentation-loop /><span>循环播放</span></label>
-    </div>
-    <div class="presentation-status">
-      <time data-presentation-time>尚未开始</time>
-      <span data-presentation-progress>Ctrl + Shift + D 显示或隐藏</span>
-    </div>
-    <p class="presentation-message" data-presentation-message></p>
-    <div class="presentation-actions">
-      <button class="presentation-primary" type="button" data-presentation-start-button>开始回放</button>
-      <button type="button" data-presentation-toggle disabled>暂停</button>
-      <button type="button" data-presentation-restart disabled>重播</button>
-      <button type="button" data-presentation-exit disabled>退出</button>
-    </div>
-  `
-  document.body.append(panel)
-  presentationPanel = panel
-
-  const dateInput = panel.querySelector<HTMLInputElement>('[data-presentation-date]')!
-  dateInput.value = activeSchedule ? recommendedPresentationDate(activeSchedule) : localDateKey(new Date())
-  panel.querySelector('[data-presentation-hide]')?.addEventListener('click', () => setPresentationPanelVisible(false))
-  panel.querySelector('[data-presentation-start-button]')?.addEventListener('click', startPresentation)
-  panel.querySelector('[data-presentation-toggle]')?.addEventListener('click', togglePresentation)
-  panel.querySelector('[data-presentation-restart]')?.addEventListener('click', restartPresentation)
-  panel.querySelector('[data-presentation-exit]')?.addEventListener('click', stopPresentation)
-  return panel
-}
-
-function presentationConfig(): ReplayConfig {
-  const panel = ensurePresentationPanel()
+function presentationStatus(snapshot?: ReplaySnapshot): PresentationStatus {
+  const current = snapshot ?? (presentationClock.isActive() ? presentationClock.snapshot(performance.now()) : undefined)
   return {
-    date: panel.querySelector<HTMLInputElement>('[data-presentation-date]')?.value ?? '',
-    start: panel.querySelector<HTMLInputElement>('[data-presentation-start]')?.value ?? '',
-    end: panel.querySelector<HTMLInputElement>('[data-presentation-end]')?.value ?? '',
-    durationSeconds: Number(panel.querySelector<HTMLInputElement>('[data-presentation-duration]')?.value),
-    loop: panel.querySelector<HTMLInputElement>('[data-presentation-loop]')?.checked ?? false,
+    active: Boolean(current?.active),
+    playing: Boolean(current?.playing),
+    finished: Boolean(current?.finished),
+    progress: current?.progress ?? 0,
+    time: current ? formatPresentationTime(current.date) : '',
+    message: presentationMessage,
   }
 }
 
-function updatePresentationControls(snapshot?: ReplaySnapshot) {
-  const panel = ensurePresentationPanel()
-  const active = presentationClock.isActive()
-  const current = snapshot ?? (active ? presentationClock.snapshot(performance.now()) : undefined)
-  const time = panel.querySelector<HTMLElement>('[data-presentation-time]')
-  const progress = panel.querySelector<HTMLElement>('[data-presentation-progress]')
-  const toggle = panel.querySelector<HTMLButtonElement>('[data-presentation-toggle]')
-  const restart = panel.querySelector<HTMLButtonElement>('[data-presentation-restart]')
-  const exit = panel.querySelector<HTMLButtonElement>('[data-presentation-exit]')
-  if (time) time.textContent = current ? current.date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }) : '尚未开始'
-  if (progress) progress.textContent = current ? `${Math.round(current.progress * 100)}% · ${current.playing ? '播放中' : current.finished ? '已完成' : '已暂停'}` : 'Ctrl + Shift + D 显示或隐藏'
-  if (toggle) {
-    toggle.disabled = !active
-    toggle.textContent = current?.playing ? '暂停' : '继续'
-  }
-  if (restart) restart.disabled = !active
-  if (exit) exit.disabled = !active
+function publishPresentationStatus(snapshot?: ReplaySnapshot, force = false) {
+  if (!desktopRuntime) return
+  const status = presentationStatus(snapshot)
+  const percent = Math.round(status.progress * 100)
+  if (!force && percent === lastPublishedPercent) return
+  lastPublishedPercent = percent
+  void emit(PRESENTATION_STATUS_EVENT, status)
 }
 
 function applyPresentationSnapshot(snapshot: ReplaySnapshot, force = false) {
@@ -190,8 +120,8 @@ function applyPresentationSnapshot(snapshot: ReplaySnapshot, force = false) {
   if (force || minute !== lastPresentationMinute) {
     lastPresentationMinute = minute
     renderWidget()
-    updatePresentationControls(snapshot)
   }
+  publishPresentationStatus(snapshot, force)
 }
 
 function presentationTick(timestamp: number) {
@@ -202,35 +132,30 @@ function presentationTick(timestamp: number) {
   } else {
     presentationFrame = undefined
     applyPresentationSnapshot(snapshot, true)
-    setPresentationPanelVisible(true)
   }
 }
 
-function startPresentation() {
-  if (options.runtime !== 'live') {
-    setPresentationMessage('演示模式需要在桌面应用或实时调试页面中使用。')
-    return
-  }
+function startPresentation(config: ReplayConfig) {
+  if (options.runtime !== 'live') return
   try {
-    const snapshot = presentationClock.start(presentationConfig(), performance.now())
+    const snapshot = presentationClock.start(config, performance.now())
     if (!presentationRestore) {
       presentationRestore = { showNav: options.showNav, closeControl: options.closeControl, browseDate: options.browseDate }
     }
     options.showNav = false
     options.closeControl = false
     options.browseDate = undefined
+    presentationMessage = '演示只改变课刻画面，不会修改系统时间或课表数据。'
     document.documentElement.classList.add('is-presentation-replay')
-    setPresentationMessage('演示时间只影响画面，不会修改系统时间或课表数据。')
     clearClockTimers()
     clearPresentationFrame()
     lastPresentationMinute = Number.NaN
+    lastPublishedPercent = -1
     applyPresentationSnapshot(snapshot, true)
     presentationFrame = window.requestAnimationFrame(presentationTick)
-    window.setTimeout(() => {
-      if (presentationClock.isPlaying()) setPresentationPanelVisible(false)
-    }, 700)
   } catch (error) {
-    setPresentationMessage(error instanceof Error ? error.message : String(error))
+    presentationMessage = error instanceof Error ? error.message : String(error)
+    publishPresentationStatus(undefined, true)
   }
 }
 
@@ -240,14 +165,10 @@ function togglePresentation() {
     const snapshot = presentationClock.toggle(performance.now())
     clearPresentationFrame()
     applyPresentationSnapshot(snapshot, true)
-    if (snapshot.playing) {
-      presentationFrame = window.requestAnimationFrame(presentationTick)
-      setPresentationPanelVisible(false)
-    } else {
-      setPresentationPanelVisible(true)
-    }
+    if (snapshot.playing) presentationFrame = window.requestAnimationFrame(presentationTick)
   } catch (error) {
-    setPresentationMessage(error instanceof Error ? error.message : String(error))
+    presentationMessage = error instanceof Error ? error.message : String(error)
+    publishPresentationStatus(undefined, true)
   }
 }
 
@@ -256,13 +177,16 @@ function restartPresentation() {
   const snapshot = presentationClock.restart(performance.now())
   clearPresentationFrame()
   lastPresentationMinute = Number.NaN
+  lastPublishedPercent = -1
   applyPresentationSnapshot(snapshot, true)
   presentationFrame = window.requestAnimationFrame(presentationTick)
-  setPresentationPanelVisible(false)
 }
 
 function stopPresentation() {
-  if (!presentationClock.isActive()) return
+  if (!presentationClock.isActive()) {
+    publishPresentationStatus(undefined, true)
+    return
+  }
   presentationClock.stop()
   clearPresentationFrame()
   options.now = undefined
@@ -273,17 +197,36 @@ function stopPresentation() {
   }
   presentationRestore = null
   lastPresentationMinute = Number.NaN
+  lastPublishedPercent = -1
+  presentationMessage = '已恢复真实时间。'
   document.documentElement.classList.remove('is-presentation-replay')
-  setPresentationMessage('已恢复真实时间。')
-  updatePresentationControls()
   syncLiveWidget()
+  publishPresentationStatus(undefined, true)
+}
+
+function handlePresentationCommand(command: PresentationCommand) {
+  if (command.type === 'start') startPresentation(command.config)
+  if (command.type === 'toggle') togglePresentation()
+  if (command.type === 'restart') restartPresentation()
+  if (command.type === 'stop') stopPresentation()
+}
+
+async function openPresentationController() {
+  if (!desktopRuntime) return
+  const controller = await WebviewWindow.getByLabel('presentation')
+  if (!controller) {
+    console.error('[presentation] controller window is unavailable')
+    return
+  }
+  await controller.show()
+  await controller.setFocus()
+  publishPresentationStatus(undefined, true)
 }
 
 function syncLiveWidget() {
   if (options.runtime !== 'live') return
   if (presentationClock.isActive()) {
-    const snapshot = presentationClock.snapshot(performance.now())
-    applyPresentationSnapshot(snapshot, true)
+    applyPresentationSnapshot(presentationClock.snapshot(performance.now()), true)
     return
   }
   options.now = undefined
@@ -302,19 +245,14 @@ type AppSettingsSnapshot = {
 }
 
 async function startDesktopWidget() {
-  const [{ invoke }, { listen }, { startDesktopShell }] = await Promise.all([
+  const [{ invoke }, { startDesktopShell }] = await Promise.all([
     import('@tauri-apps/api/core'),
-    import('@tauri-apps/api/event'),
     import('./desktop-shell'),
   ])
   const refreshSchedule = async () => {
     try {
-      activeSchedule = await invoke<ScheduleSource>('read_schedule')
-      setActiveSchedule(activeSchedule)
-      const dateInput = presentationPanel?.querySelector<HTMLInputElement>('[data-presentation-date]')
-      if (dateInput && !presentationClock.isActive()) dateInput.value = recommendedPresentationDate(activeSchedule)
+      setActiveSchedule(await invoke<ScheduleSource>('read_schedule'))
     } catch (error) {
-      activeSchedule = null
       clearActiveSchedule()
       console.error('[widget] schedule load failed', error)
     }
@@ -329,6 +267,8 @@ async function startDesktopWidget() {
 
   await listen('schedule:updated', refreshSchedule)
   await listen('widget:shown', syncLiveWidget)
+  await listen<PresentationCommand>(PRESENTATION_COMMAND_EVENT, ({ payload }) => handlePresentationCommand(payload))
+  await listen(PRESENTATION_STATUS_REQUEST_EVENT, () => publishPresentationStatus(undefined, true))
   await listen('onboarding:completed', async () => {
     await refreshSchedule()
     await startShellOnce()
@@ -345,15 +285,12 @@ async function startDesktopWidget() {
 }
 
 document.addEventListener('keydown', (event) => {
-  const target = event.target instanceof HTMLElement ? event.target : null
-  const editing = Boolean(target?.closest('input, select, textarea'))
   if (event.ctrlKey && event.shiftKey && event.code === 'KeyD') {
     event.preventDefault()
-    setPresentationPanelVisible(Boolean(ensurePresentationPanel().hidden))
-    updatePresentationControls()
+    void openPresentationController()
     return
   }
-  if (!presentationClock.isActive() || editing) return
+  if (!presentationClock.isActive()) return
   if (event.code === 'Space') {
     event.preventDefault()
     togglePresentation()
@@ -361,11 +298,8 @@ document.addEventListener('keydown', (event) => {
   if (event.code === 'Escape') {
     event.preventDefault()
     stopPresentation()
-    setPresentationPanelVisible(false)
   }
 })
-
-if (query.get('demo') === '1') setPresentationPanelVisible(true)
 
 if (options.runtime === 'live') {
   if (!desktopRuntime) syncLiveWidget()
