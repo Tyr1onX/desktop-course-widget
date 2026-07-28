@@ -14,6 +14,7 @@ body { display: inline-block; }
 #app {
   display: grid;
   padding: 12px 16px 20px;
+  perspective: 1000px;
   place-items: start;
 }
 
@@ -26,127 +27,30 @@ body { display: inline-block; }
 
 .is-presentation-replay .course-widget {
   box-shadow: 0 18px 55px rgb(25 40 58 / 18%);
+  transform-style: preserve-3d;
 }
 
 .is-course-transitioning .course-widget {
   pointer-events: none;
 }
 
-.is-presentation-replay .focus-course {
-  view-transition-name: replay-focus-course;
-  animation: none;
-}
-
-.is-presentation-replay .following {
-  view-transition-name: replay-following-courses;
-}
-
-.is-presentation-replay .now-time {
-  view-transition-name: replay-clock;
-}
-
-::view-transition-group(replay-focus-course),
-::view-transition-group(replay-following-courses),
-::view-transition-group(replay-clock) {
-  animation-duration: 1960ms;
-  animation-timing-function: cubic-bezier(.18, .78, .22, 1);
-}
-
-::view-transition-image-pair(replay-focus-course),
-::view-transition-image-pair(replay-following-courses) {
-  isolation: isolate;
-}
-
-::view-transition-old(replay-focus-course),
-::view-transition-new(replay-focus-course),
-::view-transition-old(replay-following-courses),
-::view-transition-new(replay-following-courses) {
-  mix-blend-mode: normal;
-}
-
-::view-transition-old(replay-focus-course) {
-  z-index: 2;
-  animation: replay-focus-out 1320ms cubic-bezier(.45, 0, .78, .22) both;
-}
-
-::view-transition-new(replay-focus-course) {
-  z-index: 1;
-  animation: replay-focus-in 1440ms cubic-bezier(.14, .86, .25, 1) 520ms both;
-}
-
-::view-transition-old(replay-following-courses) {
-  z-index: 2;
-  animation: replay-list-out 1240ms ease both;
-}
-
-::view-transition-new(replay-following-courses) {
-  z-index: 1;
-  animation: replay-list-in 1420ms cubic-bezier(.14, .86, .25, 1) 500ms both;
-}
-
-::view-transition-old(replay-clock),
-::view-transition-new(replay-clock) {
-  animation-duration: 840ms;
-  animation-timing-function: ease;
-  mix-blend-mode: normal;
-}
-
-@keyframes replay-focus-out {
-  0%,
-  18% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-    filter: blur(0);
-  }
-  to {
-    opacity: 0;
-    transform: translateY(-56px) scale(.95);
-    filter: blur(5px);
-  }
-}
-
-@keyframes replay-focus-in {
-  from {
-    opacity: 0;
-    transform: translateY(64px) scale(.965);
-    filter: blur(6px);
-  }
-  62% { opacity: 1; }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-    filter: blur(0);
-  }
-}
-
-@keyframes replay-list-out {
-  0%,
-  18% {
-    opacity: 1;
-    transform: translateY(0);
-  }
-  to {
-    opacity: .08;
-    transform: translateY(-32px);
-  }
-}
-
-@keyframes replay-list-in {
-  from {
-    opacity: 0;
-    transform: translateY(42px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+.is-course-transitioning .focus-course,
+.is-course-transitioning .state-label,
+.is-course-transitioning .empty-state,
+.is-course-transitioning .opening-date,
+.is-course-transitioning .following {
+  animation: none !important;
+  backface-visibility: hidden;
+  transform-origin: center center;
+  will-change: opacity, transform, filter;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  ::view-transition-group(*),
-  ::view-transition-old(*),
-  ::view-transition-new(*) {
-    animation-duration: 1ms !important;
-    animation-delay: 0ms !important;
+  .is-course-transitioning .focus-course,
+  .is-course-transitioning .state-label,
+  .is-course-transitioning .empty-state,
+  .is-course-transitioning .opening-date,
+  .is-course-transitioning .following {
+    will-change: auto;
   }
 }
