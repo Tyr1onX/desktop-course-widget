@@ -1,0 +1,253 @@
+name: Patch PR 64 overlapping course handoff
+
+on:
+  push:
+    branches: [feat/time-replay-demo]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-overlap-handoff:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: feat/time-replay-demo
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Patch handoff implementation
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly one match, found {count}')
+              return text.replace(old, new, 1)
+
+          widget_path = Path('src/widget-page.ts')
+          source = widget_path.read_text(encoding='utf-8')
+
+          source = replace_once(
+              source,
+              "const COURSE_EXIT_MS = 2200\nconst COURSE_HANDOFF_GAP_MS = 320\nconst COURSE_ENTER_MS = 2400\nconst COURSE_TRANSITION_SETTLE_MS = 900",
+              "const COURSE_EXIT_MS = 2400\nconst COURSE_OVERLAP_DELAY_MS = 760\nconst COURSE_ENTER_MS = 2600\nconst COURSE_TRANSITION_SETTLE_MS = 700",
+              'transition timing constants',
+          )
+
+          transition_key_start = source.index('function transitionKey(')
+          transition_key_end = source.index('\nfunction syncAttributes', transition_key_start)
+          course_identity = '''function courseIdentityKey(widget: HTMLElement | null) {
+            if (!widget) return ''
+            const focus = widget.querySelector<HTMLElement>('.focus-course')
+            if (focus) {
+              const course = focus.querySelector<HTMLElement>('h2')?.textContent ?? ''
+              const courseTime = focus.querySelector<HTMLElement>('.course-time')?.textContent ?? ''
+              const focusDate = focus.querySelector<HTMLElement>('.course-date')?.textContent ?? ''
+              return `course|${course}|${courseTime}|${focusDate}`
+            }
+            const state = widget.querySelector<HTMLElement>('.state-label, .empty-state, .opening-date')?.textContent ?? ''
+            return `state|${state}`
+          }
+          '''
+          source = source[:transition_key_start] + course_identity + source[transition_key_end:]
+
+          source = replace_once(
+              source,
+              "function waitForHandoff(milliseconds: number) {\n  return new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds))\n}\n\n",
+              '',
+              'obsolete handoff gap helper',
+          )
+
+          prepare_end = source.index('\nfunction clearCourseTransition()', source.index('function prepareIncomingElement'))
+          layer_helpers = '''
+          function resetHandoffWidget(widget: HTMLElement) {
+            widget.classList.remove('is-handoff-outgoing', 'is-handoff-incoming')
+            resetPreparedElement(transitionPrimary(widget))
+            resetPreparedElement(transitionSecondary(widget))
+          }
+
+          function collapseHandoffLayers() {
+            const incoming = app.querySelector<HTMLElement>('.course-widget.is-handoff-incoming')
+            const outgoing = app.querySelector<HTMLElement>('.course-widget.is-handoff-outgoing')
+            const keeper = incoming ?? outgoing
+            if (!keeper) return
+            resetHandoffWidget(keeper)
+            app.replaceChildren(keeper)
+          }
+          '''
+          source = source[:prepare_end] + layer_helpers + source[prepare_end:]
+
+          source = replace_once(
+              source,
+              "  handoffAnimations.forEach((animation) => animation.cancel())\n  handoffAnimations = []\n  transitionActive = false",
+              "  handoffAnimations.forEach((animation) => animation.cancel())\n  handoffAnimations = []\n  collapseHandoffLayers()\n  transitionActive = false",
+              'transition cleanup',
+          )
+
+          handoff_start = source.index('async function runCourseHandoff(')
+          handoff_end = source.index('\nfunction renderWidget', handoff_start)
+          overlap_handoff = '''async function runCourseHandoff(
+            token: number,
+            currentWidget: HTMLElement,
+            nextWidget: HTMLElement,
+            resumeAfterTransition: boolean,
+          ) {
+            const outgoingPrimary = transitionPrimary(currentWidget)
+            const outgoingSecondary = transitionSecondary(currentWidget)
+            const incomingPrimary = transitionPrimary(nextWidget)
+            const incomingSecondary = transitionSecondary(nextWidget)
+
+            prepareIncomingElement(incomingPrimary)
+            prepareIncomingElement(incomingSecondary, true)
+            currentWidget.classList.add('is-handoff-outgoing')
+            nextWidget.classList.add('is-handoff-incoming')
+            app.append(nextWidget)
+
+            await Promise.all([
+              animateElement(outgoingPrimary, [
+                { offset: 0, opacity: 1, transform: 'translateY(0) translateZ(0) scale(1)', filter: 'blur(0) brightness(1) saturate(1)' },
+                { offset: .24, opacity: .98, transform: 'translateY(-2px) translateZ(-8px) scale(.992)', filter: 'blur(.3px) brightness(.99) saturate(.99)' },
+                { offset: .66, opacity: .48, transform: 'translateY(-23px) translateZ(-62px) scale(.91)', filter: 'blur(4px) brightness(.82) saturate(.88)' },
+                { offset: 1, opacity: 0, transform: 'translateY(-52px) translateZ(-128px) scale(.8)', filter: 'blur(12px) brightness(.6) saturate(.7)' },
+              ], {
+                duration: COURSE_EXIT_MS,
+                easing: 'cubic-bezier(.4, 0, .7, .2)',
+                fill: 'both',
+              }),
+              animateElement(outgoingSecondary, [
+                { offset: 0, opacity: 1, transform: 'translateY(0) translateZ(0) scale(1)', filter: 'blur(0) brightness(1)' },
+                { offset: .28, opacity: .96, transform: 'translateY(-2px) translateZ(-6px) scale(.99)', filter: 'blur(.2px) brightness(.99)' },
+                { offset: 1, opacity: 0, transform: 'translateY(-30px) translateZ(-86px) scale(.88)', filter: 'blur(9px) brightness(.68)' },
+              ], {
+                duration: COURSE_EXIT_MS - 180,
+                easing: 'cubic-bezier(.4, 0, .7, .2)',
+                fill: 'both',
+              }),
+              animateElement(incomingPrimary, [
+                { offset: 0, opacity: 0, transform: 'translateY(46px) translateZ(-120px) scale(.78)', filter: 'blur(13px) brightness(.58) saturate(.72)' },
+                { offset: .22, opacity: .16, transform: 'translateY(36px) translateZ(-86px) scale(.84)', filter: 'blur(10px) brightness(.68) saturate(.8)' },
+                { offset: .62, opacity: .8, transform: 'translateY(8px) translateZ(-10px) scale(1.02)', filter: 'blur(2px) brightness(1.04) saturate(1.02)' },
+                { offset: .84, opacity: 1, transform: 'translateY(-2px) translateZ(2px) scale(1.012)', filter: 'blur(0) brightness(1.015) saturate(1)' },
+                { offset: 1, opacity: 1, transform: 'translateY(0) translateZ(0) scale(1)', filter: 'blur(0) brightness(1) saturate(1)' },
+              ], {
+                duration: COURSE_ENTER_MS,
+                delay: COURSE_OVERLAP_DELAY_MS,
+                easing: 'cubic-bezier(.16, 1, .3, 1)',
+                fill: 'both',
+              }),
+              animateElement(incomingSecondary, [
+                { offset: 0, opacity: 0, transform: 'translateY(26px) translateZ(-70px) scale(.93)', filter: 'blur(8px) brightness(.74)' },
+                { offset: .58, opacity: .74, transform: 'translateY(5px) translateZ(-4px) scale(1.01)', filter: 'blur(1.5px) brightness(1.02)' },
+                { offset: 1, opacity: 1, transform: 'translateY(0) translateZ(0) scale(1)', filter: 'blur(0) brightness(1)' },
+              ], {
+                duration: COURSE_ENTER_MS - 320,
+                delay: COURSE_OVERLAP_DELAY_MS + 180,
+                easing: 'cubic-bezier(.16, 1, .3, 1)',
+                fill: 'both',
+              }),
+            ])
+            if (token !== transitionToken) return
+
+            currentWidget.remove()
+            resetHandoffWidget(nextWidget)
+            finishCourseTransition(token, resumeAfterTransition)
+          }
+          '''
+          source = source[:handoff_start] + overlap_handoff + source[handoff_end:]
+
+          source = replace_once(
+              source,
+              "  const stateChanged = transitionKey(currentWidget) !== transitionKey(nextWidget)\n\n  if (currentWidget && !stateChanged) {",
+              "  const courseChanged = courseIdentityKey(currentWidget) !== courseIdentityKey(nextWidget)\n\n  if (currentWidget && !courseChanged) {",
+              'same-course update guard',
+          )
+          source = replace_once(source, '    && stateChanged\n', '    && courseChanged\n', 'handoff condition')
+
+          widget_path.write_text(source, encoding='utf-8')
+
+          css_path = Path('src/widget-page.css')
+          css = css_path.read_text(encoding='utf-8')
+          css_anchor = ".is-course-transitioning .course-widget {\n  pointer-events: none;\n}\n"
+          css_layers = '''.is-course-transitioning .course-widget {
+            pointer-events: none;
+          }
+
+          .is-course-transitioning #app > .course-widget {
+            grid-area: 1 / 1;
+          }
+
+          .is-course-transitioning .course-widget.is-handoff-incoming {
+            z-index: 1;
+          }
+
+          .is-course-transitioning .course-widget.is-handoff-outgoing {
+            z-index: 2;
+            background: transparent !important;
+            box-shadow: none !important;
+          }
+
+          .is-course-transitioning .course-widget.is-handoff-outgoing::before {
+            opacity: 0;
+          }
+
+          .is-course-transitioning .course-widget.is-handoff-incoming .widget-header {
+            visibility: hidden;
+          }
+          '''
+          css = replace_once(css, css_anchor, css_layers, 'overlap layer css')
+          css_path.write_text(css, encoding='utf-8')
+
+          check_path = Path('scripts/check-presentation-clock.mjs')
+          check = check_path.read_text(encoding='utf-8')
+          check = replace_once(
+              check,
+              "assert.match(widgetPageSource, /COURSE_EXIT_MS = 2200/)\nassert.match(widgetPageSource, /COURSE_HANDOFF_GAP_MS = 320/)\nassert.match(widgetPageSource, /COURSE_ENTER_MS = 2400/)\nassert.match(widgetPageSource, /COURSE_TRANSITION_SETTLE_MS = 900/)\nassert.match(widgetPageSource, /function transitionKey/)\nassert.match(widgetPageSource, /function syncStableWidget/)\nassert.match(widgetPageSource, /if \\(currentWidget && !stateChanged\\)/)\nassert.match(widgetPageSource, /syncStableWidget\\(currentWidget, nextWidget\\)/)\nassert.match(widgetPageSource, /function runCourseHandoff/)\nassert.match(widgetPageSource, /element\\.animate\\(keyframes, options\\)/)\nassert.match(widgetPageSource, /translateY\\(-48px\\) scale\\(\\.82\\)/)\nassert.match(widgetPageSource, /brightness\\(\\.64\\) saturate\\(\\.74\\)/)\nassert.match(widgetPageSource, /await waitForHandoff\\(COURSE_HANDOFF_GAP_MS\\)/)\nassert.match(widgetPageSource, /app\\.replaceChildren\\(nextWidget\\)/)\nassert.match(widgetPageSource, /translateY\\(42px\\) scale\\(\\.78\\)/)\nassert.match(widgetPageSource, /scale\\(1\\.025\\)/)\nassert.match(widgetPageSource, /brightness\\(1\\.05\\)/)",
+              "assert.match(widgetPageSource, /COURSE_EXIT_MS = 2400/)\nassert.match(widgetPageSource, /COURSE_OVERLAP_DELAY_MS = 760/)\nassert.match(widgetPageSource, /COURSE_ENTER_MS = 2600/)\nassert.match(widgetPageSource, /COURSE_TRANSITION_SETTLE_MS = 700/)\nassert.match(widgetPageSource, /function courseIdentityKey/)\nassert.doesNotMatch(widgetPageSource, /const phase =/)\nassert.match(widgetPageSource, /function syncStableWidget/)\nassert.match(widgetPageSource, /if \\(currentWidget && !courseChanged\\)/)\nassert.match(widgetPageSource, /syncStableWidget\\(currentWidget, nextWidget\\)/)\nassert.match(widgetPageSource, /function runCourseHandoff/)\nassert.match(widgetPageSource, /element\\.animate\\(keyframes, options\\)/)\nassert.match(widgetPageSource, /app\\.append\\(nextWidget\\)/)\nassert.match(widgetPageSource, /delay: COURSE_OVERLAP_DELAY_MS/)\nassert.match(widgetPageSource, /translateZ\\(-128px\\) scale\\(\\.8\\)/)\nassert.match(widgetPageSource, /translateZ\\(-120px\\) scale\\(\\.78\\)/)\nassert.match(widgetPageSource, /currentWidget\\.remove\\(\\)/)\nassert.match(widgetPageSource, /is-handoff-outgoing/)\nassert.match(widgetPageSource, /is-handoff-incoming/)",
+              'handoff assertions',
+          )
+          check = replace_once(
+              check,
+              "assert.match(widgetPageCss, /will-change: opacity, transform, filter/)\nassert.doesNotMatch(widgetPageCss, /::view-transition/)",
+              "assert.match(widgetPageCss, /will-change: opacity, transform, filter/)\nassert.match(widgetPageCss, /grid-area: 1 \\/ 1/)\nassert.match(widgetPageCss, /background: transparent !important/)\nassert.match(widgetPageCss, /visibility: hidden/)\nassert.doesNotMatch(widgetPageCss, /::view-transition/)",
+              'layer css assertions',
+          )
+          check = replace_once(
+              check,
+              "console.log('presentation clock, stable minute updates, staged real-element depth handoffs, controller, and widget wiring checks passed')",
+              "console.log('presentation clock, same-course stable updates, overlapping course depth handoffs, controller, and widget wiring checks passed')",
+              'check summary',
+          )
+          check_path.write_text(check, encoding='utf-8')
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate overlap handoff
+        run: |
+          npm run check:presentation-clock
+          npm run build
+
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/widget-page.ts src/widget-page.css scripts/check-presentation-clock.mjs
+          git diff --cached --check
+          git commit -m "refine: overlap course handoff animations"
+          git push origin HEAD:feat/time-replay-demo
