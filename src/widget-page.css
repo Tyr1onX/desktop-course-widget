@@ -28,6 +28,10 @@ body { display: inline-block; }
   box-shadow: 0 18px 55px rgb(25 40 58 / 18%);
 }
 
+.is-course-transitioning .course-widget {
+  pointer-events: none;
+}
+
 .is-presentation-replay .focus-course {
   view-transition-name: replay-focus-course;
 }
@@ -43,47 +47,47 @@ body { display: inline-block; }
 ::view-transition-group(replay-focus-course),
 ::view-transition-group(replay-following-courses),
 ::view-transition-group(replay-clock) {
-  animation-duration: 620ms;
-  animation-timing-function: cubic-bezier(.22, .8, .24, 1);
+  animation-duration: 980ms;
+  animation-timing-function: cubic-bezier(.18, .78, .22, 1);
 }
 
 ::view-transition-old(replay-focus-course) {
-  animation: replay-focus-out 420ms cubic-bezier(.4, 0, .8, .2) both;
+  animation: replay-focus-out 660ms cubic-bezier(.45, 0, .78, .22) both;
 }
 
 ::view-transition-new(replay-focus-course) {
-  animation: replay-focus-in 620ms cubic-bezier(.16, .84, .3, 1) both;
+  animation: replay-focus-in 980ms cubic-bezier(.14, .86, .25, 1) both;
 }
 
 ::view-transition-old(replay-following-courses) {
-  animation: replay-list-out 420ms ease both;
+  animation: replay-list-out 620ms ease both;
 }
 
 ::view-transition-new(replay-following-courses) {
-  animation: replay-list-in 620ms cubic-bezier(.16, .84, .3, 1) both;
+  animation: replay-list-in 920ms cubic-bezier(.14, .86, .25, 1) both;
 }
 
 ::view-transition-old(replay-clock),
 ::view-transition-new(replay-clock) {
-  animation-duration: 260ms;
+  animation-duration: 420ms;
   animation-timing-function: ease;
 }
 
 @keyframes replay-focus-out {
   to {
     opacity: 0;
-    transform: translateY(-26px) scale(.965);
-    filter: blur(3px);
+    transform: translateY(-42px) scale(.955);
+    filter: blur(4px);
   }
 }
 
 @keyframes replay-focus-in {
   from {
     opacity: 0;
-    transform: translateY(34px) scale(.975);
-    filter: blur(4px);
+    transform: translateY(52px) scale(.97);
+    filter: blur(5px);
   }
-  58% { opacity: 1; }
+  62% { opacity: 1; }
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
@@ -93,15 +97,15 @@ body { display: inline-block; }
 
 @keyframes replay-list-out {
   to {
-    opacity: .18;
-    transform: translateY(-16px);
+    opacity: .12;
+    transform: translateY(-24px);
   }
 }
 
 @keyframes replay-list-in {
   from {
     opacity: 0;
-    transform: translateY(24px);
+    transform: translateY(34px);
   }
   to {
     opacity: 1;
