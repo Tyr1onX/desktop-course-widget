@@ -64,6 +64,7 @@ export interface WidgetOptions {
   browseDate?: Date
   dragRegion: boolean
   closeControl: boolean
+  now?: Date
 }
 
 export const defaultOptions: WidgetOptions = {
@@ -194,7 +195,7 @@ function formatDate(date: Date, mode: ModelMode) {
 }
 
 function liveModel(options: WidgetOptions): WidgetModel {
-  const now = new Date()
+  const now = options.now ? new Date(options.now) : new Date()
   const today = startOfDay(now)
   const selectedDate = options.browseDate ? startOfDay(options.browseDate) : today
   const isToday = isSameLocalDate(selectedDate, now)
@@ -372,7 +373,7 @@ export function createWidget(options: WidgetOptions, onNavigate?: () => void) {
     if (options.runtime === 'live') {
       if (direction === 'today') options.browseDate = undefined
       else {
-        const today = startOfDay(new Date())
+        const today = startOfDay(options.now ?? new Date())
         const base = options.browseDate ? startOfDay(options.browseDate) : today
         const nextDate = addDays(base, direction === 'next' ? 1 : -1)
         options.browseDate = isSameLocalDate(nextDate, today) ? undefined : nextDate

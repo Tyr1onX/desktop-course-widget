@@ -19,6 +19,10 @@ body {
   place-items: start;
 }
 
+.is-presentation-panel-open #app {
+  min-height: 390px;
+}
+
 .widget-drag-surface.is-desktop-drag {
   cursor: move;
   user-select: none;

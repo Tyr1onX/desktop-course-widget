@@ -50,41 +50,6 @@ function dateAtMinute(base: Date, minute: number): Date {
   return result
 }
 
-export function withPresentationDate<T>(date: Date, work: () => T): T {
-  const NativeDate = globalThis.Date
-  const fixedTimestamp = new NativeDate(date).getTime()
-
-  class PresentationDate extends NativeDate {
-    constructor(...args: unknown[]) {
-      const value = args.length === 0
-        ? new NativeDate(fixedTimestamp)
-        : args.length === 1
-          ? new NativeDate(args[0] as string | number)
-          : new NativeDate(
-              Number(args[0]),
-              Number(args[1]),
-              args[2] === undefined ? 1 : Number(args[2]),
-              args[3] === undefined ? 0 : Number(args[3]),
-              args[4] === undefined ? 0 : Number(args[4]),
-              args[5] === undefined ? 0 : Number(args[5]),
-              args[6] === undefined ? 0 : Number(args[6]),
-            )
-      super(value.getTime())
-    }
-
-    static now(): number {
-      return fixedTimestamp
-    }
-  }
-
-  globalThis.Date = PresentationDate as DateConstructor
-  try {
-    return work()
-  } finally {
-    globalThis.Date = NativeDate
-  }
-}
-
 export class PresentationClock {
   private config: ReplayConfig | null = null
   private active = false
