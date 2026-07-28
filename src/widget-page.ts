@@ -41,7 +41,8 @@ const options: WidgetOptions = {
 const COURSE_EXIT_MS = 2400
 const COURSE_OVERLAP_DELAY_MS = 760
 const COURSE_ENTER_MS = 2600
-const COURSE_TRANSITION_SETTLE_MS = 700
+const COURSE_RESIZE_MS = 1100
+const COURSE_TRANSITION_SETTLE_MS = 500
 const presentationClock = new PresentationClock()
 let presentationFrame: number | undefined
 let minuteTimeout: number | undefined
@@ -111,12 +112,12 @@ function syncStableWidget(current: HTMLElement, next: HTMLElement) {
   syncNode(current, next)
 }
 
-function transitionPrimary(widget: HTMLElement | null) {
-  return widget?.querySelector<HTMLElement>('.focus-course, .state-label, .empty-state, .opening-date') ?? null
+function transitionPrimary(root: ParentNode | null) {
+  return root?.querySelector<HTMLElement>('.focus-course, .state-label, .empty-state, .opening-date') ?? null
 }
 
-function transitionSecondary(widget: HTMLElement | null) {
-  return widget?.querySelector<HTMLElement>('.following') ?? null
+function transitionSecondary(root: ParentNode | null) {
+  return root?.querySelector<HTMLElement>('.following') ?? null
 }
 
 function rememberAnimation(animation: Animation) {
@@ -154,19 +155,24 @@ function prepareIncomingElement(element: HTMLElement | null, secondary = false) 
     : 'blur(12px) brightness(.64) saturate(.76)'
 }
 
-function resetHandoffWidget(widget: HTMLElement) {
-  widget.classList.remove('is-handoff-outgoing', 'is-handoff-incoming')
-  resetPreparedElement(transitionPrimary(widget))
-  resetPreparedElement(transitionSecondary(widget))
+function resetHandoffBody(body: HTMLElement) {
+  body.classList.remove('is-handoff-outgoing', 'is-handoff-incoming')
+  resetPreparedElement(transitionPrimary(body))
+  resetPreparedElement(transitionSecondary(body))
 }
 
-function collapseHandoffLayers() {
-  const incoming = app.querySelector<HTMLElement>('.course-widget.is-handoff-incoming')
-  const outgoing = app.querySelector<HTMLElement>('.course-widget.is-handoff-outgoing')
+function collapseHandoffStage() {
+  const stage = app.querySelector<HTMLElement>('.widget-body-handoff')
+  if (!stage) return
+  const incoming = stage.querySelector<HTMLElement>('.widget-body.is-handoff-incoming')
+  const outgoing = stage.querySelector<HTMLElement>('.widget-body.is-handoff-outgoing')
   const keeper = incoming ?? outgoing
-  if (!keeper) return
-  resetHandoffWidget(keeper)
-  app.replaceChildren(keeper)
+  if (!keeper) {
+    stage.remove()
+    return
+  }
+  resetHandoffBody(keeper)
+  stage.replaceWith(keeper)
 }
 
 function clearCourseTransition() {
@@ -175,7 +181,7 @@ function clearCourseTransition() {
   transitionTimer = undefined
   handoffAnimations.forEach((animation) => animation.cancel())
   handoffAnimations = []
-  collapseHandoffLayers()
+  collapseHandoffStage()
   transitionActive = false
   document.documentElement.classList.remove('is-course-transitioning')
 }
@@ -217,16 +223,30 @@ async function runCourseHandoff(
   nextWidget: HTMLElement,
   resumeAfterTransition: boolean,
 ) {
-  const outgoingPrimary = transitionPrimary(currentWidget)
-  const outgoingSecondary = transitionSecondary(currentWidget)
-  const incomingPrimary = transitionPrimary(nextWidget)
-  const incomingSecondary = transitionSecondary(nextWidget)
+  const currentBody = currentWidget.querySelector<HTMLElement>('.widget-body')
+  const nextBody = nextWidget.querySelector<HTMLElement>('.widget-body')
+  if (!currentBody || !nextBody) {
+    syncStableWidget(currentWidget, nextWidget)
+    finishCourseTransition(token, resumeAfterTransition)
+    return
+  }
+
+  const currentHeight = currentBody.getBoundingClientRect().height
+  const stage = document.createElement('div')
+  stage.className = 'widget-body-handoff'
+  stage.style.height = `${currentHeight}px`
+
+  const outgoingPrimary = transitionPrimary(currentBody)
+  const outgoingSecondary = transitionSecondary(currentBody)
+  const incomingPrimary = transitionPrimary(nextBody)
+  const incomingSecondary = transitionSecondary(nextBody)
 
   prepareIncomingElement(incomingPrimary)
   prepareIncomingElement(incomingSecondary, true)
-  currentWidget.classList.add('is-handoff-outgoing')
-  nextWidget.classList.add('is-handoff-incoming')
-  app.append(nextWidget)
+  currentBody.classList.add('is-handoff-outgoing')
+  nextBody.classList.add('is-handoff-incoming')
+  currentBody.replaceWith(stage)
+  stage.append(currentBody, nextBody)
 
   await Promise.all([
     animateElement(outgoingPrimary, [
@@ -234,47 +254,49 @@ async function runCourseHandoff(
       { offset: .24, opacity: .98, transform: 'translateY(-2px) translateZ(-8px) scale(.992)', filter: 'blur(.3px) brightness(.99) saturate(.99)' },
       { offset: .66, opacity: .48, transform: 'translateY(-23px) translateZ(-62px) scale(.91)', filter: 'blur(4px) brightness(.82) saturate(.88)' },
       { offset: 1, opacity: 0, transform: 'translateY(-52px) translateZ(-128px) scale(.8)', filter: 'blur(12px) brightness(.6) saturate(.7)' },
-    ], {
-      duration: COURSE_EXIT_MS,
-      easing: 'cubic-bezier(.4, 0, .7, .2)',
-      fill: 'both',
-    }),
+    ], { duration: COURSE_EXIT_MS, easing: 'cubic-bezier(.4, 0, .7, .2)', fill: 'both' }),
     animateElement(outgoingSecondary, [
       { offset: 0, opacity: 1, transform: 'translateY(0) translateZ(0) scale(1)', filter: 'blur(0) brightness(1)' },
       { offset: .28, opacity: .96, transform: 'translateY(-2px) translateZ(-6px) scale(.99)', filter: 'blur(.2px) brightness(.99)' },
       { offset: 1, opacity: 0, transform: 'translateY(-30px) translateZ(-86px) scale(.88)', filter: 'blur(9px) brightness(.68)' },
-    ], {
-      duration: COURSE_EXIT_MS - 180,
-      easing: 'cubic-bezier(.4, 0, .7, .2)',
-      fill: 'both',
-    }),
+    ], { duration: COURSE_EXIT_MS - 180, easing: 'cubic-bezier(.4, 0, .7, .2)', fill: 'both' }),
     animateElement(incomingPrimary, [
       { offset: 0, opacity: 0, transform: 'translateY(46px) translateZ(-120px) scale(.78)', filter: 'blur(13px) brightness(.58) saturate(.72)' },
       { offset: .22, opacity: .16, transform: 'translateY(36px) translateZ(-86px) scale(.84)', filter: 'blur(10px) brightness(.68) saturate(.8)' },
       { offset: .62, opacity: .8, transform: 'translateY(8px) translateZ(-10px) scale(1.02)', filter: 'blur(2px) brightness(1.04) saturate(1.02)' },
       { offset: .84, opacity: 1, transform: 'translateY(-2px) translateZ(2px) scale(1.012)', filter: 'blur(0) brightness(1.015) saturate(1)' },
       { offset: 1, opacity: 1, transform: 'translateY(0) translateZ(0) scale(1)', filter: 'blur(0) brightness(1) saturate(1)' },
-    ], {
-      duration: COURSE_ENTER_MS,
-      delay: COURSE_OVERLAP_DELAY_MS,
-      easing: 'cubic-bezier(.16, 1, .3, 1)',
-      fill: 'both',
-    }),
+    ], { duration: COURSE_ENTER_MS, delay: COURSE_OVERLAP_DELAY_MS, easing: 'cubic-bezier(.16, 1, .3, 1)', fill: 'both' }),
     animateElement(incomingSecondary, [
       { offset: 0, opacity: 0, transform: 'translateY(26px) translateZ(-70px) scale(.93)', filter: 'blur(8px) brightness(.74)' },
       { offset: .58, opacity: .74, transform: 'translateY(5px) translateZ(-4px) scale(1.01)', filter: 'blur(1.5px) brightness(1.02)' },
       { offset: 1, opacity: 1, transform: 'translateY(0) translateZ(0) scale(1)', filter: 'blur(0) brightness(1)' },
-    ], {
-      duration: COURSE_ENTER_MS - 320,
-      delay: COURSE_OVERLAP_DELAY_MS + 180,
-      easing: 'cubic-bezier(.16, 1, .3, 1)',
-      fill: 'both',
-    }),
+    ], { duration: COURSE_ENTER_MS - 320, delay: COURSE_OVERLAP_DELAY_MS + 180, easing: 'cubic-bezier(.16, 1, .3, 1)', fill: 'both' }),
   ])
   if (token !== transitionToken) return
 
-  currentWidget.remove()
-  resetHandoffWidget(nextWidget)
+  currentBody.remove()
+  resetHandoffBody(nextBody)
+  stage.replaceChildren(nextBody)
+  stage.classList.add('is-size-settling')
+
+  const currentHeader = currentWidget.querySelector<HTMLElement>('.widget-header')
+  const nextHeader = nextWidget.querySelector<HTMLElement>('.widget-header')
+  if (currentHeader && nextHeader) syncNode(currentHeader, nextHeader)
+
+  const targetHeight = nextBody.getBoundingClientRect().height
+  await animateElement(stage, [
+    { height: `${currentHeight}px` },
+    { height: `${targetHeight}px` },
+  ], {
+    duration: COURSE_RESIZE_MS,
+    easing: 'cubic-bezier(.22, 1, .36, 1)',
+    fill: 'both',
+  })
+  if (token !== transitionToken) return
+
+  stage.style.removeProperty('height')
+  stage.replaceWith(nextBody)
   finishCourseTransition(token, resumeAfterTransition)
 }
 
@@ -313,7 +335,8 @@ function renderWidget(allowTransition = true, timestamp = performance.now()): bo
   void runCourseHandoff(token, currentWidget, nextWidget, resumeAfterTransition).catch((error: unknown) => {
     console.error('[presentation] course handoff failed', error)
     if (token !== transitionToken) return
-    app.replaceChildren(nextWidget)
+    collapseHandoffStage()
+    syncStableWidget(currentWidget, nextWidget)
     finishCourseTransition(token, resumeAfterTransition)
   })
   return true

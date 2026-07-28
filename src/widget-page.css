@@ -25,35 +25,35 @@ body { display: inline-block; }
 
 .widget-drag-surface.is-desktop-drag:active { cursor: move; }
 
-.is-presentation-replay .course-widget {
-  box-shadow: 0 18px 55px rgb(25 40 58 / 18%);
-  transform-style: preserve-3d;
+.widget-body {
+  display: flow-root;
 }
 
 .is-course-transitioning .course-widget {
+  overflow: hidden;
   pointer-events: none;
+  transform-style: preserve-3d;
 }
 
-.is-course-transitioning #app > .course-widget {
-  grid-area: 1 / 1;
+.widget-body-handoff {
+  position: relative;
+  inline-size: 100%;
+  overflow: hidden;
 }
 
-.is-course-transitioning .course-widget.is-handoff-incoming {
-  z-index: 1;
+.widget-body-handoff > .widget-body {
+  position: absolute;
+  inset: 0 0 auto;
+  inline-size: 100%;
 }
 
-.is-course-transitioning .course-widget.is-handoff-outgoing {
-  z-index: 2;
-  background: transparent !important;
-  box-shadow: none !important;
-}
+.widget-body-handoff > .widget-body.is-handoff-incoming { z-index: 1; }
+.widget-body-handoff > .widget-body.is-handoff-outgoing { z-index: 2; }
 
-.is-course-transitioning .course-widget.is-handoff-outgoing::before {
-  opacity: 0;
-}
-
-.is-course-transitioning .course-widget.is-handoff-incoming .widget-header {
-  visibility: hidden;
+.widget-body-handoff.is-size-settling > .widget-body {
+  position: relative;
+  inset: auto;
+  z-index: auto;
 }
 
 .is-course-transitioning .focus-course,

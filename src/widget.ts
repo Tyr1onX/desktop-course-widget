@@ -361,11 +361,13 @@ export function createWidget(options: WidgetOptions, onNavigate?: () => void) {
         <div class="header-right"><div class="header-meta"><time class="now-time">${model.now}</time>${closeMarkup(options)}</div>${navMarkup(options)}</div>
       </div>
     </header>
+    <div class="widget-body">
     ${model.stateLabel ? `<p class="state-label">${model.stateLabel}</p>` : ''}
     ${model.openingDate ? `<p class="opening-date">${formatMonthDay(model.openingDate)}开学</p>` : ''}
     ${focusMarkup(model)}
     ${model.emptyMessage ? `<p class="empty-state">${model.emptyMessage}</p>` : ''}
     ${followingMarkup(visibleFollowing, model.following.length)}
+    </div>
   `
 
   widget.querySelectorAll<HTMLButtonElement>('[data-nav]').forEach((button) => button.addEventListener('click', () => {
