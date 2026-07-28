@@ -2,7 +2,7 @@ import './style.css'
 import './widget-page.css'
 import './time-flow.css'
 import { isTauri } from '@tauri-apps/api/core'
-import { PresentationClock, type ReplayConfig, type ReplaySnapshot } from './presentation-clock'
+import { PresentationClock, withPresentationDate, type ReplayConfig, type ReplaySnapshot } from './presentation-clock'
 import { enhanceTimeFlow } from './time-flow'
 import { clearActiveSchedule, createWidget, defaultOptions, setActiveSchedule, type ScheduleSource, type WidgetOptions } from './widget'
 
@@ -32,6 +32,7 @@ const options: WidgetOptions = {
 const presentationClock = new PresentationClock()
 let activeSchedule: ScheduleSource | null = null
 let presentationPanel: HTMLElement | null = null
+let presentationDate: Date | undefined
 let presentationFrame: number | undefined
 let minuteTimeout: number | undefined
 let minuteInterval: number | undefined
@@ -39,7 +40,8 @@ let lastPresentationMinute = Number.NaN
 let presentationRestore: Pick<WidgetOptions, 'showNav' | 'closeControl' | 'browseDate'> | null = null
 
 function renderWidget() {
-  app.replaceChildren(enhanceTimeFlow(createWidget(options, renderWidget), options))
+  const buildWidget = () => enhanceTimeFlow(createWidget(options, renderWidget), options)
+  app.replaceChildren(presentationDate ? withPresentationDate(presentationDate, buildWidget) : buildWidget())
 }
 
 function clearClockTimers() {
@@ -184,7 +186,7 @@ function updatePresentationControls(snapshot?: ReplaySnapshot) {
 }
 
 function applyPresentationSnapshot(snapshot: ReplaySnapshot, force = false) {
-  options.now = snapshot.date
+  presentationDate = snapshot.date
   const minute = Math.floor(snapshot.date.getTime() / 60_000)
   if (force || minute !== lastPresentationMinute) {
     lastPresentationMinute = minute
@@ -264,7 +266,7 @@ function stopPresentation() {
   if (!presentationClock.isActive()) return
   presentationClock.stop()
   clearPresentationFrame()
-  options.now = undefined
+  presentationDate = undefined
   if (presentationRestore) {
     options.showNav = presentationRestore.showNav
     options.closeControl = presentationRestore.closeControl
@@ -285,7 +287,7 @@ function syncLiveWidget() {
     applyPresentationSnapshot(snapshot, true)
     return
   }
-  options.now = undefined
+  presentationDate = undefined
   renderWidget()
   clearClockTimers()
   const now = new Date()
