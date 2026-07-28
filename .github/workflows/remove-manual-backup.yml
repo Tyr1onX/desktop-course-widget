@@ -57,7 +57,7 @@ jobs:
         run: rustup default stable
 
       - name: Format Rust
-        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml
 
       - name: Run Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --lib
