@@ -40,9 +40,9 @@ const options: WidgetOptions = {
 
 const COURSE_EXIT_MS = 1080
 const COURSE_EXIT_GAP_MS = 120
-const COURSE_SHARED_TEXT_MOVE_MS = 900
-const COURSE_SHELL_EXPAND_MS = 720
-const COURSE_TEXT_HANDOFF_MS = 160
+const COURSE_SHARED_TEXT_MOVE_MS = 980
+const COURSE_CARD_FORM_MS = 980
+const COURSE_TEXT_HANDOFF_MS = 110
 const COURSE_RESIZE_MS = 1000
 const COURSE_TRANSITION_SETTLE_MS = 420
 const presentationClock = new PresentationClock()
@@ -137,6 +137,10 @@ function animateElement(
 ) {
   if (!element) return Promise.resolve()
   return rememberAnimation(element.animate(keyframes, options))
+}
+
+function clearElementAnimations(element: HTMLElement | null) {
+  element?.getAnimations().forEach((animation) => animation.cancel())
 }
 
 function nextAnimationFrame() {
@@ -313,18 +317,6 @@ async function runCourseHandoff(
   const locationMotion = sharedTextMotion(sourceLocation, targetLocation)
   const sharedMotions = [titleMotion, locationMotion].filter((motion): motion is NonNullable<typeof motion> => Boolean(motion))
 
-  await Promise.all(sharedMotions.map((motion, index) => animateElement(
-    motion.element,
-    motion.keyframes,
-    {
-      duration: COURSE_SHARED_TEXT_MOVE_MS,
-      delay: index * 45,
-      easing: 'cubic-bezier(.22, 1, .36, 1)',
-      fill: 'both',
-    },
-  )))
-  if (token !== transitionToken) return
-
   const stageRect = stage.getBoundingClientRect()
   const targetRect = targetPrimary.getBoundingClientRect()
   const targetStyle = getComputedStyle(targetPrimary)
@@ -346,28 +338,52 @@ async function runCourseHandoff(
   surface.style.opacity = '0'
   const targetLayer = targetPrimary.cloneNode(true) as HTMLElement
   targetLayer.classList.add('course-morph-target')
-  targetLayer.style.opacity = '0'
+  targetLayer.style.opacity = '1'
   const targetCopies = Array.from(targetLayer.querySelectorAll<HTMLElement>('h2, .course-location'))
   targetCopies.forEach((copy) => copy.classList.add('is-shared-copy-hidden'))
+  const targetRevealParts = Array.from(targetLayer.querySelectorAll<HTMLElement>(
+    '.focus-kicker, .course-date, .course-time, .countdown, .course-flow',
+  ))
+  targetRevealParts.forEach((part) => {
+    part.style.opacity = '0'
+    part.style.transform = 'translateY(8px)'
+    part.style.filter = 'blur(2px)'
+  })
   morph.append(surface, targetLayer)
   stage.append(morph)
 
   await Promise.all([
+    ...sharedMotions.map((motion, index) => animateElement(
+      motion.element,
+      motion.keyframes,
+      {
+        duration: COURSE_SHARED_TEXT_MOVE_MS,
+        delay: index * 45,
+        easing: 'cubic-bezier(.22, 1, .36, 1)',
+        fill: 'both',
+      },
+    )),
     animateElement(morph, [
       { height: `${compactHeight}px` },
+      { offset: .28, height: `${compactHeight}px` },
       { height: `${targetRect.height}px` },
-    ], { duration: COURSE_SHELL_EXPAND_MS, easing: 'cubic-bezier(.22, 1, .36, 1)', fill: 'both' }),
+    ], { duration: COURSE_CARD_FORM_MS, easing: 'cubic-bezier(.22, 1, .36, 1)', fill: 'both' }),
     animateElement(surface, [
       { opacity: 0 },
-      { offset: .42, opacity: .04 },
-      { offset: .72, opacity: .58 },
+      { offset: .2, opacity: .03 },
+      { offset: .58, opacity: .56 },
       { opacity: 1 },
-    ], { duration: COURSE_SHELL_EXPAND_MS, easing: 'ease-out', fill: 'both' }),
-    animateElement(targetLayer, [
-      { opacity: 0 },
-      { offset: .52, opacity: 0 },
-      { opacity: 1 },
-    ], { duration: COURSE_SHELL_EXPAND_MS, easing: 'cubic-bezier(.16, 1, .3, 1)', fill: 'both' }),
+    ], { duration: COURSE_CARD_FORM_MS, easing: 'ease-out', fill: 'both' }),
+    ...targetRevealParts.map((part, index) => animateElement(part, [
+      { opacity: 0, transform: 'translateY(8px)', filter: 'blur(2px)' },
+      { offset: .28, opacity: 0, transform: 'translateY(7px)', filter: 'blur(1.8px)' },
+      { opacity: 1, transform: 'translateY(0)', filter: 'blur(0)' },
+    ], {
+      duration: Math.max(520, COURSE_CARD_FORM_MS - index * 35),
+      delay: 120 + index * 45,
+      easing: 'cubic-bezier(.16, 1, .3, 1)',
+      fill: 'both',
+    })),
   ])
   if (token !== transitionToken) return
 
@@ -386,6 +402,21 @@ async function runCourseHandoff(
     ], { duration: COURSE_TEXT_HANDOFF_MS, easing: 'linear', fill: 'both' })),
   ])
   if (token !== transitionToken) return
+
+  targetCopies.forEach((copy) => {
+    clearElementAnimations(copy)
+    copy.style.removeProperty('opacity')
+  })
+  targetRevealParts.forEach((part) => {
+    clearElementAnimations(part)
+    part.style.removeProperty('opacity')
+    part.style.removeProperty('transform')
+    part.style.removeProperty('filter')
+  })
+  targetPrimary.replaceWith(targetLayer)
+  targetLayer.classList.remove('course-morph-target')
+  targetLayer.style.removeProperty('opacity')
+  morph.remove()
   } else {
     await Promise.all([
       animateElement(outgoingPrimary, [
@@ -463,6 +494,10 @@ function renderWidget(allowTransition = true, timestamp = performance.now()): bo
     && !window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
   if (!shouldAnimate || !currentWidget) {
+    if (!currentWidget) {
+      nextWidget.classList.add('is-initial-mount')
+      window.setTimeout(() => nextWidget.classList.remove('is-initial-mount'), 520)
+    }
     app.replaceChildren(nextWidget)
     return false
   }

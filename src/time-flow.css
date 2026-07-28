@@ -53,8 +53,11 @@
 .course-widget .focus-course {
   position: relative;
   background: linear-gradient(115deg, rgba(var(--identity-accent-rgb), .075), rgba(var(--identity-accent-rgb), .022));
-  animation: time-flow-enter 420ms cubic-bezier(.22, 1, .36, 1) both;
   transition: background-color 220ms ease, box-shadow 220ms ease, transform 220ms ease;
+}
+
+.course-widget.is-initial-mount .focus-course {
+  animation: time-flow-enter 420ms cubic-bezier(.22, 1, .36, 1) both;
 }
 
 .course-widget.theme-dark .focus-course {
