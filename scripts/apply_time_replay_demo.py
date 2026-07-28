@@ -1,5 +1,7 @@
 from pathlib import Path
 
+# Temporary branch migration used to apply the replay clock integration atomically.
+
 
 def replace_once(path: str, old: str, new: str) -> None:
     target = Path(path)
