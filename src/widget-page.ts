@@ -38,7 +38,7 @@ const options: WidgetOptions = {
   closeControl: desktopRuntime,
 }
 
-const COURSE_TRANSITION_SETTLE_MS = 900
+const COURSE_TRANSITION_SETTLE_MS = 1800
 const presentationClock = new PresentationClock()
 let presentationFrame: number | undefined
 let minuteTimeout: number | undefined
@@ -59,12 +59,55 @@ function buildWidget() {
   return enhanceTimeFlow(createWidget(options, renderWidget), options)
 }
 
-function stateKey(widget: HTMLElement | null) {
+function transitionKey(widget: HTMLElement | null) {
   if (!widget) return ''
-  const state = widget.querySelector<HTMLElement>('.focus-kicker, .state-label')?.textContent ?? ''
-  const course = widget.querySelector<HTMLElement>('.focus-course h2')?.textContent ?? ''
-  const courseTime = widget.querySelector<HTMLElement>('.focus-course .course-time')?.textContent ?? ''
-  return `${state}|${course}|${courseTime}`
+  const focus = widget.querySelector<HTMLElement>('.focus-course')
+  const phase = focus?.classList.contains('is-current') ? 'current' : focus ? 'upcoming' : 'none'
+  const course = focus?.querySelector<HTMLElement>('h2')?.textContent ?? ''
+  const courseTime = focus?.querySelector<HTMLElement>('.course-time')?.textContent ?? ''
+  const state = widget.querySelector<HTMLElement>('.state-label')?.textContent ?? ''
+  const focusDate = focus?.querySelector<HTMLElement>('.course-date')?.textContent ?? ''
+  const controls = `${Boolean(widget.querySelector('.date-nav'))}|${Boolean(widget.querySelector('.widget-close'))}`
+  return `${phase}|${course}|${courseTime}|${state}|${focusDate}|${controls}`
+}
+
+function syncAttributes(current: Element, next: Element) {
+  Array.from(current.attributes).forEach((attribute) => {
+    if (!next.hasAttribute(attribute.name)) current.removeAttribute(attribute.name)
+  })
+  Array.from(next.attributes).forEach((attribute) => {
+    if (current.getAttribute(attribute.name) !== attribute.value) current.setAttribute(attribute.name, attribute.value)
+  })
+}
+
+function syncNode(current: Node, next: Node): void {
+  if (current.nodeType !== next.nodeType || current.nodeName !== next.nodeName) {
+    current.parentNode?.replaceChild(next.cloneNode(true), current)
+    return
+  }
+
+  if (current.nodeType === Node.TEXT_NODE) {
+    if (current.nodeValue !== next.nodeValue) current.nodeValue = next.nodeValue
+    return
+  }
+
+  if (!(current instanceof Element) || !(next instanceof Element)) return
+  syncAttributes(current, next)
+
+  const currentChildren = Array.from(current.childNodes)
+  const nextChildren = Array.from(next.childNodes)
+  const sharedLength = Math.min(currentChildren.length, nextChildren.length)
+  for (let index = 0; index < sharedLength; index += 1) syncNode(currentChildren[index], nextChildren[index])
+  for (let index = currentChildren.length - 1; index >= nextChildren.length; index -= 1) {
+    currentChildren[index].parentNode?.removeChild(currentChildren[index])
+  }
+  for (let index = currentChildren.length; index < nextChildren.length; index += 1) {
+    current.appendChild(nextChildren[index].cloneNode(true))
+  }
+}
+
+function syncStableWidget(current: HTMLElement, next: HTMLElement) {
+  syncNode(current, next)
 }
 
 function clearCourseTransition() {
@@ -110,7 +153,13 @@ function renderWidget(allowTransition = true, timestamp = performance.now()): bo
   const nextWidget = buildWidget()
   const currentWidget = app.querySelector<HTMLElement>('.course-widget')
   const transitionDocument = document as TransitionDocument
-  const stateChanged = stateKey(currentWidget) !== stateKey(nextWidget)
+  const stateChanged = transitionKey(currentWidget) !== transitionKey(nextWidget)
+
+  if (currentWidget && !stateChanged) {
+    syncStableWidget(currentWidget, nextWidget)
+    return false
+  }
+
   const shouldAnimate = allowTransition
     && !transitionActive
     && presentationClock.isActive()
