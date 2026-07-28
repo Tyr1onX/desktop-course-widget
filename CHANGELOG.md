@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added a hidden time replay and presentation mode for deterministic product recording.
 - Added a source-neutral import draft shared by Excel import and future screenshot recognition.
 - Added a course-by-course review and correction screen before importing a timetable.
 - Removed the obsolete in-app updater UI and its unused process/updater dependencies.
