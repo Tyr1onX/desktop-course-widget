@@ -1,7 +1,7 @@
 import { experiencePresets, homepagePresets, type Cleanup } from './website-demo-core'
 import { setupExperienceHeroDemo } from './website-demo-experience'
 import { setupLegacyHeroDemo, setupStaticHomepageWidget } from './website-demo-hero'
-import { setupStoryWidgets, setupTrayDemo } from './website-demo-story'
+import { setupTrayDemo } from './website-demo-story'
 
 export function setupWebsiteDemo(): Cleanup {
   const root = document.querySelector<HTMLElement>('.course-home, .course-experience')
@@ -13,6 +13,6 @@ export function setupWebsiteDemo(): Cleanup {
     : isExperiencePage
       ? setupExperienceHeroDemo(root, experiencePresets, '完整状态演示')
       : setupLegacyHeroDemo(root, homepagePresets, '当前桌面组件')
-  const cleanups = [heroCleanup, setupStoryWidgets(root), setupTrayDemo(root)]
+  const cleanups = [heroCleanup, setupTrayDemo(root)]
   return () => cleanups.forEach((cleanup) => cleanup())
 }
