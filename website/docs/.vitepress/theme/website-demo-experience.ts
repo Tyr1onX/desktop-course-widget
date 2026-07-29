@@ -107,19 +107,19 @@ export function setupExperienceHeroDemo(
     cancelActiveHandoff('target')
     const currentWidget = host.querySelector<HTMLElement>('.course-widget')
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    if (immediate || !currentWidget || pageHidden || reducedMotion) {
+    if (immediate || !currentWidget || pageHidden) {
       if (request !== requestVersion || disposed) return
       installImmediately(nextWidget)
       return
     }
 
-    host.dataset.demoTransitionState = 'running'
+    host.dataset.demoTransitionState = reducedMotion ? 'idle' : 'running'
     const handoff = transitionCourse({
       host,
       currentWidget,
       nextWidget,
       durationScale: 0.7,
-      reducedMotion: false,
+      reducedMotion,
     })
     activeHandoff = handoff
     void handoff.finished.then(() => {
