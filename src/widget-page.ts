@@ -40,13 +40,13 @@ const options: WidgetOptions = {
 
 const COURSE_EXIT_MS = 640
 const COURSE_EXIT_GAP_MS = 70
-const COURSE_SHELL_FORM_MS = 1900
-const COURSE_SHELL_FORM_DELAY_MS = 360
-const COURSE_SHARED_REFLOW_MS = 2800
-const COURSE_FINAL_WIPE_MS = 680
-const COURSE_FINAL_REVEAL_MS = 500
-const COURSE_TEXT_HANDOFF_MS = 430
-const COURSE_RESIZE_MS = 2800
+const COURSE_SHARED_MOVE_MS = 2500
+const COURSE_SHELL_REVEAL_DELAY_MS = 1050
+const COURSE_SHELL_REVEAL_MS = 1050
+const COURSE_FINAL_WIPE_MS = 640
+const COURSE_FINAL_REVEAL_MS = 420
+const COURSE_TEXT_HANDOFF_MS = 420
+const COURSE_RESIZE_MS = 2500
 const COURSE_TRANSITION_SETTLE_MS = 420
 const presentationClock = new PresentationClock()
 let presentationFrame: number | undefined
@@ -154,13 +154,34 @@ function transitionDelay(milliseconds: number) {
   return new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds))
 }
 
+type SharedTextMotion = {
+  element: HTMLElement
+  source: HTMLElement
+  keyframes: Keyframe[]
+}
+
+function removeCourseTransitionOverlay() {
+  document.querySelector<HTMLElement>('.course-transition-overlay')?.remove()
+  document.querySelectorAll<HTMLElement>('[data-shared-source-hidden="true"]').forEach((source) => {
+    source.style.removeProperty('visibility')
+    delete source.dataset.sharedSourceHidden
+  })
+}
+
+function createCourseTransitionOverlay() {
+  removeCourseTransitionOverlay()
+  const overlay = document.createElement('div')
+  overlay.className = 'course-transition-overlay'
+  document.body.append(overlay)
+  return overlay
+}
+
 function sharedTextMotion(
   source: HTMLElement | null,
   target: HTMLElement | null,
-  stage: HTMLElement,
-) {
+  overlay: HTMLElement,
+): SharedTextMotion | null {
   if (!source || !target) return null
-  const stageRect = stage.getBoundingClientRect()
   const sourceRect = source.getBoundingClientRect()
   const targetRect = target.getBoundingClientRect()
   const sourceStyle = getComputedStyle(source)
@@ -172,10 +193,10 @@ function sharedTextMotion(
   const deltaY = targetRect.top - sourceRect.top
   const floating = source.cloneNode(true) as HTMLElement
   floating.removeAttribute('id')
-  floating.classList.add('course-shared-text', 'course-shared-float')
+  floating.classList.add('course-shared-float')
   Object.assign(floating.style, {
-    left: `${sourceRect.left - stageRect.left}px`,
-    top: `${sourceRect.top - stageRect.top}px`,
+    left: `${sourceRect.left}px`,
+    top: `${sourceRect.top}px`,
     color: sourceStyle.color,
     fontFamily: sourceStyle.fontFamily,
     fontSize: sourceStyle.fontSize,
@@ -186,31 +207,31 @@ function sharedTextMotion(
   })
   source.dataset.sharedSourceHidden = 'true'
   source.style.visibility = 'hidden'
-  stage.append(floating)
+  overlay.append(floating)
   return {
     element: floating,
     source,
     keyframes: [
       { opacity: 1, color: sourceStyle.color, transform: 'translate3d(0, 0, 0) scale(1)' },
       {
-        offset: .18,
+        offset: .22,
         opacity: 1,
         color: sourceStyle.color,
-        transform: `translate3d(${deltaX * .08}px, ${deltaY * .08}px, 0) scale(${1 + (scale - 1) * .1})`,
+        transform: `translate3d(${deltaX * .12}px, ${deltaY * .12}px, 0) scale(${1 + (scale - 1) * .14})`,
       },
       {
-        offset: .48,
+        offset: .52,
         opacity: 1,
         color: targetStyle.color,
-        transform: `translate3d(${deltaX * .45}px, ${deltaY * .45}px, 0) scale(${1 + (scale - 1) * .48})`,
+        transform: `translate3d(${deltaX * .5}px, ${deltaY * .5}px, 0) scale(${1 + (scale - 1) * .52})`,
       },
       {
-        offset: .78,
+        offset: .82,
         opacity: 1,
         color: targetStyle.color,
         fontWeight: targetStyle.fontWeight,
         letterSpacing: targetStyle.letterSpacing,
-        transform: `translate3d(${deltaX * .82}px, ${deltaY * .82}px, 0) scale(${1 + (scale - 1) * .84})`,
+        transform: `translate3d(${deltaX * .86}px, ${deltaY * .86}px, 0) scale(${1 + (scale - 1) * .87})`,
       },
       {
         opacity: 1,
@@ -240,8 +261,8 @@ function findSharedCourseSource(currentBody: HTMLElement, nextBody: HTMLElement)
 
 function resetHandoffBody(body: HTMLElement) {
   body.classList.remove('is-handoff-current', 'is-handoff-target')
-  body.querySelectorAll<HTMLElement>('.is-promoting-course, .is-promoting-source, .course-shared-text').forEach((item) => {
-    item.classList.remove('is-promoting-course', 'is-promoting-source', 'course-shared-text')
+  body.querySelectorAll<HTMLElement>('.is-promoting-course, .is-promoting-source').forEach((item) => {
+    item.classList.remove('is-promoting-course', 'is-promoting-source')
   })
   body.querySelectorAll<HTMLElement>('[data-shared-source-hidden]').forEach((item) => {
     item.style.removeProperty('visibility')
@@ -250,6 +271,7 @@ function resetHandoffBody(body: HTMLElement) {
 }
 
 function collapseHandoffStage() {
+  removeCourseTransitionOverlay()
   const stage = app.querySelector<HTMLElement>('.widget-body-handoff')
   if (!stage) return
   const target = stage.querySelector<HTMLElement>('.widget-body.is-handoff-target')
@@ -379,7 +401,7 @@ async function runCourseHandoff(
     const surface = targetPrimary.cloneNode(false) as HTMLElement
     surface.classList.add('course-morph-surface')
     surface.style.opacity = '0'
-    surface.style.clipPath = `inset(0 46% ${compactBottomInset}% 0 round ${targetStyle.borderRadius})`
+    surface.style.clipPath = `inset(0 48% ${compactBottomInset}% 0 round ${targetStyle.borderRadius})`
 
     const targetLayer = targetPrimary.cloneNode(true) as HTMLElement
     targetLayer.classList.add('course-morph-target')
@@ -415,53 +437,60 @@ async function runCourseHandoff(
     finalRevealParts.forEach((part) => {
       part.style.opacity = '0'
       part.style.clipPath = 'inset(0 100% 0 0)'
-      part.style.transform = 'translateY(4px)'
+      part.style.transform = 'translateY(3px)'
     })
 
-    const wipe = document.createElement('div')
-    wipe.className = 'course-final-wipe'
-    wipe.style.opacity = '0'
-    morph.append(surface, targetLayer, wipe)
+    morph.append(surface, targetLayer)
     stage.append(morph)
     await nextAnimationFrame()
     if (token !== transitionToken) return
 
-    const titleMotion = sharedTextMotion(sourceTitle, targetTitleCopy, stage)
-    const locationMotion = sharedTextMotion(sourceLocation, targetLocationCopy, stage)
-    const timeMotion = sharedTextMotion(sourceTime, targetTimePrefix, stage)
+    const overlay = createCourseTransitionOverlay()
+    const titleMotion = sharedTextMotion(sourceTitle, targetTitleCopy, overlay)
+    const locationMotion = sharedTextMotion(sourceLocation, targetLocationCopy, overlay)
+    const timeMotion = sharedTextMotion(sourceTime, targetTimePrefix, overlay)
     const sharedMotions = [titleMotion, locationMotion, timeMotion]
-      .filter((motion): motion is NonNullable<typeof motion> => Boolean(motion))
+      .filter((motion): motion is SharedTextMotion => Boolean(motion))
 
-    currentWidget.classList.add('is-shared-reflowing')
+    const wipe = document.createElement('div')
+    wipe.className = 'course-final-wipe'
+    Object.assign(wipe.style, {
+      left: `${targetRect.left}px`,
+      top: `${targetRect.top}px`,
+      width: `${targetRect.width}px`,
+      height: `${targetRect.height}px`,
+      opacity: '0',
+    })
+    overlay.append(wipe)
+
     stage.classList.add('is-live-resizing')
     await Promise.all([
-      ...sharedMotions.map((motion) => animateElement(
-        motion.element,
-        motion.keyframes,
-        {
-          duration: COURSE_SHARED_REFLOW_MS,
-          easing: 'cubic-bezier(.2, .62, .18, 1)',
-          fill: 'both',
-        },
-      )),
+      ...sharedMotions.map((motion) => animateElement(motion.element, motion.keyframes, {
+        duration: COURSE_SHARED_MOVE_MS,
+        easing: 'cubic-bezier(.2, .62, .18, 1)',
+        fill: 'both',
+      })),
       animateElement(stage, [
         { height: `${currentHeight}px` },
+        { offset: .18, height: `${currentHeight}px` },
         { height: `${targetBodyHeight}px` },
       ], {
         duration: COURSE_RESIZE_MS,
         easing: 'cubic-bezier(.2, .62, .18, 1)',
         fill: 'both',
       }),
-      animateElement(surface, [
-        { opacity: 0, clipPath: `inset(0 46% ${compactBottomInset}% 0 round ${targetStyle.borderRadius})` },
-        { offset: .32, opacity: .12, clipPath: `inset(0 30% ${compactBottomInset * .72}% 0 round ${targetStyle.borderRadius})` },
-        { opacity: 1, clipPath: `inset(0 0 0 0 round ${targetStyle.borderRadius})` },
-      ], {
-        duration: COURSE_SHELL_FORM_MS,
-        delay: COURSE_SHELL_FORM_DELAY_MS,
-        easing: 'cubic-bezier(.22, 1, .36, 1)',
-        fill: 'both',
-      }),
+      (async () => {
+        await transitionDelay(COURSE_SHELL_REVEAL_DELAY_MS)
+        await animateElement(surface, [
+          { opacity: 0, clipPath: `inset(0 48% ${compactBottomInset}% 0 round ${targetStyle.borderRadius})` },
+          { offset: .36, opacity: .24, clipPath: `inset(0 28% ${compactBottomInset * .7}% 0 round ${targetStyle.borderRadius})` },
+          { opacity: 1, clipPath: `inset(0 0 0 0 round ${targetStyle.borderRadius})` },
+        ], {
+          duration: COURSE_SHELL_REVEAL_MS,
+          easing: 'cubic-bezier(.22, 1, .36, 1)',
+          fill: 'both',
+        })
+      })(),
     ])
     if (token !== transitionToken) return
     resizedDuringSharedHandoff = true
@@ -474,8 +503,8 @@ async function runCourseHandoff(
     await Promise.all([
       animateElement(wipe, [
         { opacity: 0, transform: 'translate3d(0, 0, 0) skewX(-12deg)' },
-        { offset: .12, opacity: .92, transform: 'translate3d(18%, 0, 0) skewX(-12deg)' },
-        { offset: .78, opacity: .88, transform: 'translate3d(252%, 0, 0) skewX(-12deg)' },
+        { offset: .1, opacity: .92, transform: 'translate3d(18%, 0, 0) skewX(-12deg)' },
+        { offset: .78, opacity: .9, transform: 'translate3d(250%, 0, 0) skewX(-12deg)' },
         { opacity: 0, transform: 'translate3d(286%, 0, 0) skewX(-12deg)' },
       ], {
         duration: COURSE_FINAL_WIPE_MS,
@@ -484,39 +513,38 @@ async function runCourseHandoff(
       }),
       ...sharedMotions.map((motion) => animateElement(motion.element, [
         { opacity: 1 },
-        { offset: .46, opacity: .94 },
+        { offset: .52, opacity: .96 },
         { opacity: 0 },
       ], {
         duration: COURSE_TEXT_HANDOFF_MS,
-        delay: 70,
+        delay: 92,
         easing: 'cubic-bezier(.4, 0, .7, .2)',
         fill: 'both',
       })),
       ...targetCopies.map((copy) => animateElement(copy, [
         { opacity: 0 },
-        { offset: .34, opacity: .08 },
+        { offset: .24, opacity: .12 },
         { opacity: 1 },
       ], {
         duration: COURSE_TEXT_HANDOFF_MS,
-        delay: 78,
+        delay: 112,
         easing: 'cubic-bezier(.16, 1, .3, 1)',
         fill: 'both',
       })),
       ...finalRevealParts.map((part, index) => animateElement(part, [
-        { opacity: 0, clipPath: 'inset(0 100% 0 0)', transform: 'translateY(4px)' },
-        { offset: .28, opacity: .12, clipPath: 'inset(0 82% 0 0)', transform: 'translateY(3px)' },
+        { opacity: 0, clipPath: 'inset(0 100% 0 0)', transform: 'translateY(3px)' },
+        { offset: .22, opacity: .16, clipPath: 'inset(0 76% 0 0)', transform: 'translateY(2px)' },
         { opacity: 1, clipPath: 'inset(0 0 0 0)', transform: 'translateY(0)' },
       ], {
         duration: COURSE_FINAL_REVEAL_MS,
-        delay: 36 + index * 18,
+        delay: 52 + index * 12,
         easing: 'cubic-bezier(.16, 1, .3, 1)',
         fill: 'both',
       })),
     ])
     if (token !== transitionToken) return
 
-    sharedMotions.forEach((motion) => motion.element.remove())
-    currentWidget.classList.remove('is-shared-reflowing')
+    removeCourseTransitionOverlay()
     targetCopies.forEach((copy) => {
       clearElementAnimations(copy)
       copy.style.removeProperty('opacity')

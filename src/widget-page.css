@@ -35,8 +35,6 @@ body { display: inline-block; }
   transform-style: preserve-3d;
 }
 
-.is-course-transitioning .course-widget.is-shared-reflowing { overflow: visible; }
-
 .widget-body-handoff {
   position: relative;
   inline-size: 100%;
@@ -66,7 +64,7 @@ body { display: inline-block; }
   box-sizing: border-box;
   pointer-events: none;
   transform-origin: top left;
-  will-change: height, opacity;
+  will-change: opacity;
 }
 
 .course-shared-float {
@@ -101,6 +99,8 @@ body { display: inline-block; }
   z-index: 2;
   width: 100%;
   height: 100%;
+  border-color: transparent !important;
+  outline: none !important;
   background: transparent !important;
   box-shadow: none !important;
 }
@@ -128,19 +128,6 @@ body { display: inline-block; }
   opacity: 0;
 }
 
-.is-promoting-source strong,
-.is-promoting-source small,
-.is-promoting-source > time {
-  position: relative;
-  z-index: 7;
-  display: block;
-  width: max-content;
-  max-width: none;
-  white-space: nowrap;
-  transform-origin: top left;
-  will-change: transform, color, opacity;
-}
-
 .course-morph-target .course-time.is-shared-time-range {
   display: inline-flex;
   align-items: baseline;
@@ -164,12 +151,40 @@ body { display: inline-block; }
 
 .widget-body-handoff.is-live-resizing { will-change: height; }
 
+.course-transition-overlay {
+  position: fixed;
+  z-index: 2147483000;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.course-shared-float {
+  position: absolute;
+  z-index: 1;
+  display: block;
+  width: max-content;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  white-space: nowrap;
+  transform-origin: top left;
+  will-change: transform, color, opacity;
+}
+
 .course-final-wipe {
   position: absolute;
-  z-index: 8;
-  top: -12%;
-  bottom: -12%;
-  left: -58%;
+  z-index: 2;
+  overflow: hidden;
+  border-radius: 18px;
+  pointer-events: none;
+  transform-origin: center;
+  will-change: transform, opacity;
+}
+
+.course-final-wipe::before {
+  position: absolute;
+  inset: -12% auto -12% -58%;
   width: 58%;
   border-radius: 42%;
   background: linear-gradient(
@@ -180,11 +195,10 @@ body { display: inline-block; }
     rgba(var(--identity-accent-rgb), .24) 61%,
     rgba(255, 255, 255, 0)
   );
+  content: '';
   filter: blur(.6px);
   mix-blend-mode: screen;
   pointer-events: none;
-  transform-origin: center;
-  will-change: transform, opacity;
 }
 
 .is-course-transitioning .focus-course,
