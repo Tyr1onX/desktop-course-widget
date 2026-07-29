@@ -38,15 +38,15 @@ const options: WidgetOptions = {
   closeControl: desktopRuntime,
 }
 
-const COURSE_EXIT_MS = 720
-const COURSE_EXIT_GAP_MS = 120
-const COURSE_SHARED_CLUSTER_MS = 980
-const COURSE_CARD_FORM_MS = 920
-const COURSE_TIME_EXTENSION_MS = 760
-const COURSE_STATE_REVEAL_MS = 520
-const COURSE_STATE_REVEAL_GAP_MS = 160
-const COURSE_COUNTDOWN_REVEAL_MS = 680
-const COURSE_TEXT_HANDOFF_MS = 140
+const COURSE_EXIT_MS = 640
+const COURSE_EXIT_GAP_MS = 70
+const COURSE_SHARED_CLUSTER_MS = 3200
+const COURSE_CARD_FORM_MS = 1800
+const COURSE_TIME_EXTENSION_MS = 1400
+const COURSE_STATE_REVEAL_MS = 900
+const COURSE_STATE_REVEAL_GAP_MS = 240
+const COURSE_COUNTDOWN_REVEAL_MS = 1200
+const COURSE_TEXT_HANDOFF_MS = 520
 const COURSE_RESIZE_MS = 1000
 const COURSE_TRANSITION_SETTLE_MS = 420
 const presentationClock = new PresentationClock()
@@ -172,10 +172,24 @@ function sharedTextMotion(source: HTMLElement | null, target: HTMLElement | null
     keyframes: [
       { opacity: 1, color: sourceStyle.color, transform: 'translate3d(0, 0, 0) scale(1)' },
       {
-        offset: .38,
+        offset: .2,
+        opacity: 1,
+        color: sourceStyle.color,
+        transform: `translate3d(${deltaX * .1}px, ${deltaY * .1}px, 0) scale(${1 + (scale - 1) * .12})`,
+      },
+      {
+        offset: .46,
         opacity: 1,
         color: targetStyle.color,
-        transform: `translate3d(${deltaX * .46}px, ${deltaY * .34 - 5}px, 0) scale(${1 + (scale - 1) * .38})`,
+        transform: `translate3d(${deltaX * .43}px, ${deltaY * .43 - 3}px, 0) scale(${1 + (scale - 1) * .46})`,
+      },
+      {
+        offset: .76,
+        opacity: 1,
+        color: targetStyle.color,
+        fontWeight: targetStyle.fontWeight,
+        letterSpacing: targetStyle.letterSpacing,
+        transform: `translate3d(${deltaX * .8}px, ${deltaY * .8}px, 0) scale(${1 + (scale - 1) * .82})`,
       },
       {
         opacity: 1,
@@ -437,17 +451,17 @@ async function runCourseHandoff(
   const timeMotion = sharedTextMotion(sourceTime, targetTimePrefix)
   const sharedMotions = [titleMotion, locationMotion, timeMotion]
     .filter((motion): motion is NonNullable<typeof motion> => Boolean(motion))
-  const cardFormDelay = Math.round(COURSE_SHARED_CLUSTER_MS * .28)
-  const timeExtensionDelay = Math.round(COURSE_SHARED_CLUSTER_MS * .46)
+  const cardFormDelay = Math.round(COURSE_SHARED_CLUSTER_MS * .58)
+  const timeExtensionDelay = Math.round(COURSE_SHARED_CLUSTER_MS * .72)
 
   await Promise.all([
-    ...sharedMotions.map((motion, index) => animateElement(
+    ...sharedMotions.map((motion) => animateElement(
       motion.element,
       motion.keyframes,
       {
         duration: COURSE_SHARED_CLUSTER_MS,
-        delay: index * 36,
-        easing: 'cubic-bezier(.22, 1, .36, 1)',
+        delay: 0,
+        easing: 'cubic-bezier(.2, .62, .18, 1)',
         fill: 'both',
       },
     )),
@@ -498,12 +512,14 @@ async function runCourseHandoff(
   await Promise.all([
     ...sharedMotions.map((motion) => animateElement(motion.element, [
       { opacity: 1 },
+      { offset: .54, opacity: .92 },
       { opacity: 0 },
-    ], { duration: COURSE_TEXT_HANDOFF_MS, easing: 'linear', fill: 'both' })),
+    ], { duration: COURSE_TEXT_HANDOFF_MS, easing: 'cubic-bezier(.4, 0, .7, .2)', fill: 'both' })),
     ...targetCopies.map((copy) => animateElement(copy, [
       { opacity: 0 },
+      { offset: .34, opacity: .06 },
       { opacity: 1 },
-    ], { duration: COURSE_TEXT_HANDOFF_MS, easing: 'linear', fill: 'both' })),
+    ], { duration: COURSE_TEXT_HANDOFF_MS, easing: 'cubic-bezier(.16, 1, .3, 1)', fill: 'both' })),
   ])
   if (token !== transitionToken) return
 
