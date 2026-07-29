@@ -100,6 +100,15 @@ function assertSingletonStructures(stage: string): void {
   )
 }
 
+function assertConfiguredLessonSections(stage: string): void {
+  const selects = [...document.querySelectorAll<HTMLSelectElement>('[data-import-v2-field="startSection"]')]
+  assert(selects.length > 0, `${stage}: start-section controls should exist`)
+  assert(
+    selects.every((select) => select.options.length === 12),
+    `${stage}: every start-section control should keep all 12 configured sections`,
+  )
+}
+
 async function run(): Promise<void> {
   window.confirm = () => true
   rememberImportDraft(draft)
@@ -107,10 +116,7 @@ async function run(): Promise<void> {
 
   assertSingletonStructures('initial enhancement')
   assert(document.querySelectorAll('.import-structured-warnings').length === 1, 'conflict warning should render')
-  assert(
-    document.querySelectorAll<HTMLOptionElement>('[data-import-v2-field="startSection"] option').length === 12,
-    'configured lesson sections should survive initial enhancement',
-  )
+  assertConfiguredLessonSections('initial enhancement')
 
   document.querySelector<HTMLButtonElement>('[data-import-v2-filter="pending"]')?.click()
   await settle()
@@ -146,11 +152,7 @@ async function run(): Promise<void> {
   await settle()
   assert(draft.courses.length === beforeAdd, 'delete should remove only the selected draft course')
   assertSingletonStructures('delete enhancement')
-
-  assert(
-    document.querySelectorAll<HTMLOptionElement>('[data-import-v2-field="startSection"] option').length === 12,
-    'configured lesson sections should survive repeated enhancements',
-  )
+  assertConfiguredLessonSections('repeated enhancements')
 
   let warningConfirmCalls = 0
   window.confirm = (message?: string) => {
