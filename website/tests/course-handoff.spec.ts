@@ -121,6 +121,7 @@ test.describe('shared course handoff', () => {
     await expect(host).toHaveAttribute('data-demo-timer-state', 'idle')
     await toggle.click()
     await expect(toggle).toHaveText('暂停')
+    await stage.dispatchEvent('mouseleave')
     await expect(host).toHaveAttribute('data-demo-timer-state', 'scheduled')
 
     await page.locator(stepSelector).nth(1).click()
