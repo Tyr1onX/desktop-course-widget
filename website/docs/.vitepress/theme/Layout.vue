@@ -4,7 +4,6 @@ import { useData } from 'vitepress'
 import { nextTick, onBeforeUnmount, onMounted, watch } from 'vue'
 import HomePage from './HomePage.vue'
 import ExperiencePage from './ExperiencePage.vue'
-import { setupProjectFooter } from './project-footer'
 import { setupWebsiteDemo } from './website-demo'
 
 const { frontmatter } = useData()
@@ -19,12 +18,7 @@ async function refreshDemo() {
   await nextTick()
   const layout = frontmatter.value.layout
   if (layout === 'course-home' || layout === 'course-experience') {
-    const cleanupWebsiteDemo = setupWebsiteDemo()
-    const cleanupProjectFooter = layout === 'course-experience' ? setupProjectFooter() : () => undefined
-    cleanupDemo = () => {
-      cleanupProjectFooter()
-      cleanupWebsiteDemo()
-    }
+    cleanupDemo = setupWebsiteDemo()
   }
 }
 
