@@ -7,7 +7,6 @@ import type {
   ImportIssue,
   ImportReviewStatus,
 } from './import-draft'
-import { installImportReviewRuntime, rememberImportDraft } from './import-review-controller'
 
 export type ImportReviewFilter = 'all' | 'pending'
 
@@ -19,6 +18,8 @@ const requiredFields = new Set<ImportFieldKey>([
   'weeks',
   'parity',
 ])
+
+let rememberImportDraftRuntime: (draft: ImportDraft) => void = () => {}
 
 export const importFieldLabels: Record<ImportFieldKey, string> = {
   name: '课程名称',
@@ -275,7 +276,7 @@ export function detectImportConflicts(courses: ImportCourse[]): ImportIssue[] {
 
 export function refreshImportDraftSummary(draft: ImportDraft): void {
   draft.summary = summarizeImportCourses(draft.courses)
-  rememberImportDraft(draft)
+  rememberImportDraftRuntime(draft)
 }
 
 function collectImportCourseIssues(
@@ -352,20 +353,27 @@ function formatIssue(issue: ImportIssue, draft: ImportDraft): string {
   return `第 ${issue.courseIndex + 1} 项“${course?.name.trim() || '未命名课程'}”：${issue.message}`
 }
 
-installImportReviewRuntime({
-  addBlankCourse: addBlankImportCourse,
-  collectIssues: collectImportIssues,
-  collectCourseIssues: collectIssuesForCourse,
-  confirmCourse: confirmCourseReview,
-  confirmField: confirmImportField,
-  countPending: countPendingImportFields,
-  fieldEvidence: importFieldEvidence,
-  fieldLabels: importFieldLabels,
-  fieldStatus: importFieldStatus,
-  filterIndexes: filterImportCourseIndexes,
-  hasBlockingIssues: hasBlockingImportIssues,
-  parseWeeks: parseWeeksText,
-  removeCourse: removeImportCourse,
-  updateField: updateImportCourseField,
-  weeksText: weeksToText,
-})
+if (typeof document !== 'undefined') {
+  void import('./import-review-controller').then(({ installImportReviewRuntime, rememberImportDraft }) => {
+    rememberImportDraftRuntime = rememberImportDraft
+    installImportReviewRuntime({
+      addBlankCourse: addBlankImportCourse,
+      collectIssues: collectImportIssues,
+      collectCourseIssues: collectIssuesForCourse,
+      confirmCourse: confirmCourseReview,
+      confirmField: confirmImportField,
+      countPending: countPendingImportFields,
+      fieldEvidence: importFieldEvidence,
+      fieldLabels: importFieldLabels,
+      fieldStatus: importFieldStatus,
+      filterIndexes: filterImportCourseIndexes,
+      hasBlockingIssues: hasBlockingImportIssues,
+      parseWeeks: parseWeeksText,
+      removeCourse: removeImportCourse,
+      updateField: updateImportCourseField,
+      weeksText: weeksToText,
+    })
+  }).catch((error) => {
+    console.error('[import-review] could not load review runtime', error)
+  })
+}
