@@ -25,7 +25,15 @@ def validate_with_rust(draft_path: str | Path, repo_root: str | Path | None = No
         "cargo", "run", "--quiet", "--manifest-path", str(manifest),
         "--example", "validate_import_draft", "--", str(Path(draft_path).resolve()),
     ]
-    result = subprocess.run(command, cwd=root, capture_output=True, text=True, timeout=180)
+    result = subprocess.run(
+        command,
+        cwd=root,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=180,
+    )
     output = result.stdout.strip()
     try:
         payload = json.loads(output) if output else {}
