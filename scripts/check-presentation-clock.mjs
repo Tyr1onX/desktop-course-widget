@@ -80,6 +80,12 @@ assert.match(widgetSource, /formatMinutesDuration\(parseTime\(model\.focus\.end\
 assert.match(widgetSource, /formatMinutesDuration\(parseTime\(model\.focus\.start\) - nowMinutes\)/)
 assert.match(timeFlowSource, /formatMinutesDuration\(minutesUntilEnd\)/)
 assert.match(widgetPageSource, /options\.now = snapshot\.date/)
+const widgetPageCssImport = widgetPageSource.indexOf("import './widget-page.css'")
+const timeFlowCssImport = widgetPageSource.indexOf("import './time-flow.css'")
+assert.ok(
+  widgetPageCssImport >= 0 && widgetPageCssImport < timeFlowCssImport,
+  'time-flow.css loads after widget-page.css, so morph selectors must outrank shared focus-course rules',
+)
 assert.match(widgetPageSource, /WebviewWindow\.getByLabel\('presentation'\)/)
 assert.match(widgetPageSource, /PRESENTATION_COMMAND_EVENT/)
 assert.match(widgetPageSource, /presentationClock\.pause\(timestamp\)/)
@@ -135,6 +141,16 @@ assert.doesNotMatch(widgetPageSource, /sourceLayer|is-shared-course-source|cours
 assert.match(widgetPageSource, /targetPrimary\.replaceWith\(targetLayer\)/)
 assert.match(widgetPageSource, /stage\.replaceChildren\(nextBody\)/)
 assert.match(widgetPageSource, /stage\.replaceWith\(nextBody\)/)
+const overlayRemoval = widgetPageSource.lastIndexOf('removeCourseTransitionOverlay()')
+const targetDomHandoff = widgetPageSource.indexOf('targetPrimary.replaceWith(targetLayer)')
+const nextBodySwap = widgetPageSource.indexOf('stage.replaceChildren(nextBody)')
+const sizeSettling = widgetPageSource.indexOf("stage.classList.add('is-size-settling')")
+const finalBodySwap = widgetPageSource.indexOf('stage.replaceWith(nextBody)')
+const transitionFinish = widgetPageSource.lastIndexOf('finishCourseTransition(token, resumeAfterTransition)')
+assert.ok(overlayRemoval < targetDomHandoff, 'floating text must hand off before temporary morph replacement')
+assert.ok(targetDomHandoff < nextBodySwap, 'target text DOM must be complete before nextBody replaces the handoff layers')
+assert.ok(nextBodySwap < sizeSettling && sizeSettling < finalBodySwap, 'component height may settle only after the real nextBody is installed')
+assert.ok(finalBodySwap < transitionFinish, 'presentation clock may resume only after the final body and height transition complete')
 assert.match(widgetPageSource, /if \(!currentWidget\) \{[\s\S]*nextWidget\.classList\.add\('is-initial-mount'\)/)
 assert.doesNotMatch(widgetPageSource, /prepareIncomingElement/)
 assert.doesNotMatch(widgetPageSource, /is-handoff-incoming/)
@@ -162,14 +178,26 @@ assert.match(widgetPageCss, /perspective: 1000px/)
 assert.match(widgetPageCss, /\.widget-body \{[\s\S]*display: flow-root/)
 assert.match(widgetPageCss, /\.widget-body-handoff/)
 assert.match(widgetPageCss, /\.course-shared-morph/)
-assert.match(widgetPageCss, /\.course-morph-target/)
+const morphLayerRule = /\.course-widget \.course-shared-morph > \.course-morph-surface,\s*\.course-widget \.course-shared-morph > \.course-morph-target\s*\{([^}]*)\}/.exec(widgetPageCss)?.[1] ?? ''
+assert.match(morphLayerRule, /position:\s*absolute/)
+assert.match(morphLayerRule, /inset:\s*0/)
+const classSpecificity = (selector) => (selector.match(/\.[\w-]+/g) ?? []).length
+assert.ok(
+  classSpecificity('.course-widget .course-shared-morph > .course-morph-target') >
+    classSpecificity('.course-widget .focus-course'),
+  'morph-layer selector must outrank the later focus-course position rule',
+)
 assert.match(widgetPageCss, /border-color: transparent !important/)
 assert.match(widgetPageCss, /\.course-transition-overlay/)
 const transitionOverlayRule = /\.course-transition-overlay\s*\{([^}]*)\}/.exec(widgetPageCss)?.[1] ?? ''
 assert.match(transitionOverlayRule, /position: absolute/)
 assert.match(transitionOverlayRule, /overflow: hidden/)
 assert.doesNotMatch(transitionOverlayRule, /position: fixed|overflow: visible/)
-assert.match(transitionOverlayRule, /z-index: 4/)
+const currentBodyRule = /\.widget-body-handoff > \.widget-body\.is-handoff-current\s*\{([^}]*)\}/.exec(widgetPageCss)?.[1] ?? ''
+const overlayZIndex = Number(/z-index:\s*(\d+)/.exec(transitionOverlayRule)?.[1])
+const currentBodyZIndex = Number(/z-index:\s*(\d+)/.exec(currentBodyRule)?.[1])
+assert.equal(overlayZIndex, 6)
+assert.ok(overlayZIndex > currentBodyZIndex, 'shared text and wipe must render above the outgoing course body')
 assert.match(widgetPageCss, /\.course-shared-float/)
 assert.equal((widgetPageCss.match(/\.course-shared-float\s*\{/g) ?? []).length, 1)
 assert.match(widgetPageCss, /\.course-final-wipe/)
@@ -185,10 +213,11 @@ assert.doesNotMatch(widgetPageCss, /0 18px 55px/)
 assert.doesNotMatch(widgetPageCss, /\.course-widget\.is-handoff-outgoing/)
 assert.doesNotMatch(widgetPageCss, /::view-transition/)
 const baseFocusRule = /\.course-widget \.focus-course \{([^}]*)\}/.exec(timeFlowCss)?.[1] ?? ''
+assert.match(baseFocusRule, /position:\s*relative/)
 assert.doesNotMatch(baseFocusRule, /animation:/)
 assert.match(timeFlowCss, /\.course-widget\.is-initial-mount \.focus-course \{[\s\S]*animation: time-flow-enter/)
 assert.match(tauriConfig, /"label": "presentation"/)
 assert.doesNotMatch(widgetPageSource, /presentation-panel/)
 assert.doesNotMatch(widgetPageSource, /withPresentationDate/)
 
-console.log('presentation clock, stage-local shared text and shell handoff, deferred native window resize, visible beam wipe reveal, duration formatting, controller, and widget wiring checks passed')
+console.log('presentation clock, cascade-safe morph positioning, visible shared-text overlay, ordered DOM handoff, deferred native resize, duration formatting, controller, and widget wiring checks passed')
