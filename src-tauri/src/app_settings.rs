@@ -1,13 +1,16 @@
 use std::{
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
-use crate::excel_import::types::SectionTime;
+use crate::{
+    data_transaction::{self, FileChange},
+    excel_import::types::SectionTime,
+};
 
 const SETTINGS_FILE: &str = "settings.json";
 const MAX_LESSONS: usize = 24;
@@ -60,7 +63,7 @@ fn default_settings(onboarding_completed: bool) -> AppSettings {
     }
 }
 
-fn resolve_settings_path(app: &AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn resolve_settings_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app
         .path()
         .app_local_data_dir()
@@ -90,26 +93,54 @@ pub fn read_app_settings(app: &AppHandle) -> Result<AppSettings, String> {
     read_from_path(&path)
 }
 
+pub(crate) fn prepare_lesson_times(
+    app: &AppHandle,
+    lesson_times: Vec<SectionTime>,
+    equal_duration: bool,
+    complete_onboarding: bool,
+) -> Result<(AppSettings, Vec<u8>), String> {
+    let path = resolve_settings_path(app)?;
+    let mut settings = if path.exists() {
+        read_from_path(&path)?
+    } else {
+        default_settings(false)
+    };
+    settings.lesson_times = normalize_lesson_times(lesson_times)?;
+    settings.equal_duration = equal_duration;
+    if complete_onboarding {
+        settings.onboarding_completed = true;
+    }
+    let bytes = serialize_settings(&settings)?;
+    let check = read_from_bytes(&bytes)?;
+    if check != settings {
+        return Err("设置序列化校验失败".into());
+    }
+    Ok((settings, bytes))
+}
+
 pub fn save_lesson_times(
     app: &AppHandle,
     lesson_times: Vec<SectionTime>,
     equal_duration: bool,
     complete_onboarding: bool,
 ) -> Result<AppSettings, String> {
-    let mut settings = read_app_settings(app)?;
-    settings.lesson_times = normalize_lesson_times(lesson_times)?;
-    settings.equal_duration = equal_duration;
-    if complete_onboarding {
-        settings.onboarding_completed = true;
-    }
-    write_atomic(&resolve_settings_path(app)?, &settings)?;
+    let (settings, bytes) =
+        prepare_lesson_times(app, lesson_times, equal_duration, complete_onboarding)?;
+    data_transaction::commit(
+        app,
+        vec![FileChange::write(resolve_settings_path(app)?, bytes)],
+    )?;
     Ok(settings)
 }
 
-fn read_from_path(path: &PathBuf) -> Result<AppSettings, String> {
+fn read_from_path(path: &Path) -> Result<AppSettings, String> {
     let bytes = fs::read(path).map_err(|error| error.to_string())?;
+    read_from_bytes(&bytes)
+}
+
+fn read_from_bytes(bytes: &[u8]) -> Result<AppSettings, String> {
     let mut settings: AppSettings =
-        serde_json::from_slice(&bytes).map_err(|error| format!("设置文件格式错误：{error}"))?;
+        serde_json::from_slice(bytes).map_err(|error| format!("设置文件格式错误：{error}"))?;
     if settings.schema_version != schema_version() {
         return Err("设置文件版本不受支持".into());
     }
@@ -117,24 +148,21 @@ fn read_from_path(path: &PathBuf) -> Result<AppSettings, String> {
     Ok(settings)
 }
 
-fn write_atomic(path: &PathBuf, settings: &AppSettings) -> Result<(), String> {
-    let parent = path.parent().ok_or("设置目录不可用")?;
-    fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    let temporary = path.with_extension("json.tmp");
-    let bytes = format!(
+fn serialize_settings(settings: &AppSettings) -> Result<Vec<u8>, String> {
+    Ok(format!(
         "{}\n",
         serde_json::to_string_pretty(settings).map_err(|error| error.to_string())?
-    );
-    fs::write(&temporary, bytes).map_err(|error| error.to_string())?;
-    let check = read_from_path(&temporary)?;
+    )
+    .into_bytes())
+}
+
+fn write_atomic(path: &Path, settings: &AppSettings) -> Result<(), String> {
+    let bytes = serialize_settings(settings)?;
+    let check = read_from_bytes(&bytes)?;
     if &check != settings {
-        let _ = fs::remove_file(&temporary);
         return Err("临时设置校验失败".into());
     }
-    if path.exists() {
-        fs::remove_file(path).map_err(|error| error.to_string())?;
-    }
-    fs::rename(temporary, path).map_err(|error| error.to_string())
+    data_transaction::replace_file(path, &bytes)
 }
 
 fn normalize_lesson_times(mut lesson_times: Vec<SectionTime>) -> Result<Vec<SectionTime>, String> {
@@ -221,5 +249,12 @@ mod tests {
         let mut invalid_hours = default_lesson_times();
         invalid_hours[0].start = "24:00".into();
         assert!(normalize_lesson_times(invalid_hours).is_err());
+    }
+
+    #[test]
+    fn serialized_settings_round_trip_before_replacement() {
+        let settings = default_settings(true);
+        let bytes = serialize_settings(&settings).unwrap();
+        assert_eq!(read_from_bytes(&bytes).unwrap(), settings);
     }
 }

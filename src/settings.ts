@@ -148,6 +148,8 @@ let importDraft: ImportDraft | null = null
 let importNameDraft = ''
 let importFirstWeekDraft = ''
 let expandedImportCourseIndex = 0
+let importRequestId = ''
+let importCreatePending = false
 let surfaceMessage = ''
 let autostartEnabled = false
 let timeDraft = structuredClone(settings.lessonTimes)
@@ -694,7 +696,7 @@ function importSurfaceMarkup(): string {
       <p class="surface-message" role="status">${escapeHtml(surfaceMessage)}</p>
     </div>
     <footer class="surface-actions surface-actions--end">
-      <button class="primary-button" type="button" data-action="create-imported-schedule"${draft && issueCount === 0 ? '' : ' disabled'}>确认并创建课表</button>
+      <button class="primary-button" type="button" data-action="create-imported-schedule"${draft && issueCount === 0 && !importCreatePending ? '' : ' disabled'}>确认并创建课表</button>
     </footer>
   `, true)
 }
@@ -1315,9 +1317,11 @@ async function chooseExcel(): Promise<void> {
       importFirstWeekDraft = schedule.semesterStart
       expandedImportCourseIndex = 0
       refreshImportDraftSummary(importDraft)
+      importRequestId = crypto.randomUUID()
     } else {
       importNameDraft = ''
       importFirstWeekDraft = ''
+      importRequestId = ''
     }
     surfaceMessage = importDraft ? '解析完成，请逐项检查课程信息。' : '已取消选择。'
   } catch (error) {
@@ -1326,8 +1330,9 @@ async function chooseExcel(): Promise<void> {
   render()
 }
 
+
 async function createImportedSchedule(): Promise<void> {
-  if (!importDraft) return
+  if (!importDraft || importCreatePending) return
   const name = importNameDraft.trim()
   const firstWeekMonday = importFirstWeekDraft
   try {
@@ -1336,7 +1341,10 @@ async function createImportedSchedule(): Promise<void> {
     const issues = validateImportDraft(importDraft, settings.lessonTimes.length)
     if (issues.length) throw new Error(issues.slice(0, 3).join('；'))
     refreshImportDraftSummary(importDraft)
+    importCreatePending = true
+    render()
     if (desktopRuntime) {
+      if (!importRequestId) importRequestId = crypto.randomUUID()
       await invoke(plugin('create_schedule_from_import'), {
         request: {
           name,
@@ -1344,6 +1352,7 @@ async function createImportedSchedule(): Promise<void> {
           draft: importDraft,
           times: settings.lessonTimes,
           equalDuration: settings.equalDuration,
+          requestId: importRequestId,
         },
       })
       await reloadDesktopState()
@@ -1351,6 +1360,7 @@ async function createImportedSchedule(): Promise<void> {
     importDraft = null
     importNameDraft = ''
     importFirstWeekDraft = ''
+    importRequestId = ''
     expandedImportCourseIndex = 0
     surface = null
     currentWeek = initialWeek(schedule)
@@ -1359,6 +1369,9 @@ async function createImportedSchedule(): Promise<void> {
   } catch (error) {
     surfaceMessage = errorText(error)
     render()
+  } finally {
+    importCreatePending = false
+    if (importDraft) render()
   }
 }
 
