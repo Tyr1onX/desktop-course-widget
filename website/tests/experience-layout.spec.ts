@@ -72,6 +72,15 @@ for (const viewport of viewports) {
           const rect = element.getBoundingClientRect()
           return { selector, missing: false, left: rect.left, right: rect.right, width: rect.width }
         })
+        const layoutTop = (element: HTMLElement) => {
+          let top = 0
+          let current: HTMLElement | null = element
+          while (current) {
+            top += current.offsetTop
+            current = current.offsetParent as HTMLElement | null
+          }
+          return top
+        }
         const sectionSelectors = [
           '.experience-hero',
           '.experience-import',
@@ -80,8 +89,9 @@ for (const viewport of viewports) {
           '.experience-closing',
         ]
         const sections = sectionSelectors.map((selector) => {
-          const rect = document.querySelector<HTMLElement>(selector)!.getBoundingClientRect()
-          return { selector, top: rect.top + window.scrollY, bottom: rect.bottom + window.scrollY }
+          const element = document.querySelector<HTMLElement>(selector)!
+          const top = layoutTop(element)
+          return { selector, top, bottom: top + element.offsetHeight }
         })
         return {
           viewportWidth: window.innerWidth,
