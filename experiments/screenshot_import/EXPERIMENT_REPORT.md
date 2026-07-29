@@ -27,4 +27,4 @@
 
 ## 自动化测试
 
-本地 `pytest`：25 项全部通过，覆盖图片格式/EXIF/缩放/倾斜、10/12 节网格、课程块、空白网格、明确失败、字段规则、mock OCR、ImportDraft V2 映射、归一化坐标和 Windows Rust 子进程 UTF-8 解码。
+本地 `pytest`：26 项全部通过，覆盖图片格式/EXIF/缩放/倾斜、10/12 节网格、课程块、空白网格、明确失败、字段规则、mock OCR、ImportDraft V2 映射、归一化坐标、Windows Rust 子进程 UTF-8 解码和 CLI UTF-8 控制台配置。
