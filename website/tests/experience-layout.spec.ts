@@ -62,6 +62,17 @@ for (const viewport of viewports) {
       await page.evaluate(() => window.scrollTo(0, window.scrollY))
 
       const metrics = await page.evaluate(() => {
+        const layoutPosition = (element: HTMLElement) => {
+          let left = 0
+          let top = 0
+          let current: HTMLElement | null = element
+          while (current) {
+            left += current.offsetLeft
+            top += current.offsetTop
+            current = current.offsetParent as HTMLElement | null
+          }
+          return { left, top }
+        }
         const selectors = [
           '.course-nav__inner',
           '.experience-hero__copy',
@@ -77,18 +88,9 @@ for (const viewport of viewports) {
         const bounds = selectors.map((selector) => {
           const element = document.querySelector<HTMLElement>(selector)
           if (!element) return { selector, missing: true, left: 0, right: 0, width: 0 }
-          const rect = element.getBoundingClientRect()
-          return { selector, missing: false, left: rect.left, right: rect.right, width: rect.width }
+          const { left } = layoutPosition(element)
+          return { selector, missing: false, left, right: left + element.offsetWidth, width: element.offsetWidth }
         })
-        const layoutTop = (element: HTMLElement) => {
-          let top = 0
-          let current: HTMLElement | null = element
-          while (current) {
-            top += current.offsetTop
-            current = current.offsetParent as HTMLElement | null
-          }
-          return top
-        }
         const sectionSelectors = [
           '.experience-hero',
           '.experience-import',
@@ -98,7 +100,7 @@ for (const viewport of viewports) {
         ]
         const sections = sectionSelectors.map((selector) => {
           const element = document.querySelector<HTMLElement>(selector)!
-          const top = layoutTop(element)
+          const { top } = layoutPosition(element)
           return { selector, top, bottom: top + element.offsetHeight }
         })
         return {
