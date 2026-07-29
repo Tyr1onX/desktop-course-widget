@@ -146,26 +146,26 @@ body { display: inline-block; }
   transform-origin: left baseline;
 }
 
-.course-time-extension.course-sweep-reveal { display: inline-flex; }
-.course-sweep-reveal {
-  position: relative;
-  width: max-content;
-  max-width: 100%;
-  overflow: hidden;
-  white-space: pre;
-}
-.course-sweep-copy {
-  display: inline-block;
-  white-space: pre;
-  will-change: clip-path, opacity;
-}
-.course-sweep-edge {
+.widget-body-handoff.is-live-resizing { will-change: height; }
+
+.course-final-wipe {
   position: absolute;
-  inset: 10% auto 10% 0;
-  width: 1.5px;
-  border-radius: 999px;
-  background: currentColor;
-  box-shadow: 0 0 6px rgba(var(--identity-accent-rgb), .28);
+  z-index: 8;
+  top: -12%;
+  bottom: -12%;
+  left: -58%;
+  width: 58%;
+  border-radius: 42%;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0),
+    rgba(255, 255, 255, .16) 22%,
+    rgba(255, 255, 255, .78) 49%,
+    rgba(var(--identity-accent-rgb), .24) 61%,
+    rgba(255, 255, 255, 0)
+  );
+  filter: blur(.6px);
+  mix-blend-mode: screen;
   pointer-events: none;
   transform-origin: center;
   will-change: transform, opacity;
