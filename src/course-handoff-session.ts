@@ -104,6 +104,7 @@ export class CourseHandoffSession implements CourseHandoffHandle {
   private isActive = () => this.active && !this.resolved
 
   private rememberAnimation(animation: Animation) {
+    animation.id = 'course-handoff'
     this.animations.add(animation)
     void animation.finished.finally(() => this.animations.delete(animation)).catch(() => undefined)
     return animation.finished.catch(() => undefined)
