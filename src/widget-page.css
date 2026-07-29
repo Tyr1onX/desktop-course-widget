@@ -125,23 +125,64 @@ body { display: inline-block; }
   will-change: transform, color, opacity;
 }
 
+.course-morph-target .course-time.is-shared-time-range {
+  display: flex;
+  align-items: baseline;
+  gap: 0;
+  white-space: nowrap;
+}
+
 .course-time-shared-prefix,
-.course-time-extension { display: inline-block; transform-origin: left center; }
-.course-time-extension { will-change: clip-path, opacity, transform; }
-.course-line-reveal { position: relative; display: block; overflow: hidden; }
-.course-line-reveal-stroke,
-.course-line-reveal-copy { display: block; }
-.course-line-reveal-stroke {
+.course-time-extension {
+  display: inline-flex;
+  align-items: baseline;
+  margin: 0;
+  padding: 0;
+  font: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  font-variant-numeric: inherit;
+  vertical-align: baseline;
+  transform-origin: left baseline;
+}
+
+.course-time-extension.course-draw-reveal { display: inline-flex; }
+.course-draw-reveal {
+  position: relative;
+  display: block;
+  overflow: visible;
+  white-space: pre;
+}
+.course-draw-guide {
   position: absolute;
-  inset: 50% 0 auto;
-  height: 2px;
+  inset: 58% 0 auto;
+  height: 1.5px;
   border-radius: 999px;
-  background: linear-gradient(90deg, currentColor, rgba(var(--identity-accent-rgb), .18));
+  background: linear-gradient(90deg, currentColor, rgba(var(--identity-accent-rgb), .14));
   transform-origin: left center;
   pointer-events: none;
   will-change: transform, opacity;
 }
-.course-line-reveal-copy { will-change: clip-path, opacity, transform; }
+.course-drawn-character {
+  position: relative;
+  display: inline-grid;
+  grid-template-areas: 'glyph';
+  white-space: pre;
+  vertical-align: baseline;
+}
+.course-drawn-character-outline,
+.course-drawn-character-fill {
+  grid-area: glyph;
+  display: block;
+  white-space: pre;
+  will-change: clip-path, opacity, filter, transform;
+}
+.course-drawn-character-outline {
+  color: inherit;
+  -webkit-text-fill-color: transparent;
+  -webkit-text-stroke: .55px currentColor;
+}
+.course-drawn-character-fill { color: inherit; }
 
 .is-course-transitioning .focus-course,
 .is-course-transitioning .state-label,
