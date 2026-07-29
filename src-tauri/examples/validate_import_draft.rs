@@ -1,5 +1,12 @@
-#[path = "../src/excel_import/mod.rs"]
-mod excel_import;
+#[path = "../src/excel_import/types.rs"]
+mod excel_import_types;
+
+mod excel_import {
+    pub mod types {
+        pub use crate::excel_import_types::*;
+    }
+}
+
 #[path = "../src/import_draft.rs"]
 mod import_draft;
 
