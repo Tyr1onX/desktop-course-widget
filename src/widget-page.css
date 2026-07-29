@@ -67,20 +67,6 @@ body { display: inline-block; }
   will-change: opacity;
 }
 
-.course-shared-float {
-  position: absolute;
-  z-index: 9;
-  display: block;
-  width: max-content;
-  max-width: none;
-  margin: 0;
-  padding: 0;
-  white-space: nowrap;
-  pointer-events: none;
-  transform-origin: top left;
-  will-change: transform, color, opacity;
-}
-
 .course-morph-surface,
 .course-morph-target {
   position: absolute;
@@ -168,6 +154,7 @@ body { display: inline-block; }
   margin: 0;
   padding: 0;
   white-space: nowrap;
+  pointer-events: none;
   transform-origin: top left;
   will-change: transform, color, opacity;
 }
