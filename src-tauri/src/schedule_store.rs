@@ -8,12 +8,14 @@ use std::{
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
+use crate::data_transaction;
+
 const MAX_BYTES: u64 = 1024 * 1024;
 const MAX_COURSES: usize = 500;
 const MAX_TEXT: usize = 160;
 const EXAMPLE_SCHEDULE: &str = include_str!("../../src/data/schedule.json");
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Schedule {
     #[serde(default = "schema_version")]
@@ -24,7 +26,7 @@ pub struct Schedule {
     pub courses: Vec<Course>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Course {
     pub name: String,
     #[serde(default)]
@@ -249,17 +251,10 @@ fn serialize(schedule: &Schedule) -> Result<Vec<u8>, String> {
     .into_bytes())
 }
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let temporary = path.with_extension("json.tmp");
-    fs::write(&temporary, bytes).map_err(|error| error.to_string())?;
-    let check = read_limited(&temporary)?;
-    if !validate_schedule(&check).valid {
-        let _ = fs::remove_file(&temporary);
+    if !validate_schedule(bytes).valid {
         return Err("临时课表校验失败".into());
     }
-    if path.exists() {
-        fs::remove_file(path).map_err(|error| error.to_string())?;
-    }
-    fs::rename(temporary, path).map_err(|error| error.to_string())
+    data_transaction::replace_file(path, bytes)
 }
 fn valid_time(value: &str) -> Option<u16> {
     let (h, m) = value.split_once(':')?;

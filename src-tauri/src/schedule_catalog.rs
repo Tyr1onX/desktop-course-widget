@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
+    sync::{Mutex, OnceLock},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -11,6 +12,7 @@ use tauri_plugin_autostart::ManagerExt;
 
 use crate::{
     app_settings,
+    data_transaction::{self, FileChange},
     excel_import::{self, types::SectionTime},
     import_draft::{ImportCourse, ImportDraft},
     schedule_apply,
@@ -25,6 +27,8 @@ const PALETTE: [&str; 10] = [
     "#CFE1FF", "#D8EBCF", "#F8D8D2", "#E5D9F7", "#F9E3B7", "#CFE9E8", "#F2D6E6", "#D9E1F2",
     "#E4E7C9", "#F4DCC5",
 ];
+
+static CATALOG_OPERATION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -56,6 +60,8 @@ pub struct CatalogSchedule {
     pub courses: Vec<CatalogCourse>,
     pub created_at: u64,
     pub updated_at: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub import_request_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -86,6 +92,7 @@ pub struct CreateScheduleFromImportRequest {
     draft: ImportDraft,
     times: Vec<SectionTime>,
     equal_duration: bool,
+    request_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -122,6 +129,59 @@ fn catalog_schema_version() -> u8 {
     CATALOG_SCHEMA_VERSION
 }
 
+fn catalog_guard() -> Result<std::sync::MutexGuard<'static, ()>, String> {
+    CATALOG_OPERATION_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .map_err(|_| "课表目录操作锁已损坏".to_owned())
+}
+
+pub(crate) fn initialize(app: &AppHandle) -> Result<(), String> {
+    let _guard = catalog_guard()?;
+    let index = ensure_catalog(app)?;
+    let active = read_catalog_schedule(app, &index.active_schedule_id)?;
+    let current = schedule_store::read_user_schedule(app)?;
+    let expected = legacy_schedule(&active);
+    if current != expected {
+        data_transaction::commit(app, vec![active_schedule_change(app, &active)?.0])?;
+    }
+    Ok(())
+}
+
+pub(crate) fn replace_active_schedule_from_legacy(
+    app: &AppHandle,
+    schedule: Schedule,
+    lesson_times: Vec<SectionTime>,
+    equal_duration: bool,
+) -> Result<Vec<String>, String> {
+    let _guard = catalog_guard()?;
+    let index = ensure_catalog(app)?;
+    let current = read_catalog_schedule(app, &index.active_schedule_id)?;
+    let timestamp = now_millis()?;
+    let mut updated = catalog_from_legacy(
+        current.id.clone(),
+        current.name.clone(),
+        schedule,
+        timestamp,
+    );
+    updated.created_at = current.created_at;
+    updated.import_request_id = current.import_request_id;
+    normalize_catalog_schedule(&mut updated)?;
+
+    let (_, settings_bytes) =
+        app_settings::prepare_lesson_times(app, lesson_times, equal_duration, true)?;
+    let (active_change, warnings) = active_schedule_change(app, &updated)?;
+    data_transaction::commit(
+        app,
+        vec![
+            catalog_schedule_change(app, &updated)?,
+            FileChange::write(app_settings::resolve_settings_path(app)?, settings_bytes),
+            active_change,
+        ],
+    )?;
+    Ok(warnings)
+}
+
 pub fn init() -> TauriPlugin<Wry> {
     tauri::plugin::Builder::new("schedule-catalog")
         .invoke_handler(tauri::generate_handler![
@@ -143,6 +203,7 @@ pub fn init() -> TauriPlugin<Wry> {
 
 #[tauri::command]
 fn list_schedules(app: AppHandle) -> Result<Vec<ScheduleSummary>, String> {
+    let _guard = catalog_guard()?;
     let index = ensure_catalog(&app)?;
     index
         .schedule_ids
@@ -168,12 +229,14 @@ fn list_schedules(app: AppHandle) -> Result<Vec<ScheduleSummary>, String> {
 
 #[tauri::command]
 fn get_active_schedule(app: AppHandle) -> Result<CatalogSchedule, String> {
+    let _guard = catalog_guard()?;
     let index = ensure_catalog(&app)?;
     read_catalog_schedule(&app, &index.active_schedule_id)
 }
 
 #[tauri::command]
 fn get_schedule(app: AppHandle, schedule_id: String) -> Result<CatalogSchedule, String> {
+    let _guard = catalog_guard()?;
     let index = ensure_catalog(&app)?;
     if !index.schedule_ids.iter().any(|id| id == &schedule_id) {
         return Err("找不到要编辑的课表".into());
@@ -186,6 +249,7 @@ fn update_schedule(
     app: AppHandle,
     request: UpdateScheduleRequest,
 ) -> Result<CatalogSchedule, String> {
+    let _guard = catalog_guard()?;
     let index = ensure_catalog(&app)?;
     if !index
         .schedule_ids
@@ -204,31 +268,43 @@ fn update_schedule(
     schedule.semester_end = request.semester_end;
     schedule.updated_at = now_millis()?;
     normalize_catalog_schedule(&mut schedule)?;
-    write_catalog_schedule(&app, &schedule)?;
 
-    if index.active_schedule_id == schedule.id {
-        apply_active_schedule(&app, &schedule)?;
-        emit_schedule_updated(&app)?;
+    let mut changes = vec![catalog_schedule_change(&app, &schedule)?];
+    let active = index.active_schedule_id == schedule.id;
+    if active {
+        changes.push(active_schedule_change(&app, &schedule)?.0);
+    }
+    data_transaction::commit(&app, changes)?;
+
+    if active {
+        emit_schedule_updated(&app);
     }
     Ok(schedule)
 }
 
 #[tauri::command]
 fn activate_schedule(app: AppHandle, schedule_id: String) -> Result<CatalogSchedule, String> {
+    let _guard = catalog_guard()?;
     let mut index = ensure_catalog(&app)?;
     if !index.schedule_ids.iter().any(|id| id == &schedule_id) {
         return Err("找不到要启用的课表".into());
     }
     let schedule = read_catalog_schedule(&app, &schedule_id)?;
-    apply_active_schedule(&app, &schedule)?;
     index.active_schedule_id = schedule_id;
-    write_index(&app, &index)?;
-    emit_schedule_updated(&app)?;
+    data_transaction::commit(
+        &app,
+        vec![
+            active_schedule_change(&app, &schedule)?.0,
+            index_change(&app, &index)?,
+        ],
+    )?;
+    emit_schedule_updated(&app);
     Ok(schedule)
 }
 
 #[tauri::command]
 fn delete_schedule(app: AppHandle, schedule_id: String) -> Result<CatalogSchedule, String> {
+    let _guard = catalog_guard()?;
     let mut index = ensure_catalog(&app)?;
     if index.schedule_ids.len() <= 1 {
         return Err("至少需要保留一份课表".into());
@@ -243,17 +319,18 @@ fn delete_schedule(app: AppHandle, schedule_id: String) -> Result<CatalogSchedul
         let next_position = position.min(index.schedule_ids.len() - 1);
         index.active_schedule_id = index.schedule_ids[next_position].clone();
     }
-
-    let path = schedule_path(&app, &schedule_id)?;
-    if path.exists() {
-        fs::remove_file(path).map_err(|error| error.to_string())?;
-    }
-    write_index(&app, &index)?;
-
     let active = read_catalog_schedule(&app, &index.active_schedule_id)?;
+
+    let mut changes = Vec::new();
     if deleting_active {
-        apply_active_schedule(&app, &active)?;
-        emit_schedule_updated(&app)?;
+        changes.push(active_schedule_change(&app, &active)?.0);
+    }
+    changes.push(index_change(&app, &index)?);
+    changes.push(FileChange::delete(schedule_path(&app, &schedule_id)?));
+    data_transaction::commit(&app, changes)?;
+
+    if deleting_active {
+        emit_schedule_updated(&app);
     }
     Ok(active)
 }
@@ -263,7 +340,15 @@ fn create_schedule_from_import(
     app: AppHandle,
     request: CreateScheduleFromImportRequest,
 ) -> Result<CatalogSchedule, String> {
+    let _guard = catalog_guard()?;
     let mut index = ensure_catalog(&app)?;
+    let request_id = request.request_id.trim().to_owned();
+    if request_id.is_empty() || request_id.chars().count() > 128 {
+        return Err("导入请求标识无效".into());
+    }
+    if let Some(existing) = find_existing_import_schedule(&app, &index, &request_id)? {
+        return Ok(existing);
+    }
     if index.schedule_ids.len() >= MAX_SCHEDULES {
         return Err(format!("最多保留 {MAX_SCHEDULES} 份课表"));
     }
@@ -287,24 +372,34 @@ fn create_schedule_from_import(
         courses,
         created_at: timestamp,
         updated_at: timestamp,
+        import_request_id: Some(request_id),
     };
     normalize_catalog_schedule(&mut schedule)?;
-    write_catalog_schedule(&app, &schedule)?;
-    apply_active_schedule(&app, &schedule)?;
 
     index.schedule_ids.push(id.clone());
     index.active_schedule_id = id;
-    write_index(&app, &index)?;
-    app_settings::save_lesson_times(&app, request.times, request.equal_duration, true)?;
-    emit_schedule_updated(&app)?;
-    app.emit("onboarding:completed", ())
-        .map_err(|error| error.to_string())?;
+    let (_, settings_bytes) =
+        app_settings::prepare_lesson_times(&app, request.times, request.equal_duration, true)?;
+    let active_change = active_schedule_change(&app, &schedule)?.0;
+    data_transaction::commit(
+        &app,
+        vec![
+            catalog_schedule_change(&app, &schedule)?,
+            FileChange::write(app_settings::resolve_settings_path(&app)?, settings_bytes),
+            active_change,
+            index_change(&app, &index)?,
+        ],
+    )?;
+
+    emit_schedule_updated(&app);
+    emit_onboarding_completed(&app);
     Ok(schedule)
 }
 
 #[tauri::command]
 fn save_course(app: AppHandle, request: SaveCourseRequest) -> Result<CatalogSchedule, String> {
-    let mut index = ensure_catalog(&app)?;
+    let _guard = catalog_guard()?;
+    let index = ensure_catalog(&app)?;
     let mut schedule = read_catalog_schedule(&app, &index.active_schedule_id)?;
     let name = request.name.trim();
     if name.is_empty() {
@@ -342,16 +437,21 @@ fn save_course(app: AppHandle, request: SaveCourseRequest) -> Result<CatalogSche
     schedule.courses.splice(insert_at..insert_at, replacements);
     schedule.updated_at = timestamp;
     normalize_catalog_schedule(&mut schedule)?;
-    write_catalog_schedule(&app, &schedule)?;
-    apply_active_schedule(&app, &schedule)?;
-    index.active_schedule_id = schedule.id.clone();
-    write_index(&app, &index)?;
-    emit_schedule_updated(&app)?;
+
+    data_transaction::commit(
+        &app,
+        vec![
+            catalog_schedule_change(&app, &schedule)?,
+            active_schedule_change(&app, &schedule)?.0,
+        ],
+    )?;
+    emit_schedule_updated(&app);
     Ok(schedule)
 }
 
 #[tauri::command]
 fn delete_course(app: AppHandle, course_id: String) -> Result<CatalogSchedule, String> {
+    let _guard = catalog_guard()?;
     let index = ensure_catalog(&app)?;
     let mut schedule = read_catalog_schedule(&app, &index.active_schedule_id)?;
     if !schedule.courses.iter().any(|course| course.id == course_id) {
@@ -369,9 +469,14 @@ fn delete_course(app: AppHandle, course_id: String) -> Result<CatalogSchedule, S
     schedule.courses.retain(|course| course.id != course_id);
     schedule.updated_at = now_millis()?;
     normalize_catalog_schedule(&mut schedule)?;
-    write_catalog_schedule(&app, &schedule)?;
-    apply_active_schedule(&app, &schedule)?;
-    emit_schedule_updated(&app)?;
+    data_transaction::commit(
+        &app,
+        vec![
+            catalog_schedule_change(&app, &schedule)?,
+            active_schedule_change(&app, &schedule)?.0,
+        ],
+    )?;
+    emit_schedule_updated(&app);
     Ok(schedule)
 }
 
@@ -420,6 +525,9 @@ fn ensure_catalog(app: &AppHandle) -> Result<CatalogIndex, String> {
     if path.exists() {
         let index: CatalogIndex = read_json(&path)?;
         validate_index(&index)?;
+        for id in &index.schedule_ids {
+            read_catalog_schedule(app, id)?;
+        }
         return Ok(index);
     }
 
@@ -428,13 +536,18 @@ fn ensure_catalog(app: &AppHandle) -> Result<CatalogIndex, String> {
     let id = "default".to_owned();
     let mut schedule = catalog_from_legacy(id.clone(), "当前课表".into(), legacy, timestamp);
     normalize_catalog_schedule(&mut schedule)?;
-    write_catalog_schedule(app, &schedule)?;
     let index = CatalogIndex {
         schema_version: CATALOG_SCHEMA_VERSION,
         active_schedule_id: id.clone(),
         schedule_ids: vec![id],
     };
-    write_index(app, &index)?;
+    data_transaction::commit(
+        app,
+        vec![
+            catalog_schedule_change(app, &schedule)?,
+            index_change(app, &index)?,
+        ],
+    )?;
     Ok(index)
 }
 
@@ -503,6 +616,7 @@ fn catalog_from_legacy(
         courses,
         created_at: timestamp,
         updated_at: timestamp,
+        import_request_id: None,
     }
 }
 
@@ -638,14 +752,16 @@ fn legacy_schedule(schedule: &CatalogSchedule) -> Schedule {
     }
 }
 
-fn apply_active_schedule(app: &AppHandle, schedule: &CatalogSchedule) -> Result<(), String> {
-    schedule_apply::apply_schedule(app, &legacy_schedule(schedule))?;
-    Ok(())
+fn emit_schedule_updated(app: &AppHandle) {
+    if let Err(error) = app.emit("schedule:updated", ()) {
+        eprintln!("[schedule-catalog] schedule update event failed: {error}");
+    }
 }
 
-fn emit_schedule_updated(app: &AppHandle) -> Result<(), String> {
-    app.emit("schedule:updated", ())
-        .map_err(|error| error.to_string())
+fn emit_onboarding_completed(app: &AppHandle) {
+    if let Err(error) = app.emit("onboarding:completed", ()) {
+        eprintln!("[schedule-catalog] onboarding event failed: {error}");
+    }
 }
 
 fn catalog_directory(app: &AppHandle) -> Result<PathBuf, String> {
@@ -678,33 +794,69 @@ fn read_catalog_schedule(app: &AppHandle, id: &str) -> Result<CatalogSchedule, S
     Ok(schedule)
 }
 
-fn write_catalog_schedule(app: &AppHandle, schedule: &CatalogSchedule) -> Result<(), String> {
-    write_json_atomic(&schedule_path(app, &schedule.id)?, schedule)
+fn serialize_json<T: Serialize>(value: &T) -> Result<Vec<u8>, String> {
+    Ok(format!(
+        "{}\n",
+        serde_json::to_string_pretty(value).map_err(|error| error.to_string())?
+    )
+    .into_bytes())
 }
 
-fn write_index(app: &AppHandle, index: &CatalogIndex) -> Result<(), String> {
+fn catalog_schedule_change(
+    app: &AppHandle,
+    schedule: &CatalogSchedule,
+) -> Result<FileChange, String> {
+    Ok(FileChange::write(
+        schedule_path(app, &schedule.id)?,
+        serialize_json(schedule)?,
+    ))
+}
+
+fn index_change(app: &AppHandle, index: &CatalogIndex) -> Result<FileChange, String> {
     validate_index(index)?;
-    write_json_atomic(&index_path(app)?, index)
+    Ok(FileChange::write(index_path(app)?, serialize_json(index)?))
+}
+
+fn active_schedule_change(
+    app: &AppHandle,
+    schedule: &CatalogSchedule,
+) -> Result<(FileChange, Vec<String>), String> {
+    let prepared = schedule_apply::prepare_schedule(&legacy_schedule(schedule))?;
+    let destination = schedule_store::ensure_schedule_storage(app)?;
+    if destination.exists() {
+        schedule_store::backup_current_schedule(app, &destination)?;
+    }
+    Ok((
+        FileChange::write(destination, prepared.bytes),
+        prepared.warnings,
+    ))
+}
+
+fn find_existing_import_schedule(
+    app: &AppHandle,
+    index: &CatalogIndex,
+    request_id: &str,
+) -> Result<Option<CatalogSchedule>, String> {
+    let schedules = index
+        .schedule_ids
+        .iter()
+        .map(|id| read_catalog_schedule(app, id))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(find_import_request(request_id, &schedules).cloned())
+}
+
+fn find_import_request<'a>(
+    request_id: &str,
+    schedules: &'a [CatalogSchedule],
+) -> Option<&'a CatalogSchedule> {
+    schedules
+        .iter()
+        .find(|schedule| schedule.import_request_id.as_deref() == Some(request_id))
 }
 
 fn read_json<T: DeserializeOwned>(path: &Path) -> Result<T, String> {
     let bytes = fs::read(path).map_err(|error| error.to_string())?;
     serde_json::from_slice(&bytes).map_err(|error| format!("文件格式错误：{error}"))
-}
-
-fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
-    let parent = path.parent().ok_or("数据目录不可用")?;
-    fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    let temporary = path.with_extension("json.tmp");
-    let text = format!(
-        "{}\n",
-        serde_json::to_string_pretty(value).map_err(|error| error.to_string())?
-    );
-    fs::write(&temporary, text).map_err(|error| error.to_string())?;
-    if path.exists() {
-        fs::remove_file(path).map_err(|error| error.to_string())?;
-    }
-    fs::rename(temporary, path).map_err(|error| error.to_string())
 }
 
 fn unique_id(app: &AppHandle, prefix: &str, seed: u64) -> Result<String, String> {
@@ -770,5 +922,18 @@ mod tests {
     fn invalid_color_falls_back_to_soft_palette() {
         assert_eq!(normalize_color("red", 0), PALETTE[0]);
         assert_eq!(normalize_color("#abcdef", 0), "#ABCDEF");
+    }
+
+    #[test]
+    fn import_request_id_returns_the_existing_schedule() {
+        let mut schedule =
+            catalog_from_legacy("default".into(), "当前课表".into(), sample_legacy(), 1);
+        schedule.import_request_id = Some("request-1".into());
+        let schedules = vec![schedule];
+        assert_eq!(
+            find_import_request("request-1", &schedules).map(|item| item.id.as_str()),
+            Some("default")
+        );
+        assert!(find_import_request("request-2", &schedules).is_none());
     }
 }

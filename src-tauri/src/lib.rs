@@ -1,4 +1,5 @@
 mod app_settings;
+mod data_transaction;
 pub mod excel_import;
 mod import_draft;
 mod schedule_apply;
@@ -406,16 +407,19 @@ fn apply_imported_schedule(
         &request.times,
     )?;
     let course_count = schedule.courses.len();
-    let mut warnings = schedule_apply::apply_schedule(&app, &schedule)?;
+    let warnings = schedule_catalog::replace_active_schedule_from_legacy(
+        &app,
+        schedule,
+        request.times,
+        equal_duration,
+    )?;
 
-    if let Err(error) = app_settings::save_lesson_times(&app, request.times, equal_duration, true) {
-        warnings.push(format!("作息设置保存失败：{error}"));
+    if let Err(error) = app.emit("schedule:updated", ()) {
+        eprintln!("[schedule] update event failed after commit: {error}");
     }
-
-    app.emit("schedule:updated", ())
-        .map_err(|error| error.to_string())?;
-    app.emit("onboarding:completed", ())
-        .map_err(|error| error.to_string())?;
+    if let Err(error) = app.emit("onboarding:completed", ()) {
+        eprintln!("[schedule] onboarding event failed after commit: {error}");
+    }
 
     Ok(ApplyImportedScheduleResult {
         course_count,
@@ -503,6 +507,9 @@ pub fn run() {
         )
         .plugin(schedule_catalog::init())
         .setup(|app| {
+            if let Err(error) = data_transaction::recover_pending(app.handle()) {
+                return Err(std::io::Error::other(error).into());
+            }
             let had_schedule_before_start = schedule_store::resolve_schedule_path(app.handle())
                 .map(|path| path.exists())
                 .unwrap_or(false);
@@ -517,6 +524,9 @@ pub fn run() {
                         true
                     }
                 };
+            if let Err(error) = schedule_catalog::initialize(app.handle()) {
+                return Err(std::io::Error::other(error).into());
+            }
 
             setup_tray(app)?;
 
