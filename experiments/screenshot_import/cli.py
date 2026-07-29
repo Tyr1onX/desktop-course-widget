@@ -12,6 +12,14 @@ from .preprocess import PreprocessConfig
 from .synthetic import generate_synthetic_sample, scenarios
 
 
+def _configure_console_encoding() -> None:
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            reconfigure(encoding="utf-8", errors="replace")
+
+
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(description="标准网格课表截图识别实验")
     sub = root.add_subparsers(dest="command", required=True)
@@ -33,6 +41,7 @@ def parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _configure_console_encoding()
     args = parser().parse_args(argv)
     try:
         if args.command == "generate-synthetic":
