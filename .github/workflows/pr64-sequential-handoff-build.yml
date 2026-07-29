@@ -159,42 +159,38 @@ jobs:
 
           replace_once(
               'src/widget-page.css',
-              """.course-final-wipe::before {
-              position: absolute;
-              inset: -12% auto -12% -58%;
-              width: 58%;
-              border-radius: 42%;
-              background: linear-gradient(
-                90deg,
-                rgba(255, 255, 255, 0),
-                rgba(255, 255, 255, .16) 22%,
-                rgba(255, 255, 255, .78) 49%,
-                rgba(var(--identity-accent-rgb), .24) 61%,
-                rgba(255, 255, 255, 0)
-              );
-              content: '';
-              filter: blur(.6px);
-              mix-blend-mode: screen;
-              pointer-events: none;
-            }""",
+              """.course-final-wipe::before {""",
+              """.course-final-wipe-beam {""",
+          )
+
+          replace_once(
+              'src/widget-page.css',
               """.course-final-wipe-beam {
-              position: absolute;
-              inset: -12% auto -12% 0;
-              width: 58%;
-              border-radius: 42%;
-              background: linear-gradient(
-                90deg,
-                rgba(255, 255, 255, 0),
-                rgba(255, 255, 255, .16) 22%,
-                rgba(255, 255, 255, .78) 49%,
-                rgba(var(--identity-accent-rgb), .24) 61%,
-                rgba(255, 255, 255, 0)
-              );
-              filter: blur(.6px);
-              mix-blend-mode: screen;
-              pointer-events: none;
-              will-change: transform;
-            }""",
+            position: absolute;
+            inset: -12% auto -12% -58%;""",
+              """.course-final-wipe-beam {
+            position: absolute;
+            inset: -12% auto -12% 0;""",
+          )
+
+          replace_once(
+              'src/widget-page.css',
+              """  );
+            content: '';
+            filter: blur(.6px);
+            mix-blend-mode: screen;
+            pointer-events: none;
+          }
+
+          .is-course-transitioning .focus-course,""",
+              """  );
+            filter: blur(.6px);
+            mix-blend-mode: screen;
+            pointer-events: none;
+            will-change: transform;
+          }
+
+          .is-course-transitioning .focus-course,""",
           )
 
           replace_once(
