@@ -40,13 +40,12 @@ const options: WidgetOptions = {
 
 const COURSE_EXIT_MS = 640
 const COURSE_EXIT_GAP_MS = 70
-const COURSE_SHARED_MOVE_MS = 2500
-const COURSE_SHELL_REVEAL_DELAY_MS = 1050
-const COURSE_SHELL_REVEAL_MS = 1050
-const COURSE_FINAL_WIPE_MS = 640
+const COURSE_SHARED_MOVE_MS = 2100
+const COURSE_SHELL_REVEAL_MS = 900
+const COURSE_FINAL_WIPE_MS = 760
 const COURSE_FINAL_REVEAL_MS = 420
 const COURSE_TEXT_HANDOFF_MS = 420
-const COURSE_RESIZE_MS = 2500
+const COURSE_RESIZE_MS = 1150
 const COURSE_TRANSITION_SETTLE_MS = 420
 const presentationClock = new PresentationClock()
 let presentationFrame: number | undefined
@@ -461,36 +460,37 @@ async function runCourseHandoff(
       height: `${targetRect.height}px`,
       opacity: '0',
     })
+    const wipeBeam = document.createElement('div')
+    wipeBeam.className = 'course-final-wipe-beam'
+    wipe.append(wipeBeam)
     overlay.append(wipe)
+
+    await Promise.all(sharedMotions.map((motion) => animateElement(motion.element, motion.keyframes, {
+      duration: COURSE_SHARED_MOVE_MS,
+      easing: 'cubic-bezier(.2, .62, .18, 1)',
+      fill: 'both',
+    })))
+    if (token !== transitionToken) return
 
     stage.classList.add('is-live-resizing')
     await Promise.all([
-      ...sharedMotions.map((motion) => animateElement(motion.element, motion.keyframes, {
-        duration: COURSE_SHARED_MOVE_MS,
-        easing: 'cubic-bezier(.2, .62, .18, 1)',
-        fill: 'both',
-      })),
       animateElement(stage, [
         { height: `${currentHeight}px` },
-        { offset: .18, height: `${currentHeight}px` },
         { height: `${targetBodyHeight}px` },
       ], {
         duration: COURSE_RESIZE_MS,
         easing: 'cubic-bezier(.2, .62, .18, 1)',
         fill: 'both',
       }),
-      (async () => {
-        await transitionDelay(COURSE_SHELL_REVEAL_DELAY_MS)
-        await animateElement(surface, [
-          { opacity: 0, clipPath: `inset(0 48% ${compactBottomInset}% 0 round ${targetStyle.borderRadius})` },
-          { offset: .36, opacity: .24, clipPath: `inset(0 28% ${compactBottomInset * .7}% 0 round ${targetStyle.borderRadius})` },
-          { opacity: 1, clipPath: `inset(0 0 0 0 round ${targetStyle.borderRadius})` },
-        ], {
-          duration: COURSE_SHELL_REVEAL_MS,
-          easing: 'cubic-bezier(.22, 1, .36, 1)',
-          fill: 'both',
-        })
-      })(),
+      animateElement(surface, [
+        { opacity: 0, clipPath: `inset(0 48% ${compactBottomInset}% 0 round ${targetStyle.borderRadius})` },
+        { offset: .36, opacity: .24, clipPath: `inset(0 28% ${compactBottomInset * .7}% 0 round ${targetStyle.borderRadius})` },
+        { opacity: 1, clipPath: `inset(0 0 0 0 round ${targetStyle.borderRadius})` },
+      ], {
+        duration: COURSE_SHELL_REVEAL_MS,
+        easing: 'cubic-bezier(.22, 1, .36, 1)',
+        fill: 'both',
+      }),
     ])
     if (token !== transitionToken) return
     resizedDuringSharedHandoff = true
@@ -502,10 +502,18 @@ async function runCourseHandoff(
 
     await Promise.all([
       animateElement(wipe, [
-        { opacity: 0, transform: 'translate3d(0, 0, 0) skewX(-12deg)' },
-        { offset: .1, opacity: .92, transform: 'translate3d(18%, 0, 0) skewX(-12deg)' },
-        { offset: .78, opacity: .9, transform: 'translate3d(250%, 0, 0) skewX(-12deg)' },
-        { opacity: 0, transform: 'translate3d(286%, 0, 0) skewX(-12deg)' },
+        { opacity: 0 },
+        { offset: .08, opacity: 1 },
+        { offset: .88, opacity: 1 },
+        { opacity: 0 },
+      ], {
+        duration: COURSE_FINAL_WIPE_MS,
+        easing: 'linear',
+        fill: 'both',
+      }),
+      animateElement(wipeBeam, [
+        { transform: 'translate3d(-120%, 0, 0) skewX(-12deg)' },
+        { transform: 'translate3d(245%, 0, 0) skewX(-12deg)' },
       ], {
         duration: COURSE_FINAL_WIPE_MS,
         easing: 'cubic-bezier(.4, 0, .2, 1)',
