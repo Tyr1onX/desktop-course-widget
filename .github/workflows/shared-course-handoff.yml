@@ -1,4 +1,4 @@
-name: Shared Course Handoff
+name: Shared Course Handoff Package
 
 on:
   pull_request:
@@ -18,7 +18,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: shared-course-handoff-${{ github.event.pull_request.number }}
+  group: shared-course-handoff-package-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
@@ -55,22 +55,6 @@ jobs:
 
       - name: Run Rust library tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --lib
-
-      - name: Install website dependencies
-        working-directory: website
-        run: npm install
-
-      - name: Install Playwright Chromium
-        working-directory: website
-        run: npx playwright install chromium
-
-      - name: Build VitePress documentation
-        working-directory: website
-        run: npm run docs:build
-
-      - name: Run responsive and course handoff browser tests
-        working-directory: website
-        run: npm run docs:test:responsive
 
       - name: Build Windows NSIS installer
         run: npm run tauri:build
