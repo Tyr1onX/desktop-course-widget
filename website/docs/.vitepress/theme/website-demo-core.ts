@@ -23,13 +23,6 @@ export const experiencePresets: DemoPreset[] = [
   { id: 'browsing', label: '浏览日期', scenario: 'browsing', time: '09:50' },
 ]
 
-export const desktopPreset: DemoPreset = {
-  id: 'desktop-current',
-  label: '桌面运行状态',
-  scenario: 'current',
-  time: '08:48',
-}
-
 export function createButton(className: string, label: string): HTMLButtonElement {
   const button = document.createElement('button')
   button.type = 'button'
