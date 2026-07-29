@@ -36,7 +36,7 @@ for (const viewport of viewports) {
       await expect(page.locator('#experience-title .experience-title__line')).toHaveCount(2)
       await expect(page.locator('#experience-title .experience-title__line').nth(0)).toHaveText('课表不必摊开一整天。')
       await expect(page.locator('#experience-title .experience-title__line').nth(1)).toHaveText('此刻，只看这一课。')
-      await expect(page.locator('.experience-hero__lead')).toHaveText('课程会随着时间自然交接， 下一节也会在需要时来到眼前。')
+      await expect(page.locator('.experience-hero__lead')).toHaveText('课程会随着时间自然交接，下一节也会在需要时来到眼前。')
       await expect(page.locator('.course-stage--experience .course-demo-step')).toHaveCount(6)
       await expect(page.locator('.course-stage--experience .course-demo-toggle')).toBeVisible()
       await expect(page.locator('.experience-capabilities__line')).toHaveCount(2)
