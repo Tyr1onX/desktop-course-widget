@@ -154,7 +154,7 @@ anchor = "assert.match(widgetPageSource, /duration: COURSE_SHARED_CLUSTER_MS/)"
 check = replace_once(
     check,
     anchor,
-    anchor + "\nassert.match(widgetPageSource, /COURSE_SHARED_CLUSTER_MS \\* \\.58/)\nassert.match(widgetPageSource, /COURSE_SHARED_CLUSTER_MS \\* \\.72/)\nassert.match(widgetPageSource, /offset: \\.76/[\\s\\S]*deltaX \\* \\.8/)\nassert.match(widgetPageSource, /delay: 0/[\\s\\S]*cubic-bezier\\(\\.2, \\.62, \\.18, 1\\)/)",
+    anchor + "\nassert.match(widgetPageSource, /COURSE_SHARED_CLUSTER_MS \\* \\.58/)\nassert.match(widgetPageSource, /COURSE_SHARED_CLUSTER_MS \\* \\.72/)\nassert.match(widgetPageSource, /offset: \\.76[\\s\\S]*deltaX \\* \\.8/)\nassert.match(widgetPageSource, /delay: 0[\\s\\S]*cubic-bezier\\(\\.2, \\.62, \\.18, 1\\)/)",
     'visible motion assertions',
 )
 check = check.replace(
