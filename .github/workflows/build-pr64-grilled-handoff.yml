@@ -34,6 +34,9 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Fix grilled patch boundaries
+        run: python scripts/fix-pr64-grilled-patch-boundaries.py
+
       - name: Apply grilled handoff patch
         run: python scripts/patch-pr64-grilled-handoff.py
 
