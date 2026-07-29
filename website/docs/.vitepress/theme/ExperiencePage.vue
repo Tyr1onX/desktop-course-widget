@@ -26,7 +26,7 @@ const revealViewport = { once: true, amount: 0.28 }
 
           <nav class="course-nav__links" aria-label="页面导航">
             <a :href="homeLink">首页</a>
-            <a href="#day-flow">一天的变化</a>
+            <a href="#import-edit">使用方式</a>
             <a href="#desktop-behavior">桌面行为</a>
           </nav>
 
@@ -43,8 +43,8 @@ const revealViewport = { once: true, amount: 0.28 }
             :transition="{ duration: 0.82, ease: easeOut }"
           >
             <p class="course-kicker">产品体验</p>
-            <h1 id="experience-title">看课刻如何跟着一天变化。</h1>
-            <p>这里保留完整的课程状态、日期浏览、桌面行为和本地隐私说明。组件直接复用当前桌面端渲染逻辑。</p>
+            <h1 id="experience-title">课表会自己来到此刻。</h1>
+            <p>上课、课间或一天结束，桌面上始终只留下现在需要知道的内容。</p>
             <div class="course-actions course-actions--center">
               <a class="course-button course-button--primary" :href="releaseLink">下载 Windows 版</a>
               <a class="course-button course-button--text" :href="guideLink">查看使用指南</a>
@@ -86,82 +86,45 @@ const revealViewport = { once: true, amount: 0.28 }
             </div>
           </motion.div>
 
-          <p class="experience-hero__note">可切换上课中、课间等待、今日结束、今天无课、学期未开始和日期浏览。</p>
+          <p class="experience-hero__note">六种状态自动轮播，也可以暂停并手动切换。</p>
         </section>
 
-        <section id="day-flow" class="course-story experience-story" aria-labelledby="story-title">
-          <motion.div
-            class="course-section-heading"
-            :initial="{ opacity: 0, y: 34 }"
-            :whileInView="{ opacity: 1, y: 0 }"
-            :viewport="revealViewport"
-            :transition="{ duration: 0.82, ease: easeOut }"
-          >
-            <p class="course-kicker">一天如何流动</p>
-            <h2 id="story-title">早晨看见今天，此刻只看这一课。</h2>
-            <p>滚动时，焦点会依次落到最接近视口中心的真实组件状态。</p>
-          </motion.div>
-
-          <div class="day-flow">
-            <div class="day-flow__line" aria-hidden="true"><span></span></div>
-
-            <motion.article
-              class="day-moment day-moment--morning"
-              :initial="{ opacity: 0, y: 46 }"
-              :whileInView="{ opacity: 1, y: 0 }"
-              :viewport="revealViewport"
-              :transition="{ duration: 0.78, ease: easeOut }"
-            >
-              <div class="day-moment__time">08:12</div>
-              <div class="day-moment__visual">
-                <p>今天</p><strong>3 节课</strong><span>第一节 08:00 开始</span>
-              </div>
-              <div class="day-moment__copy">
-                <span>早晨</span>
-                <h3>今天，从第一节开始。</h3>
-                <p>打开电脑，课刻已经把今天排好。你不必先翻完整周课表。</p>
-              </div>
-            </motion.article>
-
-            <motion.article
-              class="day-moment day-moment--current"
-              :initial="{ opacity: 0, y: 46, scale: 0.985 }"
-              :whileInView="{ opacity: 1, y: 0, scale: 1 }"
-              :viewport="revealViewport"
-              :transition="{ duration: 0.82, ease: easeOut }"
-            >
-              <div class="day-moment__time">08:48</div>
-              <div class="day-moment__visual day-moment__visual--current">
-                <p>计算机网络</p><strong>正在上课</strong><span>还剩 52 分钟</span>
-              </div>
-              <div class="day-moment__copy">
-                <span>此刻</span>
-                <h3>这一刻，只看这一课。</h3>
-                <p>正在上的课程成为视觉中心；下一节保留在刚好能看见的位置。</p>
-              </div>
-            </motion.article>
-
-            <motion.article
-              class="day-moment day-moment--evening"
-              :initial="{ opacity: 0, y: 46 }"
-              :whileInView="{ opacity: 1, y: 0 }"
-              :viewport="revealViewport"
-              :transition="{ duration: 0.78, ease: easeOut }"
-            >
-              <div class="day-moment__time">18:40</div>
-              <div class="day-moment__visual day-moment__visual--quiet">
-                <p>今日课程结束</p><strong>明天见。</strong><span>下一次课程已经准备好</span>
-              </div>
-              <div class="day-moment__copy">
-                <span>结束</span>
-                <h3>最后一课结束，课刻也安静下来。</h3>
-                <p>没有正在发生的课程时，界面退回背景，只留下下一次需要知道的安排。</p>
-              </div>
-            </motion.article>
+        <motion.section
+          id="import-edit"
+          class="experience-import"
+          aria-labelledby="import-title"
+          :initial="{ opacity: 0, y: 34 }"
+          :whileInView="{ opacity: 1, y: 0 }"
+          :viewport="revealViewport"
+          :transition="{ duration: 0.82, ease: easeOut }"
+        >
+          <div class="experience-import__heading">
+            <p class="course-kicker">导入与编辑</p>
+            <h2 id="import-title">导入一次，整个学期都在。</h2>
+            <p>选择教务系统导出的 <code>.xlsx</code> 课表，先检查并修正，再按自己的习惯继续调整。</p>
+            <a :href="guideLink">查看导入与编辑指南</a>
           </div>
-        </section>
 
-        <section id="desktop-behavior" class="course-focus" aria-labelledby="focus-title">
+          <div class="experience-import__steps">
+            <article>
+              <span>01</span>
+              <h3>导入课表</h3>
+              <p>直接读取教务系统导出的 Excel，不必重新录入整个学期。</p>
+            </article>
+            <article>
+              <span>02</span>
+              <h3>检查修正</h3>
+              <p>导入后先核对课程安排，发现识别或格式差异时可以立即修正。</p>
+            </article>
+            <article>
+              <span>03</span>
+              <h3>继续编辑</h3>
+              <p>课程名称、地点、周次、颜色与作息时间都可以按实际情况调整。</p>
+            </article>
+          </div>
+        </motion.section>
+
+        <section id="desktop-behavior" class="course-focus experience-focus" aria-labelledby="focus-title">
           <div class="course-focus__inner">
             <motion.div
               class="course-focus__copy"
@@ -170,9 +133,13 @@ const revealViewport = { once: true, amount: 0.28 }
               :viewport="revealViewport"
               :transition="{ duration: 0.82, ease: easeOut }"
             >
-              <p class="course-kicker course-kicker--light">不是窗口，是桌面的一部分</p>
+              <p class="course-kicker course-kicker--light">桌面与系统托盘</p>
               <h2 id="focus-title">需要时看见，不需要时隐去。</h2>
-              <p>课刻随 Windows 启动，关闭后回到系统托盘。位置、缩放与显示习惯都会被记住。</p>
+              <p>点击组件的关闭按钮，课刻会回到系统托盘；点击托盘图标，它就重新出现在桌面。</p>
+              <ul class="experience-focus__facts">
+                <li>记住组件的位置、缩放与显示习惯</li>
+                <li>可随 Windows 启动，打开电脑即可看见</li>
+              </ul>
               <a :href="guideLink">查看首次使用指南</a>
             </motion.div>
 
@@ -198,7 +165,7 @@ const revealViewport = { once: true, amount: 0.28 }
 
         <motion.section
           id="privacy"
-          class="course-privacy course-privacy--compact"
+          class="course-privacy course-privacy--compact experience-privacy"
           aria-labelledby="privacy-title"
           :initial="{ opacity: 0, y: 34 }"
           :whileInView="{ opacity: 1, y: 0 }"
@@ -212,7 +179,7 @@ const revealViewport = { once: true, amount: 0.28 }
               <circle cx="32" cy="41" r="3" />
             </svg>
           </div>
-          <p class="course-kicker">课表属于你</p>
+          <p class="course-kicker">本地与隐私</p>
           <h2 id="privacy-title">无需账号，不上传课表。</h2>
           <p>Excel 在本机解析，课程与设置保存在本机。课刻不建立云端课表。</p>
           <a :href="faqLink">了解数据位置与隐私</a>
@@ -227,8 +194,8 @@ const revealViewport = { once: true, amount: 0.28 }
           :transition="{ duration: 0.84, ease: easeOut }"
         >
           <img :src="markLink" alt="" width="64" height="64" />
-          <h2 id="experience-closing-title">回到桌面，让课刻自己流动。</h2>
-          <p>安装后导入或创建课表，组件会根据真实时间自动切换状态。</p>
+          <h2 id="experience-closing-title">把课表放回桌面。</h2>
+          <p>导入课表后，课刻会根据真实时间自动留下此刻需要知道的安排。</p>
           <div class="course-actions course-actions--center">
             <a class="course-button course-button--primary" :href="releaseLink">下载 Windows 版</a>
             <a class="course-button course-button--text" :href="homeLink">返回首页</a>
