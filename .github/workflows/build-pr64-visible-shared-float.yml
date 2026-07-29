@@ -37,6 +37,9 @@ jobs:
       - name: Apply visible shared-float patch
         run: python scripts/patch-pr64-visible-shared-float.py
 
+      - name: Update visible shared-float assertions
+        run: python scripts/fix-pr64-visible-shared-checks.py
+
       - name: Install dependencies
         run: npm ci
 
