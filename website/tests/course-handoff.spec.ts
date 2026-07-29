@@ -97,6 +97,7 @@ test.describe('shared course handoff', () => {
     await page.locator(stepSelector).nth(1).click()
     await expect(page.locator(hostSelector)).toHaveAttribute('data-demo-transition-state', 'running')
     await expect(page.locator(hostSelector)).toHaveAttribute('data-demo-timer-state', 'idle')
+    await page.mouse.move(0, 0)
 
     await waitForStableHandoff(page)
     await expect(page.locator(hostSelector)).toHaveAttribute('data-demo-timer-state', 'scheduled')
@@ -135,6 +136,7 @@ test.describe('shared course handoff', () => {
       Object.defineProperty(document, 'hidden', { configurable: true, get: () => false })
       document.dispatchEvent(new Event('visibilitychange'))
     })
+    await page.mouse.move(0, 0)
     await expect(host).toHaveAttribute('data-demo-timer-state', 'scheduled')
   })
 
@@ -221,7 +223,9 @@ test.describe('reduced course motion', () => {
   test.use({ reducedMotion: 'reduce' })
 
   test('replaces the widget directly without overlays or hidden copies', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' })
     await openExperience(page)
+    expect(await page.evaluate(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(true)
 
     await page.evaluate((selector) => {
       const host = document.querySelector<HTMLElement>(selector)!
