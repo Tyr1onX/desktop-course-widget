@@ -1,3 +1,16 @@
+/**
+ * DOM contract for the shared course handoff engine.
+ *
+ * Widgets supplied to this module are expected to come from `createWidget` and keep:
+ * - `.widget-body` as the replaceable content root;
+ * - `.focus-course` with `h2`, `.course-time`, `.course-location`, and `.course-date`;
+ * - `.following .timeline li` with `strong`, `time`, and optional `small` course metadata;
+ * - `.state-label`, `.empty-state`, or `.opening-date` for non-course states.
+ *
+ * When widget markup changes, update this module and the execution-level coverage in
+ * `website/tests/course-handoff.spec.ts` together. These selectors are an intentional
+ * shared contract between the desktop presentation and website experience demo.
+ */
 export function courseIdentityKey(widget: HTMLElement | null) {
   if (!widget) return ''
   const focus = widget.querySelector<HTMLElement>('.focus-course')
