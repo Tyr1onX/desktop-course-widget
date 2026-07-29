@@ -203,7 +203,9 @@ assert.equal((widgetPageCss.match(/\.course-shared-float\s*\{/g) ?? []).length, 
 assert.match(widgetPageCss, /\.course-final-wipe/)
 assert.match(widgetPageCss, /\.course-final-wipe-beam/)
 assert.doesNotMatch(widgetPageCss, /\.course-final-wipe::before/)
-assert.match(widgetPageCss, /mix-blend-mode: screen/)
+const wipeBeamRule = /\.course-final-wipe-beam\s*\{([^}]*)\}/.exec(widgetPageCss)?.[1] ?? ''
+assert.match(wipeBeamRule, /width:\s*34%/)
+assert.doesNotMatch(wipeBeamRule, /mix-blend-mode/)
 assert.doesNotMatch(widgetPageCss, /is-shared-reflowing/)
 assert.match(widgetPageCss, /visibility: hidden/)
 assert.match(widgetPageCss, /is-size-settling/)
@@ -220,4 +222,4 @@ assert.match(tauriConfig, /"label": "presentation"/)
 assert.doesNotMatch(widgetPageSource, /presentation-panel/)
 assert.doesNotMatch(widgetPageSource, /withPresentationDate/)
 
-console.log('presentation clock, cascade-safe morph positioning, visible shared-text overlay, ordered DOM handoff, deferred native resize, duration formatting, controller, and widget wiring checks passed')
+console.log('presentation clock, cascade-safe morph positioning, visible shared-text overlay, non-blended wipe beam, ordered DOM handoff, deferred native resize, duration formatting, controller, and widget wiring checks passed')
