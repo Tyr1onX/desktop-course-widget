@@ -1,5 +1,6 @@
 name: Website IA Branch Check
 
+# Temporary branch-only validation; removed before the PR is handed off.
 on:
   push:
     branches:
