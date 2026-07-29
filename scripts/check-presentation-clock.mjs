@@ -151,6 +151,28 @@ assert.ok(overlayRemoval < targetDomHandoff, 'floating text must hand off before
 assert.ok(targetDomHandoff < nextBodySwap, 'target text DOM must be complete before nextBody replaces the handoff layers')
 assert.ok(nextBodySwap < sizeSettling && sizeSettling < finalBodySwap, 'component height may settle only after the real nextBody is installed')
 assert.ok(finalBodySwap < transitionFinish, 'presentation clock may resume only after the final body and height transition complete')
+assert.match(widgetPageSource, /function transferSharedTextOwnership\(sharedMotions: SharedTextMotion\[], targetCopies: HTMLElement\[]\)/)
+assert.doesNotMatch(widgetPageSource, /targetCopies\.map\(\(copy\) => animateElement/)
+assert.equal((widgetPageSource.match(/copy\.classList\.remove\('is-shared-copy-hidden'\)/g) ?? []).length, 1)
+const ownershipHelper = widgetPageSource.indexOf('function transferSharedTextOwnership')
+const movingCopyHidden = widgetPageSource.indexOf("motion.element.style.visibility = 'hidden'", ownershipHelper)
+const targetCopyRevealed = widgetPageSource.indexOf("copy.classList.remove('is-shared-copy-hidden')", ownershipHelper)
+assert.ok(
+  ownershipHelper >= 0 && movingCopyHidden > ownershipHelper && movingCopyHidden < targetCopyRevealed,
+  'moving copies must be fully hidden before target copies become visible',
+)
+const wipeRevealStart = widgetPageSource.indexOf('const wipeAndSupportingReveal = Promise.all([')
+const movingCopyFade = widgetPageSource.lastIndexOf('await Promise.all(sharedMotions.map')
+const ownershipTransfer = widgetPageSource.indexOf('transferSharedTextOwnership(sharedMotions, targetCopies)', movingCopyFade)
+const wipeRevealAwait = widgetPageSource.indexOf('await wipeAndSupportingReveal', ownershipTransfer)
+assert.ok(
+  wipeRevealStart >= 0
+    && wipeRevealStart < movingCopyFade
+    && movingCopyFade < ownershipTransfer
+    && ownershipTransfer < wipeRevealAwait
+    && wipeRevealAwait < overlayRemoval,
+  'target text ownership must switch only after moving copies finish fading and before overlay removal',
+)
 assert.match(widgetPageSource, /if \(!currentWidget\) \{[\s\S]*nextWidget\.classList\.add\('is-initial-mount'\)/)
 assert.doesNotMatch(widgetPageSource, /prepareIncomingElement/)
 assert.doesNotMatch(widgetPageSource, /is-handoff-incoming/)
@@ -222,4 +244,4 @@ assert.match(tauriConfig, /"label": "presentation"/)
 assert.doesNotMatch(widgetPageSource, /presentation-panel/)
 assert.doesNotMatch(widgetPageSource, /withPresentationDate/)
 
-console.log('presentation clock, cascade-safe morph positioning, visible shared-text overlay, non-blended wipe beam, ordered DOM handoff, deferred native resize, duration formatting, controller, and widget wiring checks passed')
+console.log('presentation clock, single-owner shared-text handoff, cascade-safe morph positioning, visible overlay, non-blended wipe beam, ordered DOM handoff, deferred native resize, duration formatting, controller, and widget wiring checks passed')

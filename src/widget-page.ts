@@ -159,6 +159,17 @@ type SharedTextMotion = {
   keyframes: Keyframe[]
 }
 
+function transferSharedTextOwnership(sharedMotions: SharedTextMotion[], targetCopies: HTMLElement[]) {
+  sharedMotions.forEach((motion) => {
+    clearElementAnimations(motion.element)
+    motion.element.style.visibility = 'hidden'
+  })
+  targetCopies.forEach((copy) => {
+    copy.classList.remove('is-shared-copy-hidden')
+    copy.style.removeProperty('opacity')
+  })
+}
+
 function removeCourseTransitionOverlay() {
   document.querySelector<HTMLElement>('.course-transition-overlay')?.remove()
   document.querySelectorAll<HTMLElement>('[data-shared-source-hidden="true"]').forEach((source) => {
@@ -488,62 +499,52 @@ async function runCourseHandoff(
     ])
     if (token !== transitionToken) return
 
-    targetCopies.forEach((copy) => {
-      copy.classList.remove('is-shared-copy-hidden')
-      copy.style.opacity = '0'
-    })
+    const wipeAndSupportingReveal = Promise.all([
+    animateElement(wipe, [
+      { opacity: 0 },
+      { offset: .08, opacity: 1 },
+      { offset: .88, opacity: 1 },
+      { opacity: 0 },
+    ], {
+      duration: COURSE_FINAL_WIPE_MS,
+      easing: 'linear',
+      fill: 'both',
+    }),
+    animateElement(wipeBeam, [
+      { transform: 'translate3d(-120%, 0, 0) skewX(-12deg)' },
+      { transform: 'translate3d(245%, 0, 0) skewX(-12deg)' },
+    ], {
+      duration: COURSE_FINAL_WIPE_MS,
+      easing: 'cubic-bezier(.4, 0, .2, 1)',
+      fill: 'both',
+    }),
+    ...finalRevealParts.map((part, index) => animateElement(part, [
+      { opacity: 0, clipPath: 'inset(0 100% 0 0)', transform: 'translateY(3px)' },
+      { offset: .22, opacity: .16, clipPath: 'inset(0 76% 0 0)', transform: 'translateY(2px)' },
+      { opacity: 1, clipPath: 'inset(0 0 0 0)', transform: 'translateY(0)' },
+    ], {
+      duration: COURSE_FINAL_REVEAL_MS,
+      delay: 52 + index * 12,
+      easing: 'cubic-bezier(.16, 1, .3, 1)',
+      fill: 'both',
+    })),
+  ])
 
-    await Promise.all([
-      animateElement(wipe, [
-        { opacity: 0 },
-        { offset: .08, opacity: 1 },
-        { offset: .88, opacity: 1 },
-        { opacity: 0 },
-      ], {
-        duration: COURSE_FINAL_WIPE_MS,
-        easing: 'linear',
-        fill: 'both',
-      }),
-      animateElement(wipeBeam, [
-        { transform: 'translate3d(-120%, 0, 0) skewX(-12deg)' },
-        { transform: 'translate3d(245%, 0, 0) skewX(-12deg)' },
-      ], {
-        duration: COURSE_FINAL_WIPE_MS,
-        easing: 'cubic-bezier(.4, 0, .2, 1)',
-        fill: 'both',
-      }),
-      ...sharedMotions.map((motion) => animateElement(motion.element, [
-        { opacity: 1 },
-        { offset: .52, opacity: .96 },
-        { opacity: 0 },
-      ], {
-        duration: COURSE_TEXT_HANDOFF_MS,
-        delay: 92,
-        easing: 'cubic-bezier(.4, 0, .7, .2)',
-        fill: 'both',
-      })),
-      ...targetCopies.map((copy) => animateElement(copy, [
-        { opacity: 0 },
-        { offset: .24, opacity: .12 },
-        { opacity: 1 },
-      ], {
-        duration: COURSE_TEXT_HANDOFF_MS,
-        delay: 112,
-        easing: 'cubic-bezier(.16, 1, .3, 1)',
-        fill: 'both',
-      })),
-      ...finalRevealParts.map((part, index) => animateElement(part, [
-        { opacity: 0, clipPath: 'inset(0 100% 0 0)', transform: 'translateY(3px)' },
-        { offset: .22, opacity: .16, clipPath: 'inset(0 76% 0 0)', transform: 'translateY(2px)' },
-        { opacity: 1, clipPath: 'inset(0 0 0 0)', transform: 'translateY(0)' },
-      ], {
-        duration: COURSE_FINAL_REVEAL_MS,
-        delay: 52 + index * 12,
-        easing: 'cubic-bezier(.16, 1, .3, 1)',
-        fill: 'both',
-      })),
-    ])
-    if (token !== transitionToken) return
+  await Promise.all(sharedMotions.map((motion) => animateElement(motion.element, [
+    { opacity: 1 },
+    { offset: .52, opacity: .96 },
+    { opacity: 0 },
+  ], {
+    duration: COURSE_TEXT_HANDOFF_MS,
+    delay: 92,
+    easing: 'cubic-bezier(.4, 0, .7, .2)',
+    fill: 'both',
+  })))
+  if (token !== transitionToken) return
+
+  transferSharedTextOwnership(sharedMotions, targetCopies)
+  await wipeAndSupportingReveal
+  if (token !== transitionToken) return
 
     removeCourseTransitionOverlay()
     targetCopies.forEach((copy) => {
