@@ -42,6 +42,9 @@ jobs:
       - name: Check import review helpers
         run: npm run check:import-review
 
+      - name: Check import review DOM lifecycle
+        run: npm run check:import-review-dom
+
       - name: Check presentation clock
         run: npm run check:presentation-clock
 
