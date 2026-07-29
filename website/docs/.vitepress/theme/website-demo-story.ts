@@ -3,33 +3,8 @@ import {
   desktopPreset,
   optionsFor,
   renderLatestWidget,
-  storyPresets,
   type Cleanup,
 } from './website-demo-core'
-
-export function setupStoryWidgets(root: HTMLElement): Cleanup {
-  const moments = Array.from(root.querySelectorAll<HTMLElement>('.day-flow .day-moment'))
-  if (moments.length < storyPresets.length) return () => undefined
-  const originals = moments.map((moment) => {
-    const visual = moment.querySelector<HTMLElement>('.day-moment__visual')
-    return visual ? { visual, html: visual.innerHTML, className: visual.className } : null
-  })
-  originals.forEach((entry, index) => {
-    if (!entry || !storyPresets[index]) return
-    entry.visual.className = `${entry.className} has-real-widget`
-    renderLatestWidget(entry.visual, optionsFor(storyPresets[index], {
-      width: 360,
-      scale: 0.82,
-      followCount: 1,
-      showNav: false,
-    }), undefined, 'website-real-widget--story')
-  })
-  return () => originals.forEach((entry) => {
-    if (!entry) return
-    entry.visual.className = entry.className
-    entry.visual.innerHTML = entry.html
-  })
-}
 
 export function setupTrayDemo(root: HTMLElement): Cleanup {
   const visual = root.querySelector<HTMLElement>('.course-focus__visual')

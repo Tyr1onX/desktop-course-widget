@@ -23,12 +23,6 @@ export const experiencePresets: DemoPreset[] = [
   { id: 'browsing', label: '浏览日期', scenario: 'browsing', time: '09:50' },
 ]
 
-export const storyPresets: DemoPreset[] = [
-  { id: 'morning', label: '早晨', scenario: 'current', time: '08:12' },
-  { id: 'current', label: '此刻', scenario: 'current', time: '08:48' },
-  { id: 'ended', label: '结束', scenario: 'ended', time: '18:40' },
-]
-
 export const desktopPreset: DemoPreset = {
   id: 'desktop-current',
   label: '桌面运行状态',

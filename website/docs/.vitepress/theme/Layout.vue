@@ -5,7 +5,6 @@ import { nextTick, onBeforeUnmount, onMounted, watch } from 'vue'
 import HomePage from './HomePage.vue'
 import ExperiencePage from './ExperiencePage.vue'
 import { setupProjectFooter } from './project-footer'
-import { setupStoryFocus } from './story-focus'
 import { setupWebsiteDemo } from './website-demo'
 
 const { frontmatter } = useData()
@@ -22,10 +21,8 @@ async function refreshDemo() {
   if (layout === 'course-home' || layout === 'course-experience') {
     const cleanupWebsiteDemo = setupWebsiteDemo()
     const cleanupProjectFooter = layout === 'course-experience' ? setupProjectFooter() : () => undefined
-    const cleanupStoryFocus = layout === 'course-experience' ? setupStoryFocus() : () => undefined
     cleanupDemo = () => {
       cleanupProjectFooter()
-      cleanupStoryFocus()
       cleanupWebsiteDemo()
     }
   }
