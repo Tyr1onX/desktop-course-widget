@@ -83,7 +83,6 @@ const websiteDemoSource = [
   '../website/docs/.vitepress/theme/website-demo-core.ts',
   '../website/docs/.vitepress/theme/website-demo-hero.ts',
   '../website/docs/.vitepress/theme/website-demo-experience.ts',
-  '../website/docs/.vitepress/theme/website-demo-story.ts',
 ].map((path) => readFileSync(new URL(path, import.meta.url), 'utf8')).join('\n')
 const websiteThemeSource = readFileSync(new URL('../website/docs/.vitepress/theme/index.ts', import.meta.url), 'utf8')
 const tauriConfig = readFileSync(new URL('../src-tauri/tauri.conf.json', import.meta.url), 'utf8')
@@ -185,8 +184,7 @@ assert.ok(overlayZIndex > currentBodyZIndex)
 assert.doesNotMatch(handoffCss, /mix-blend-mode|::view-transition|is-shared-reflowing/)
 
 const experienceStart = websiteDemoSource.indexOf('function setupExperienceHeroDemo')
-const experienceEnd = websiteDemoSource.indexOf('export function setupStoryWidgets', experienceStart)
-const experienceSource = websiteDemoSource.slice(experienceStart, experienceEnd)
+const experienceSource = websiteDemoSource.slice(experienceStart)
 assert.match(websiteDemoSource, /from '\.\.\/\.\.\/\.\.\/\.\.\/src\/course-handoff'/)
 assert.match(experienceSource, /durationScale: 0\.7/)
 assert.match(experienceSource, /activeHandoff\?\.cancel|handoff\?\.cancel/)
