@@ -47,11 +47,19 @@ for (const viewport of viewports) {
       await expect(toggle).toHaveText('暂停')
 
       const desktop = page.locator('.focus-desktop')
-      await desktop.scrollIntoViewIfNeeded()
-      await page.locator('.focus-desktop__widget [data-hide]').click()
+      await desktop.evaluate((element) => {
+        const rect = element.getBoundingClientRect()
+        window.scrollTo(0, Math.max(0, rect.top + window.scrollY - 48))
+      })
+      const closeButton = page.locator('.focus-desktop__widget [data-hide]')
+      const trayButton = page.locator('.focus-desktop__tray-app')
+      await expect(closeButton).toBeVisible()
+      await closeButton.dispatchEvent('click')
       await expect(desktop).toHaveClass(/is-widget-hidden/)
-      await page.locator('.focus-desktop__tray-app').click({ force: true })
+      await expect(trayButton).toBeVisible()
+      await trayButton.dispatchEvent('click')
       await expect(desktop).not.toHaveClass(/is-widget-hidden/)
+      await page.evaluate(() => window.scrollTo(0, window.scrollY))
 
       const metrics = await page.evaluate(() => {
         const selectors = [
@@ -99,6 +107,7 @@ for (const viewport of viewports) {
           scrollWidth: document.documentElement.scrollWidth,
           clientWidth: document.documentElement.clientWidth,
           scrollHeight: document.documentElement.scrollHeight,
+          scrollX: window.scrollX,
           bounds,
           sections,
           navLinks: Array.from(document.querySelectorAll<HTMLAnchorElement>('.course-nav__links a')).map((link) => link.getAttribute('href')),
@@ -107,6 +116,7 @@ for (const viewport of viewports) {
         }
       })
 
+      expect(metrics.scrollX).toBe(0)
       expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth + 1)
       for (const bound of metrics.bounds) {
         expect(bound.missing, `${bound.selector} should exist`).toBe(false)
