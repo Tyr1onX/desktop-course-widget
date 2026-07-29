@@ -264,6 +264,50 @@
   }
 }
 
+@media (min-width: 761px) and (max-height: 820px) {
+  .experience-hero {
+    padding-top: 112px;
+    padding-bottom: 68px;
+  }
+
+  .course-stage--experience {
+    min-height: 580px;
+    margin-top: 44px;
+  }
+
+  .experience-import {
+    padding-top: 84px;
+    padding-bottom: 90px;
+  }
+
+  .experience-import__steps {
+    margin-top: 44px;
+  }
+
+  .experience-import__steps h3 {
+    margin-top: 32px;
+  }
+
+  .experience-focus {
+    padding-top: 96px;
+    padding-bottom: 96px;
+  }
+
+  .experience-focus .focus-desktop {
+    min-height: 480px;
+  }
+
+  .course-privacy--compact.experience-privacy {
+    padding-top: 78px;
+    padding-bottom: 82px;
+  }
+
+  .experience-closing {
+    padding-top: 66px;
+    padding-bottom: 74px;
+  }
+}
+
 @media (max-width: 760px) {
   .experience-hero {
     padding: 112px 20px 70px;
