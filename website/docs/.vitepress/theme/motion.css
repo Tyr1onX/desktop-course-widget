@@ -1,8 +1,4 @@
-.course-stage,
-.day-moment,
-.course-focus__visual,
-.course-privacy,
-.course-closing {
+.course-stage {
   will-change: transform, opacity;
 }
 
@@ -59,11 +55,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .course-stage,
-  .day-moment,
-  .course-focus__visual,
-  .course-privacy,
-  .course-closing {
+  .course-stage {
     will-change: auto;
   }
 
