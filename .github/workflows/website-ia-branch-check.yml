@@ -93,6 +93,18 @@ jobs:
       - name: Check patch whitespace
         run: git diff --check
 
+      - name: Commit selector cleanup
+        run: |
+          if git diff --quiet; then
+            echo "No selector cleanup changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add website/docs/.vitepress/theme/custom.css
+          git commit -m "refactor: remove retired story selectors"
+          git push origin HEAD:agent/website-information-architecture
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -113,15 +125,3 @@ jobs:
       - name: Run responsive and interaction tests
         working-directory: website
         run: npm run docs:test:responsive
-
-      - name: Commit selector cleanup
-        run: |
-          if git diff --quiet; then
-            echo "No selector cleanup changes to commit."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add website/docs/.vitepress/theme/custom.css
-          git commit -m "refactor: remove retired story selectors"
-          git push origin HEAD:agent/website-information-architecture
