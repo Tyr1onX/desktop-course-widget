@@ -35,6 +35,8 @@ body { display: inline-block; }
   transform-style: preserve-3d;
 }
 
+.is-course-transitioning .course-widget.is-shared-reflowing { overflow: visible; }
+
 .widget-body-handoff {
   position: relative;
   inline-size: 100%;
@@ -65,6 +67,20 @@ body { display: inline-block; }
   pointer-events: none;
   transform-origin: top left;
   will-change: height, opacity;
+}
+
+.course-shared-float {
+  position: absolute;
+  z-index: 9;
+  display: block;
+  width: max-content;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  white-space: nowrap;
+  pointer-events: none;
+  transform-origin: top left;
+  will-change: transform, color, opacity;
 }
 
 .course-morph-surface,
