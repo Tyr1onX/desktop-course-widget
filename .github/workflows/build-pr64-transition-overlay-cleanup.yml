@@ -37,6 +37,9 @@ jobs:
       - name: Normalize current transition constants
         run: python scripts/fix-pr64-transition-overlay-input.py
 
+      - name: Fix transition assertion marker
+        run: python scripts/fix-pr64-transition-overlay-check-marker.py
+
       - name: Apply transition overlay cleanup
         run: python scripts/patch-pr64-transition-overlay-cleanup.py
 
