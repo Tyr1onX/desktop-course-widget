@@ -1,24 +1,19 @@
 name: Shared Course Handoff Package
 
 on:
-  pull_request:
-    branches:
-      - main
-    paths:
-      - 'src/course-handoff*'
-      - 'src/widget-page.ts'
-      - 'src/widget-page.css'
-      - 'scripts/check-presentation-clock.mjs'
-      - 'website/docs/.vitepress/theme/index.ts'
-      - 'website/docs/.vitepress/theme/website-demo*'
-      - 'website/tests/course-handoff.spec.ts'
-      - '.github/workflows/shared-course-handoff.yml'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag, or commit SHA to package
+        required: true
+        default: main
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: shared-course-handoff-package-${{ github.event.pull_request.number }}
+  group: shared-course-handoff-package-${{ inputs.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -27,10 +22,10 @@ jobs:
     timeout-minutes: 40
 
     steps:
-      - name: Checkout pull request head
+      - name: Checkout requested ref
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ inputs.ref }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -60,12 +55,16 @@ jobs:
         run: npm run tauri:build
 
       - name: Record installer metadata
+        id: installer
         shell: pwsh
         run: |
           $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
           if (-not $installer) { throw 'NSIS installer was not generated.' }
+          $commit = (git rev-parse HEAD).Trim()
+          $shortSha = $commit.Substring(0, 12)
           $metadata = [ordered]@{
-            commit = '${{ github.event.pull_request.head.sha }}'
+            commit = $commit
+            requestedRef = '${{ inputs.ref }}'
             path = $installer.FullName
             fileName = $installer.Name
             sizeBytes = $installer.Length
@@ -73,11 +72,12 @@ jobs:
           }
           $metadata | ConvertTo-Json | Set-Content -Path installer-metadata.json -Encoding utf8
           Get-Content installer-metadata.json
+          "short_sha=$shortSha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - name: Upload Windows NSIS installer
         uses: actions/upload-artifact@v4
         with:
-          name: course-handoff-nsis-${{ github.event.pull_request.head.sha }}
+          name: course-handoff-nsis-${{ steps.installer.outputs.short_sha }}
           path: |
             src-tauri/target/release/bundle/nsis/*.exe
             installer-metadata.json
