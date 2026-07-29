@@ -43,7 +43,7 @@ jobs:
       - name: Apply transition overlay cleanup
         run: python scripts/patch-pr64-transition-overlay-cleanup.py
 
-      - name: Normalize wipe CSS
+      - name: Normalize cleanup CSS
         shell: pwsh
         run: |
           @'
@@ -51,6 +51,11 @@ jobs:
 
           path = Path('src/widget-page.css')
           css = path.read_text(encoding='utf-8')
+          css = css.replace(
+              '.is-course-transitioning .course-widget.is-shared-reflowing { overflow: visible; }\n\n',
+              '',
+              1,
+          )
           start = css.index('.course-final-wipe {')
           end = css.index('.is-course-transitioning', start)
           replacement = '''.course-final-wipe {
