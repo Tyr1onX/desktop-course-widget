@@ -45,6 +45,7 @@ let runtimeApi: RuntimeApi | null = null
 let activeDraft: ImportDraft | null = null
 let filter: ImportReviewFilter = 'all'
 let expandedCourseIndex = 0
+let activeLessonSections: number[] = []
 let observer: MutationObserver | null = null
 let renderQueued = false
 
@@ -66,6 +67,7 @@ export function rememberImportDraft(draft: ImportDraft): void {
   if (activeDraft !== draft) {
     filter = 'all'
     expandedCourseIndex = 0
+    activeLessonSections = []
   }
   activeDraft = draft
   queueEnhancement()
@@ -134,12 +136,17 @@ function enhanceImportSurface(force = false): void {
 }
 
 function readLessonSections(surface: HTMLElement, draft: ImportDraft): number[] {
-  const options = [...surface.querySelectorAll<HTMLOptionElement>('[data-import-field="startSection"] option')]
+  const discovered = [...surface.querySelectorAll<HTMLOptionElement>('[data-import-field="startSection"] option')]
     .map((option) => Number(option.value))
     .filter((value) => Number.isInteger(value) && value > 0)
-  if (options.length) return [...new Set(options)].sort((left, right) => left - right)
-  const maximum = Math.max(10, ...draft.courses.map((course) => course.endSection))
-  return Array.from({ length: maximum }, (_, index) => index + 1)
+  if (discovered.length) {
+    activeLessonSections = [...new Set(discovered)].sort((left, right) => left - right)
+    return activeLessonSections
+  }
+  if (activeLessonSections.length) return activeLessonSections
+  const maximum = Math.max(1, ...draft.courses.map((course) => course.endSection))
+  activeLessonSections = Array.from({ length: maximum }, (_, index) => index + 1)
+  return activeLessonSections
 }
 
 function updateSummary(surface: HTMLElement, pendingCount: number): void {
