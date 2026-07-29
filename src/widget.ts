@@ -1,3 +1,4 @@
+import { formatMinutesDuration } from './duration'
 import scheduleData from './data/schedule.json'
 import { isTauri } from '@tauri-apps/api/core'
 import { emit } from '@tauri-apps/api/event'
@@ -64,6 +65,7 @@ export interface WidgetOptions {
   browseDate?: Date
   dragRegion: boolean
   closeControl: boolean
+  now?: Date
 }
 
 export const defaultOptions: WidgetOptions = {
@@ -194,7 +196,7 @@ function formatDate(date: Date, mode: ModelMode) {
 }
 
 function liveModel(options: WidgetOptions): WidgetModel {
-  const now = new Date()
+  const now = options.now ? new Date(options.now) : new Date()
   const today = startOfDay(now)
   const selectedDate = options.browseDate ? startOfDay(options.browseDate) : today
   const isToday = isSameLocalDate(selectedDate, now)
@@ -321,8 +323,8 @@ function followingMarkup(coursesToShow: DisplayCourse[], total: number) {
 function countdown(model: WidgetModel) {
   if (!model.focus || model.mode === 'browsing') return ''
   const nowMinutes = parseTime(model.now)
-  if (model.mode === 'current') return `<p class="countdown">距下课 ${Math.max(0, parseTime(model.focus.end) - nowMinutes)} 分钟</p>`
-  if (model.mode === 'next') return `<p class="countdown">${Math.max(0, parseTime(model.focus.start) - nowMinutes)} 分钟后开始</p>`
+  if (model.mode === 'current') return `<p class="countdown">距下课 ${formatMinutesDuration(parseTime(model.focus.end) - nowMinutes)}</p>`
+  if (model.mode === 'next') return `<p class="countdown">${formatMinutesDuration(parseTime(model.focus.start) - nowMinutes)}后开始</p>`
   if (model.mode === 'before') return '<p class="countdown">开学后开始上课</p>'
   return ''
 }
@@ -360,11 +362,13 @@ export function createWidget(options: WidgetOptions, onNavigate?: () => void) {
         <div class="header-right"><div class="header-meta"><time class="now-time">${model.now}</time>${closeMarkup(options)}</div>${navMarkup(options)}</div>
       </div>
     </header>
+    <div class="widget-body">
     ${model.stateLabel ? `<p class="state-label">${model.stateLabel}</p>` : ''}
     ${model.openingDate ? `<p class="opening-date">${formatMonthDay(model.openingDate)}开学</p>` : ''}
     ${focusMarkup(model)}
     ${model.emptyMessage ? `<p class="empty-state">${model.emptyMessage}</p>` : ''}
     ${followingMarkup(visibleFollowing, model.following.length)}
+    </div>
   `
 
   widget.querySelectorAll<HTMLButtonElement>('[data-nav]').forEach((button) => button.addEventListener('click', () => {
@@ -372,7 +376,7 @@ export function createWidget(options: WidgetOptions, onNavigate?: () => void) {
     if (options.runtime === 'live') {
       if (direction === 'today') options.browseDate = undefined
       else {
-        const today = startOfDay(new Date())
+        const today = startOfDay(options.now ?? new Date())
         const base = options.browseDate ? startOfDay(options.browseDate) : today
         const nextDate = addDays(base, direction === 'next' ? 1 : -1)
         options.browseDate = isSameLocalDate(nextDate, today) ? undefined : nextDate

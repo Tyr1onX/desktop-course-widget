@@ -4,11 +4,13 @@
   "description": "enables the default permissions",
   "windows": [
     "main",
-    "settings"
+    "settings",
+    "presentation"
   ],
   "permissions": [
     "core:window:default",
     "core:window:allow-show",
+    "core:window:allow-set-focus",
     "core:window:allow-set-size",
     "core:window:allow-set-min-size",
     "core:window:allow-set-max-size",

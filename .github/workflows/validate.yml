@@ -42,6 +42,9 @@ jobs:
       - name: Check import review helpers
         run: npm run check:import-review
 
+      - name: Check presentation clock
+        run: npm run check:presentation-clock
+
       - name: Build web interface
         id: web_build
         shell: pwsh

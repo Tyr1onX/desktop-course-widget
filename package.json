@@ -11,6 +11,7 @@
     "check:version": "node scripts/check-version-consistency.mjs",
     "check:time-flow": "node scripts/check-time-flow.mjs",
     "check:import-review": "node --experimental-strip-types --test scripts/import-review.test.ts",
+    "check:presentation-clock": "node --experimental-strip-types scripts/check-presentation-clock.mjs",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "preview": "vite preview"

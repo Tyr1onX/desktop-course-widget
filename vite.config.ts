@@ -7,6 +7,7 @@ export default defineConfig({
       input: {
         widget: resolve(__dirname, 'widget.html'),
         settings: resolve(__dirname, 'settings.html'),
+        presentation: resolve(__dirname, 'presentation.html'),
       },
     },
   },
