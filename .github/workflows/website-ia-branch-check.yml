@@ -1,0 +1,124 @@
+name: Website IA Branch Check
+
+on:
+  push:
+    branches:
+      - agent/website-information-architecture
+
+permissions:
+  contents: write
+
+concurrency:
+  group: website-ia-branch-check
+  cancel-in-progress: true
+
+jobs:
+  cleanup-and-test:
+    if: contains(github.event.head_commit.message, '[website-ia-check]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Remove retired story selectors
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          path = Path('website/docs/.vitepress/theme/custom.css')
+          source = path.read_text(encoding='utf-8')
+
+          def replace_once(old: str, new: str) -> None:
+              global source
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected one exact CSS fragment, found {count}: {old[:80]!r}')
+              source = source.replace(old, new, 1)
+
+          def remove_pattern(pattern: str, label: str) -> None:
+              global source
+              source, count = re.subn(pattern, '', source, count=1, flags=re.S)
+              if count != 1:
+                  raise SystemExit(f'expected one {label} block, found {count}')
+
+          replace_once(
+              '.course-hero h1,\n.course-section-heading h2,\n.course-focus h2,',
+              '.course-hero h1,\n.course-focus h2,',
+          )
+          replace_once(
+              '.widget-window__top p,\n.widget-window__top strong,\n.widget-course p,\n.widget-course strong,\n.day-moment__visual p,\n.day-moment__visual strong {',
+              '.widget-window__top p,\n.widget-window__top strong,\n.widget-course p,\n.widget-course strong {',
+          )
+          remove_pattern(r'\n\.course-story \{.*?(?=\n\.course-focus \{)', 'desktop story')
+          remove_pattern(
+              r'\n  \.day-moment \{.*?\n  \.day-moment__copy \{.*?\n  \}\n(?=\n  \.course-focus__inner)',
+              'tablet story',
+          )
+          replace_once(
+              '  .course-story,\n  .course-focus,\n  .course-privacy {',
+              '  .course-focus,\n  .course-privacy {',
+          )
+          remove_pattern(
+              r'\n  \.course-section-heading \{.*?\n  \}\n',
+              'mobile story heading spacing',
+          )
+          replace_once(
+              '  .course-section-heading h2,\n  .course-focus h2,',
+              '  .course-focus h2,',
+          )
+          replace_once(
+              '  .course-section-heading > p:last-child,\n  .course-focus__copy > p:not(.course-kicker),',
+              '  .course-focus__copy > p:not(.course-kicker),',
+          )
+          remove_pattern(
+              r'\n  \.day-flow__line,\n  \.day-moment__time::after \{.*?\n  \.day-moment__copy h3 \{.*?\n  \}\n(?=\n  \.focus-desktop)',
+              'mobile story',
+          )
+
+          retired = ('.day-flow', '.day-moment', '.moment-progress', '.course-story', '.course-section-heading')
+          leftovers = [selector for selector in retired if selector in source]
+          if leftovers:
+              raise SystemExit(f'retired selectors remain: {leftovers}')
+
+          path.write_text(source, encoding='utf-8')
+
+      - name: Check patch whitespace
+        run: git diff --check
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install website dependencies
+        working-directory: website
+        run: npm install --no-package-lock
+
+      - name: Install Chromium
+        working-directory: website
+        run: npx playwright install --with-deps chromium
+
+      - name: Build website
+        working-directory: website
+        run: npm run docs:build
+
+      - name: Run responsive and interaction tests
+        working-directory: website
+        run: npm run docs:test:responsive
+
+      - name: Commit selector cleanup
+        run: |
+          if git diff --quiet; then
+            echo "No selector cleanup changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add website/docs/.vitepress/theme/custom.css
+          git commit -m "refactor: remove retired story selectors"
+          git push origin HEAD:agent/website-information-architecture
