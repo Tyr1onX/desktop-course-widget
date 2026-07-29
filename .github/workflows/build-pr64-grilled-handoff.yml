@@ -37,6 +37,9 @@ jobs:
       - name: Apply grilled handoff patch
         run: python scripts/patch-pr64-grilled-handoff.py
 
+      - name: Update grilled handoff assertions
+        run: python scripts/patch-pr64-grilled-handoff-checks.py
+
       - name: Install dependencies
         run: npm ci
 
