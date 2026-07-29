@@ -37,6 +37,9 @@ jobs:
       - name: Apply reflow wipe handoff patch
         run: python scripts/patch-pr64-reflow-wipe-handoff.py
 
+      - name: Update reflow wipe assertions
+        run: python scripts/fix-pr64-reflow-wipe-checks.py
+
       - name: Install dependencies
         run: npm ci
 
