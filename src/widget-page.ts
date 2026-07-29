@@ -167,11 +167,11 @@ function removeCourseTransitionOverlay() {
   })
 }
 
-function createCourseTransitionOverlay() {
+function createCourseTransitionOverlay(stage: HTMLElement) {
   removeCourseTransitionOverlay()
   const overlay = document.createElement('div')
   overlay.className = 'course-transition-overlay'
-  document.body.append(overlay)
+  stage.append(overlay)
   return overlay
 }
 
@@ -183,6 +183,7 @@ function sharedTextMotion(
   if (!source || !target) return null
   const sourceRect = source.getBoundingClientRect()
   const targetRect = target.getBoundingClientRect()
+  const overlayRect = overlay.getBoundingClientRect()
   const sourceStyle = getComputedStyle(source)
   const targetStyle = getComputedStyle(target)
   const sourceSize = Number.parseFloat(sourceStyle.fontSize) || 1
@@ -194,8 +195,8 @@ function sharedTextMotion(
   floating.removeAttribute('id')
   floating.classList.add('course-shared-float')
   Object.assign(floating.style, {
-    left: `${sourceRect.left}px`,
-    top: `${sourceRect.top}px`,
+    left: `${sourceRect.left - overlayRect.left}px`,
+    top: `${sourceRect.top - overlayRect.top}px`,
     color: sourceStyle.color,
     fontFamily: sourceStyle.fontFamily,
     fontSize: sourceStyle.fontSize,
@@ -285,6 +286,11 @@ function collapseHandoffStage() {
   stage.replaceWith(keeper)
 }
 
+function releaseCourseTransitionWindow() {
+  document.documentElement.classList.remove('is-course-transitioning')
+  window.dispatchEvent(new Event('course-transition:complete'))
+}
+
 function clearCourseTransition() {
   transitionToken += 1
   if (transitionTimer !== undefined) window.clearTimeout(transitionTimer)
@@ -293,7 +299,7 @@ function clearCourseTransition() {
   handoffAnimations = []
   collapseHandoffStage()
   transitionActive = false
-  document.documentElement.classList.remove('is-course-transitioning')
+  releaseCourseTransitionWindow()
 }
 
 function presentationPlayingMessage(prefix = '演示播放中') {
@@ -309,7 +315,7 @@ function finishCourseTransition(token: number, resumeAfterTransition: boolean) {
     if (token !== transitionToken) return
     transitionTimer = undefined
     transitionActive = false
-    document.documentElement.classList.remove('is-course-transitioning')
+    releaseCourseTransitionWindow()
 
     const timestamp = performance.now()
     const current = presentationClock.snapshot(timestamp)
@@ -357,7 +363,7 @@ async function runCourseHandoff(
   const outgoingSecondary = transitionSecondary(currentBody)
   const targetPrimary = transitionPrimary(nextBody)
   const sharedSource = findSharedCourseSource(currentBody, nextBody)
-  let resizedDuringSharedHandoff = false
+  let sharedHandoffCompleted = false
 
   if (sharedSource && targetPrimary?.classList.contains('focus-course')) {
     const following = transitionSecondary(currentBody)
@@ -380,7 +386,6 @@ async function runCourseHandoff(
     const stageRect = stage.getBoundingClientRect()
     const targetRect = targetPrimary.getBoundingClientRect()
     const targetStyle = getComputedStyle(targetPrimary)
-    const targetBodyHeight = nextBody.getBoundingClientRect().height
     const targetLocation = targetPrimary.querySelector<HTMLElement>('.course-location')
     const targetLocationRect = targetLocation?.getBoundingClientRect()
     const compactHeight = Math.min(
@@ -444,7 +449,7 @@ async function runCourseHandoff(
     await nextAnimationFrame()
     if (token !== transitionToken) return
 
-    const overlay = createCourseTransitionOverlay()
+    const overlay = createCourseTransitionOverlay(stage)
     const titleMotion = sharedTextMotion(sourceTitle, targetTitleCopy, overlay)
     const locationMotion = sharedTextMotion(sourceLocation, targetLocationCopy, overlay)
     const timeMotion = sharedTextMotion(sourceTime, targetTimePrefix, overlay)
@@ -454,8 +459,8 @@ async function runCourseHandoff(
     const wipe = document.createElement('div')
     wipe.className = 'course-final-wipe'
     Object.assign(wipe.style, {
-      left: `${targetRect.left}px`,
-      top: `${targetRect.top}px`,
+      left: `${targetRect.left - stageRect.left}px`,
+      top: `${targetRect.top - stageRect.top}px`,
       width: `${targetRect.width}px`,
       height: `${targetRect.height}px`,
       opacity: '0',
@@ -465,23 +470,12 @@ async function runCourseHandoff(
     wipe.append(wipeBeam)
     overlay.append(wipe)
 
-    await Promise.all(sharedMotions.map((motion) => animateElement(motion.element, motion.keyframes, {
-      duration: COURSE_SHARED_MOVE_MS,
-      easing: 'cubic-bezier(.2, .62, .18, 1)',
-      fill: 'both',
-    })))
-    if (token !== transitionToken) return
-
-    stage.classList.add('is-live-resizing')
     await Promise.all([
-      animateElement(stage, [
-        { height: `${currentHeight}px` },
-        { height: `${targetBodyHeight}px` },
-      ], {
-        duration: COURSE_RESIZE_MS,
+      ...sharedMotions.map((motion) => animateElement(motion.element, motion.keyframes, {
+        duration: COURSE_SHARED_MOVE_MS,
         easing: 'cubic-bezier(.2, .62, .18, 1)',
         fill: 'both',
-      }),
+      })),
       animateElement(surface, [
         { opacity: 0, clipPath: `inset(0 48% ${compactBottomInset}% 0 round ${targetStyle.borderRadius})` },
         { offset: .36, opacity: .24, clipPath: `inset(0 28% ${compactBottomInset * .7}% 0 round ${targetStyle.borderRadius})` },
@@ -493,7 +487,6 @@ async function runCourseHandoff(
       }),
     ])
     if (token !== transitionToken) return
-    resizedDuringSharedHandoff = true
 
     targetCopies.forEach((copy) => {
       copy.classList.remove('is-shared-copy-hidden')
@@ -571,6 +564,7 @@ async function runCourseHandoff(
     targetLayer.classList.remove('course-morph-target')
     targetLayer.style.removeProperty('opacity')
     morph.remove()
+    sharedHandoffCompleted = true
   } else {
     await Promise.all([
       animateElement(outgoingPrimary, [
@@ -590,7 +584,7 @@ async function runCourseHandoff(
   if (currentHeader && nextHeader) syncNode(currentHeader, nextHeader)
 
   const nextFollowing = transitionSecondary(nextBody)
-  if (resizedDuringSharedHandoff && nextFollowing) {
+  if (sharedHandoffCompleted && nextFollowing) {
     nextFollowing.style.opacity = '0'
     nextFollowing.style.transform = 'translateY(10px)'
   }
@@ -609,46 +603,33 @@ async function runCourseHandoff(
     if (token !== transitionToken) return
   }
 
-  if (resizedDuringSharedHandoff) {
-    stage.style.height = `${targetHeight}px`
-    clearElementAnimations(stage)
-    stage.classList.remove('is-live-resizing')
-    await nextAnimationFrame()
-    if (nextFollowing) {
-      await animateElement(nextFollowing, [
-        { opacity: 0, transform: 'translateY(10px)' },
-        { opacity: 1, transform: 'translateY(0)' },
-      ], {
-        duration: 560,
-        delay: 80,
-        easing: 'cubic-bezier(.16, 1, .3, 1)',
-        fill: 'both',
-      })
-      clearElementAnimations(nextFollowing)
-      nextFollowing.style.removeProperty('opacity')
-      nextFollowing.style.removeProperty('transform')
-    }
-  } else {
-    await Promise.all([
-      animateElement(stage, [
-        { height: `${currentHeight}px` },
-        { height: `${targetHeight}px` },
-      ], {
-        duration: COURSE_RESIZE_MS,
-        easing: 'cubic-bezier(.22, 1, .36, 1)',
-        fill: 'both',
-      }),
-      animateElement(nextFollowing, [
-        { opacity: 0, transform: 'translateY(14px)' },
-        { opacity: 1, transform: 'translateY(0)' },
-      ], {
-        duration: 720,
-        delay: 140,
-        easing: 'cubic-bezier(.16, 1, .3, 1)',
-        fill: 'both',
-      }),
-    ])
-    if (token !== transitionToken) return
+  await Promise.all([
+    animateElement(stage, [
+      { height: `${currentHeight}px` },
+      { height: `${targetHeight}px` },
+    ], {
+      duration: COURSE_RESIZE_MS,
+      easing: 'cubic-bezier(.22, 1, .36, 1)',
+      fill: 'both',
+    }),
+    animateElement(nextFollowing, [
+      {
+        opacity: 0,
+        transform: `translateY(${sharedHandoffCompleted ? 10 : 14}px)`,
+      },
+      { opacity: 1, transform: 'translateY(0)' },
+    ], {
+      duration: sharedHandoffCompleted ? 560 : 720,
+      delay: sharedHandoffCompleted ? 80 : 140,
+      easing: 'cubic-bezier(.16, 1, .3, 1)',
+      fill: 'both',
+    }),
+  ])
+  if (token !== transitionToken) return
+  if (nextFollowing) {
+    clearElementAnimations(nextFollowing)
+    nextFollowing.style.removeProperty('opacity')
+    nextFollowing.style.removeProperty('transform')
   }
 
   stage.style.removeProperty('height')

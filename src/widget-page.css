@@ -135,13 +135,11 @@ body { display: inline-block; }
   transform-origin: left baseline;
 }
 
-.widget-body-handoff.is-live-resizing { will-change: height; }
-
 .course-transition-overlay {
-  position: fixed;
-  z-index: 2147483000;
+  position: absolute;
+  z-index: 4;
   inset: 0;
-  overflow: visible;
+  overflow: hidden;
   pointer-events: none;
 }
 

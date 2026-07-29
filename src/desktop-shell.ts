@@ -23,8 +23,13 @@ export async function startDesktopShell(app: HTMLDivElement) {
   let pendingHeight: number | undefined
   let resizeFrame: number | undefined
   let sizePump: Promise<void> | undefined
+  let resizeDeferredForTransition = false
 
   const applyHeight = async (height: number) => {
+    if (document.documentElement.classList.contains('is-course-transitioning')) {
+      resizeDeferredForTransition = true
+      return
+    }
     if (lastAppliedHeight !== undefined && Math.abs(lastAppliedHeight - height) < 0.5) return
 
     await appWindow.setSize(new LogicalSize(FIXED_LOGICAL_WIDTH, height))
@@ -72,6 +77,10 @@ export async function startDesktopShell(app: HTMLDivElement) {
   }
 
   const queueSize = () => {
+    if (document.documentElement.classList.contains('is-course-transitioning')) {
+      resizeDeferredForTransition = true
+      return
+    }
     if (resizeFrame !== undefined) cancelAnimationFrame(resizeFrame)
     resizeFrame = requestAnimationFrame(() => {
       resizeFrame = undefined
@@ -79,6 +88,13 @@ export async function startDesktopShell(app: HTMLDivElement) {
     })
   }
 
+  const applyDeferredTransitionSize = () => {
+    if (!resizeDeferredForTransition) return
+    resizeDeferredForTransition = false
+    queueSize()
+  }
+
+  window.addEventListener('course-transition:complete', applyDeferredTransitionSize)
   const observer = new ResizeObserver(queueSize)
   // Navigation and replay can replace internal widget content. Observing the
   // stable app container keeps native window sizing attached to the result.
@@ -87,7 +103,11 @@ export async function startDesktopShell(app: HTMLDivElement) {
     console.info('[desktop-shell] scale changed', { scaleFactor: payload.scaleFactor, logicalWidth: FIXED_LOGICAL_WIDTH })
     requestAnimationFrame(queueSize)
   })
-  window.addEventListener('beforeunload', () => { observer.disconnect(); unlistenScale() }, { once: true })
+  window.addEventListener('beforeunload', () => {
+    observer.disconnect()
+    window.removeEventListener('course-transition:complete', applyDeferredTransitionSize)
+    unlistenScale()
+  }, { once: true })
 
   const showWidget = async () => {
     try {
