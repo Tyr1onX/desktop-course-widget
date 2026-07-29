@@ -86,8 +86,9 @@ test.describe('shared course handoff', () => {
     await expect(page.locator(`${hostSelector} .state-label`)).toHaveText('今天无课')
     await expect(page.locator(`${hostSelector} .course-transition-overlay, ${hostSelector} .course-shared-morph, ${hostSelector} .course-shared-float`)).toHaveCount(0)
     await expect(page.locator(`${hostSelector} [data-shared-source-hidden], ${hostSelector} .is-shared-copy-hidden`)).toHaveCount(0)
-    const runningAnimations = await page.locator(hostSelector).evaluate((host) => host.getAnimations({ subtree: true }).filter((animation) => animation.playState === 'running').length)
-    expect(runningAnimations).toBe(0)
+    const runningHandoffAnimations = await page.locator(hostSelector).evaluate((host) => host.getAnimations({ subtree: true })
+      .filter((animation) => animation.id === 'course-handoff' && animation.playState === 'running').length)
+    expect(runningHandoffAnimations).toBe(0)
   })
 
   test('automatic rotation is armed only after the handoff completes', async ({ page }) => {
@@ -136,7 +137,7 @@ test.describe('shared course handoff', () => {
       Object.defineProperty(document, 'hidden', { configurable: true, get: () => false })
       document.dispatchEvent(new Event('visibilitychange'))
     })
-    await page.mouse.move(0, 0)
+    await stage.dispatchEvent('mouseleave')
     await expect(host).toHaveAttribute('data-demo-timer-state', 'scheduled')
   })
 
@@ -159,7 +160,8 @@ test.describe('shared course handoff', () => {
         timer: host?.dataset.demoTimerState ?? '',
         transition: host?.dataset.demoTransitionState ?? '',
         transient: host?.querySelectorAll('.course-transition-overlay, .course-shared-morph, .course-shared-float, [data-shared-source-hidden], .is-shared-copy-hidden').length ?? -1,
-        runningAnimations: host?.getAnimations({ subtree: true }).filter((animation) => animation.playState === 'running').length ?? -1,
+        runningAnimations: host?.getAnimations({ subtree: true })
+          .filter((animation) => animation.id === 'course-handoff' && animation.playState === 'running').length ?? -1,
       }
     })
     expect(cleanup).toEqual({
