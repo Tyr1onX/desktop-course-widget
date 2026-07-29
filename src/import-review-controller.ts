@@ -115,6 +115,7 @@ function enhanceImportSurface(force = false): void {
     <div><h3>逐项检查</h3><p>修改字段会自动确认；课程冲突会提示，但允许明确继续创建。</p></div>
     <span>${draft.courses.length} 项</span>
   `
+  surface.querySelectorAll('.import-review-toolbar').forEach((element) => element.remove())
   const toolbar = document.createElement('div')
   toolbar.className = 'import-review-toolbar'
   toolbar.innerHTML = `
@@ -155,7 +156,7 @@ function updateSummary(surface: HTMLElement, pendingCount: number): void {
 }
 
 function renderWarnings(surface: HTMLElement, issues: ImportIssue[]): void {
-  surface.querySelector('.import-structured-warnings')?.remove()
+  surface.querySelectorAll('.import-structured-warnings').forEach((element) => element.remove())
   const warnings = issues.filter((issue) => issue.severity === 'warning')
   if (!warnings.length) return
   const section = document.createElement('section')
