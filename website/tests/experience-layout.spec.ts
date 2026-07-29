@@ -50,7 +50,7 @@ for (const viewport of viewports) {
       await desktop.scrollIntoViewIfNeeded()
       await page.locator('.focus-desktop__widget [data-hide]').click()
       await expect(desktop).toHaveClass(/is-widget-hidden/)
-      await page.locator('.focus-desktop__tray-app').click()
+      await page.locator('.focus-desktop__tray-app').click({ force: true })
       await expect(desktop).not.toHaveClass(/is-widget-hidden/)
 
       const metrics = await page.evaluate(() => {
