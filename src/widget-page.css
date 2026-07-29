@@ -67,8 +67,8 @@ body { display: inline-block; }
   will-change: opacity;
 }
 
-.course-morph-surface,
-.course-morph-target {
+.course-widget .course-shared-morph > .course-morph-surface,
+.course-widget .course-shared-morph > .course-morph-target {
   position: absolute;
   inset: 0;
   margin: 0 !important;
@@ -137,7 +137,7 @@ body { display: inline-block; }
 
 .course-transition-overlay {
   position: absolute;
-  z-index: 4;
+  z-index: 6;
   inset: 0;
   overflow: hidden;
   pointer-events: none;
