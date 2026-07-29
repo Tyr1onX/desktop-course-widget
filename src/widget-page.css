@@ -126,7 +126,7 @@ body { display: inline-block; }
 }
 
 .course-morph-target .course-time.is-shared-time-range {
-  display: flex;
+  display: inline-flex;
   align-items: baseline;
   gap: 0;
   white-space: nowrap;
@@ -146,43 +146,30 @@ body { display: inline-block; }
   transform-origin: left baseline;
 }
 
-.course-time-extension.course-draw-reveal { display: inline-flex; }
-.course-draw-reveal {
+.course-time-extension.course-sweep-reveal { display: inline-flex; }
+.course-sweep-reveal {
   position: relative;
-  display: block;
-  overflow: visible;
+  width: max-content;
+  max-width: 100%;
+  overflow: hidden;
   white-space: pre;
 }
-.course-draw-guide {
+.course-sweep-copy {
+  display: inline-block;
+  white-space: pre;
+  will-change: clip-path, opacity;
+}
+.course-sweep-edge {
   position: absolute;
-  inset: 58% 0 auto;
-  height: 1.5px;
+  inset: 10% auto 10% 0;
+  width: 1.5px;
   border-radius: 999px;
-  background: linear-gradient(90deg, currentColor, rgba(var(--identity-accent-rgb), .14));
-  transform-origin: left center;
+  background: currentColor;
+  box-shadow: 0 0 6px rgba(var(--identity-accent-rgb), .28);
   pointer-events: none;
+  transform-origin: center;
   will-change: transform, opacity;
 }
-.course-drawn-character {
-  position: relative;
-  display: inline-grid;
-  grid-template-areas: 'glyph';
-  white-space: pre;
-  vertical-align: baseline;
-}
-.course-drawn-character-outline,
-.course-drawn-character-fill {
-  grid-area: glyph;
-  display: block;
-  white-space: pre;
-  will-change: clip-path, opacity, filter, transform;
-}
-.course-drawn-character-outline {
-  color: inherit;
-  -webkit-text-fill-color: transparent;
-  -webkit-text-stroke: .55px currentColor;
-}
-.course-drawn-character-fill { color: inherit; }
 
 .is-course-transitioning .focus-course,
 .is-course-transitioning .state-label,

@@ -38,15 +38,15 @@ const options: WidgetOptions = {
   closeControl: desktopRuntime,
 }
 
-const COURSE_EXIT_MS = 1080
+const COURSE_EXIT_MS = 720
 const COURSE_EXIT_GAP_MS = 120
-const COURSE_SHARED_TEXT_MOVE_MS = 1680
-const COURSE_CARD_FORM_MS = 1880
-const COURSE_DRAW_CHARACTER_MS = 360
-const COURSE_DRAW_STAGGER_MS = 90
-const COURSE_DRAW_FILL_DELAY_MS = 150
-const COURSE_DRAW_GUIDE_MS = 760
-const COURSE_TEXT_HANDOFF_MS = 120
+const COURSE_SHARED_CLUSTER_MS = 980
+const COURSE_CARD_FORM_MS = 920
+const COURSE_TIME_EXTENSION_MS = 760
+const COURSE_STATE_REVEAL_MS = 520
+const COURSE_STATE_REVEAL_GAP_MS = 160
+const COURSE_COUNTDOWN_REVEAL_MS = 680
+const COURSE_TEXT_HANDOFF_MS = 140
 const COURSE_RESIZE_MS = 1000
 const COURSE_TRANSITION_SETTLE_MS = 420
 const presentationClock = new PresentationClock()
@@ -188,68 +188,48 @@ function sharedTextMotion(source: HTMLElement | null, target: HTMLElement | null
   }
 }
 
-function prepareDrawReveal(element: HTMLElement) {
+function prepareSweepReveal(element: HTMLElement) {
   const text = element.textContent ?? ''
-  const guide = document.createElement('span')
-  guide.className = 'course-draw-guide'
-  const characters = Array.from(text).map((character) => {
-    const root = document.createElement('span')
-    root.className = 'course-drawn-character'
-    const outline = document.createElement('span')
-    outline.className = 'course-drawn-character-outline'
-    const fill = document.createElement('span')
-    fill.className = 'course-drawn-character-fill'
-    const visibleCharacter = character === ' ' ? '\u00a0' : character
-    outline.textContent = visibleCharacter
-    fill.textContent = visibleCharacter
-    root.append(outline, fill)
-    return { root, outline, fill }
-  })
-  element.replaceChildren(guide, ...characters.map(({ root }) => root))
-  element.classList.add('course-draw-reveal')
-  return { root: element, text, guide, characters }
+  const copy = document.createElement('span')
+  copy.className = 'course-sweep-copy'
+  copy.textContent = text
+  const edge = document.createElement('span')
+  edge.className = 'course-sweep-edge'
+  element.replaceChildren(copy, edge)
+  element.classList.add('course-sweep-reveal')
+  return { root: element, text, copy, edge }
 }
 
-function drawRevealAnimations(part: ReturnType<typeof prepareDrawReveal>, groupIndex: number) {
-  const groupDelay = 260 + groupIndex * 160
-  const animations = [animateElement(part.guide, [
-    { opacity: .12, transform: 'scaleX(.03)' },
-    { offset: .66, opacity: .5, transform: 'scaleX(1)' },
-    { opacity: 0, transform: 'scaleX(1)' },
-  ], {
-    duration: COURSE_DRAW_GUIDE_MS,
-    delay: groupDelay,
-    easing: 'cubic-bezier(.22, 1, .36, 1)',
-    fill: 'both',
-  })]
-
-  part.characters.forEach(({ outline, fill }, characterIndex) => {
-    const characterDelay = groupDelay + 180 + characterIndex * COURSE_DRAW_STAGGER_MS
-    animations.push(
-      animateElement(outline, [
-        { opacity: 0, clipPath: 'inset(0 100% 0 0)', filter: 'blur(.8px)', transform: 'translateX(-1px)' },
-        { offset: .56, opacity: .78, clipPath: 'inset(0 0 0 0)', filter: 'blur(0)', transform: 'translateX(0)' },
-        { opacity: .3, clipPath: 'inset(0 0 0 0)', filter: 'blur(0)', transform: 'translateX(0)' },
-      ], {
-        duration: COURSE_DRAW_CHARACTER_MS,
-        delay: characterDelay,
-        easing: 'cubic-bezier(.16, 1, .3, 1)',
-        fill: 'both',
-      }),
-      animateElement(fill, [
-        { opacity: 0, clipPath: 'inset(0 100% 0 0)', filter: 'blur(.45px)' },
-        { offset: .34, opacity: .08, clipPath: 'inset(0 72% 0 0)', filter: 'blur(.3px)' },
-        { opacity: 1, clipPath: 'inset(0 0 0 0)', filter: 'blur(0)' },
-      ], {
-        duration: Math.max(260, COURSE_DRAW_CHARACTER_MS - 40),
-        delay: characterDelay + COURSE_DRAW_FILL_DELAY_MS,
-        easing: 'cubic-bezier(.16, 1, .3, 1)',
-        fill: 'both',
-      }),
-    )
-  })
-
-  return animations
+function sweepRevealAnimations(
+  part: ReturnType<typeof prepareSweepReveal>,
+  duration: number,
+  delay = 0,
+) {
+  const width = Math.max(1, part.root.getBoundingClientRect().width)
+  return [
+    animateElement(part.copy, [
+      { opacity: .02, clipPath: 'inset(0 100% 0 0)' },
+      { offset: .18, opacity: .18, clipPath: 'inset(0 88% 0 0)' },
+      { offset: .72, opacity: .92, clipPath: 'inset(0 16% 0 0)' },
+      { opacity: 1, clipPath: 'inset(0 0 0 0)' },
+    ], {
+      duration,
+      delay,
+      easing: 'cubic-bezier(.22, 1, .36, 1)',
+      fill: 'both',
+    }),
+    animateElement(part.edge, [
+      { opacity: 0, transform: 'translate3d(0, 0, 0) scaleY(.55)' },
+      { offset: .08, opacity: .68, transform: 'translate3d(0, 0, 0) scaleY(.78)' },
+      { offset: .82, opacity: .72, transform: `translate3d(${Math.max(0, width - 2)}px, 0, 0) scaleY(1)` },
+      { opacity: 0, transform: `translate3d(${Math.max(0, width - 2)}px, 0, 0) scaleY(.72)` },
+    ], {
+      duration,
+      delay,
+      easing: 'cubic-bezier(.22, 1, .36, 1)',
+      fill: 'both',
+    }),
+  ]
 }
 
 function elementText(root: ParentNode | null, selector: string) {
@@ -380,34 +360,29 @@ async function runCourseHandoff(
   const sourceTitle = sharedSource.querySelector<HTMLElement>('strong')
   const sourceLocation = sharedSource.querySelector<HTMLElement>('small')
   const sourceTime = sharedSource.querySelector<HTMLElement>('time')
-  const targetTitle = targetPrimary.querySelector<HTMLElement>('h2')
-  const targetLocation = targetPrimary.querySelector<HTMLElement>('.course-location')
-  const targetTime = targetPrimary.querySelector<HTMLElement>('.course-time')
-  const titleMotion = sharedTextMotion(sourceTitle, targetTitle)
-  const locationMotion = sharedTextMotion(sourceLocation, targetLocation)
-  const timeMotion = sharedTextMotion(sourceTime, targetTime)
-  const sharedMotions = [titleMotion, locationMotion, timeMotion]
-    .filter((motion): motion is NonNullable<typeof motion> => Boolean(motion))
-
   const stageRect = stage.getBoundingClientRect()
   const targetRect = targetPrimary.getBoundingClientRect()
   const targetStyle = getComputedStyle(targetPrimary)
+  const targetLocation = targetPrimary.querySelector<HTMLElement>('.course-location')
   const targetLocationRect = targetLocation?.getBoundingClientRect()
   const compactHeight = Math.min(
     targetRect.height,
     Math.max(62, (targetLocationRect?.bottom ?? targetRect.top + 62) - targetRect.top + 10),
   )
+  const compactBottomInset = Math.max(0, 100 - (compactHeight / Math.max(1, targetRect.height)) * 100)
+
   const morph = document.createElement('div')
   morph.className = 'course-shared-morph'
   morph.style.left = `${targetRect.left - stageRect.left}px`
   morph.style.top = `${targetRect.top - stageRect.top}px`
   morph.style.width = `${targetRect.width}px`
-  morph.style.height = `${compactHeight}px`
+  morph.style.height = `${targetRect.height}px`
   morph.style.borderRadius = targetStyle.borderRadius
 
   const surface = targetPrimary.cloneNode(false) as HTMLElement
   surface.classList.add('course-morph-surface')
   surface.style.opacity = '0'
+  surface.style.clipPath = `inset(0 46% ${compactBottomInset}% 0 round ${targetStyle.borderRadius})`
   const targetLayer = targetPrimary.cloneNode(true) as HTMLElement
   targetLayer.classList.add('course-morph-target')
   targetLayer.style.opacity = '1'
@@ -429,62 +404,87 @@ async function runCourseHandoff(
     targetTimeExtension.textContent = targetEndTime ? `–${targetEndTime}` : ''
     targetTimeCopy.replaceChildren(targetTimePrefix, targetTimeExtension)
   }
+
   const targetCopies = [targetTitleCopy, targetLocationCopy, targetTimePrefix]
     .filter((copy): copy is HTMLElement => Boolean(copy))
   targetCopies.forEach((copy) => copy.classList.add('is-shared-copy-hidden'))
-  const drawRevealParts = [
-    targetTimeExtension ? prepareDrawReveal(targetTimeExtension) : null,
-    ...Array.from(targetLayer.querySelectorAll<HTMLElement>('.focus-kicker, .countdown')).map(prepareDrawReveal),
-  ].filter((part): part is ReturnType<typeof prepareDrawReveal> => Boolean(part))
-  const softRevealParts = Array.from(targetLayer.querySelectorAll<HTMLElement>('.course-date, .course-flow'))
-  drawRevealParts.forEach(({ guide, characters }) => {
-    guide.style.opacity = '.12'
-    guide.style.transform = 'scaleX(.03)'
-    characters.forEach(({ outline, fill }) => {
-      outline.style.opacity = '0'
-      outline.style.clipPath = 'inset(0 100% 0 0)'
-      fill.style.opacity = '0'
-      fill.style.clipPath = 'inset(0 100% 0 0)'
+
+  const timeSweep = targetTimeExtension ? prepareSweepReveal(targetTimeExtension) : null
+  const stateElement = targetLayer.querySelector<HTMLElement>('.focus-kicker')
+  const countdownElement = targetLayer.querySelector<HTMLElement>('.countdown')
+  const stateSweep = stateElement ? prepareSweepReveal(stateElement) : null
+  const countdownSweep = countdownElement ? prepareSweepReveal(countdownElement) : null
+  const supportingParts = Array.from(targetLayer.querySelectorAll<HTMLElement>('.course-date, .course-flow'))
+  ;[timeSweep, stateSweep, countdownSweep]
+    .filter((part): part is ReturnType<typeof prepareSweepReveal> => Boolean(part))
+    .forEach(({ copy, edge }) => {
+      copy.style.opacity = '0'
+      copy.style.clipPath = 'inset(0 100% 0 0)'
+      edge.style.opacity = '0'
     })
-  })
-  softRevealParts.forEach((part) => {
+  supportingParts.forEach((part) => {
     part.style.opacity = '0'
-    part.style.clipPath = 'inset(0 100% 0 0)'
     part.style.transform = 'translateY(5px)'
   })
+
   morph.append(surface, targetLayer)
   stage.append(morph)
+  await nextAnimationFrame()
+  if (token !== transitionToken) return
+
+  const titleMotion = sharedTextMotion(sourceTitle, targetTitleCopy)
+  const locationMotion = sharedTextMotion(sourceLocation, targetLocationCopy)
+  const timeMotion = sharedTextMotion(sourceTime, targetTimePrefix)
+  const sharedMotions = [titleMotion, locationMotion, timeMotion]
+    .filter((motion): motion is NonNullable<typeof motion> => Boolean(motion))
+  const cardFormDelay = Math.round(COURSE_SHARED_CLUSTER_MS * .28)
+  const timeExtensionDelay = Math.round(COURSE_SHARED_CLUSTER_MS * .46)
 
   await Promise.all([
     ...sharedMotions.map((motion, index) => animateElement(
       motion.element,
       motion.keyframes,
       {
-        duration: COURSE_SHARED_TEXT_MOVE_MS,
-        delay: index * 70,
+        duration: COURSE_SHARED_CLUSTER_MS,
+        delay: index * 36,
         easing: 'cubic-bezier(.22, 1, .36, 1)',
         fill: 'both',
       },
     )),
-    animateElement(morph, [
-      { height: `${compactHeight}px` },
-      { offset: .34, height: `${compactHeight}px` },
-      { height: `${targetRect.height}px` },
-    ], { duration: COURSE_CARD_FORM_MS, easing: 'cubic-bezier(.22, 1, .36, 1)', fill: 'both' }),
     animateElement(surface, [
-      { opacity: 0 },
-      { offset: .22, opacity: .03 },
-      { offset: .62, opacity: .52 },
-      { opacity: 1 },
-    ], { duration: COURSE_CARD_FORM_MS, easing: 'ease-out', fill: 'both' }),
-    ...drawRevealParts.flatMap(drawRevealAnimations),
-    ...softRevealParts.map((part, index) => animateElement(part, [
-      { opacity: 0, clipPath: 'inset(0 100% 0 0)', transform: 'translateY(5px)' },
-      { offset: .46, opacity: .18, clipPath: 'inset(0 68% 0 0)', transform: 'translateY(3px)' },
-      { opacity: 1, clipPath: 'inset(0 0 0 0)', transform: 'translateY(0)' },
+      { opacity: 0, clipPath: `inset(0 46% ${compactBottomInset}% 0 round ${targetStyle.borderRadius})` },
+      { offset: .24, opacity: .08, clipPath: `inset(0 34% ${compactBottomInset}% 0 round ${targetStyle.borderRadius})` },
+      { offset: .66, opacity: .68, clipPath: `inset(0 0 ${compactBottomInset * .36}% 0 round ${targetStyle.borderRadius})` },
+      { opacity: 1, clipPath: `inset(0 0 0 0 round ${targetStyle.borderRadius})` },
     ], {
-      duration: 1280,
-      delay: 460 + index * 120,
+      duration: COURSE_CARD_FORM_MS,
+      delay: cardFormDelay,
+      easing: 'cubic-bezier(.22, 1, .36, 1)',
+      fill: 'both',
+    }),
+    ...(timeSweep ? sweepRevealAnimations(timeSweep, COURSE_TIME_EXTENSION_MS, timeExtensionDelay) : []),
+  ])
+  if (token !== transitionToken) return
+
+  if (stateSweep) {
+    await Promise.all(sweepRevealAnimations(stateSweep, COURSE_STATE_REVEAL_MS))
+    if (token !== transitionToken) return
+  }
+
+  if (stateSweep && countdownSweep) {
+    await transitionDelay(COURSE_STATE_REVEAL_GAP_MS)
+    if (token !== transitionToken) return
+  }
+
+  await Promise.all([
+    ...(countdownSweep ? sweepRevealAnimations(countdownSweep, COURSE_COUNTDOWN_REVEAL_MS) : []),
+    ...supportingParts.map((part, index) => animateElement(part, [
+      { opacity: 0, transform: 'translateY(5px)' },
+      { offset: .38, opacity: .16, transform: 'translateY(3px)' },
+      { opacity: 1, transform: 'translateY(0)' },
+    ], {
+      duration: COURSE_COUNTDOWN_REVEAL_MS,
+      delay: 80 + index * 70,
       easing: 'cubic-bezier(.16, 1, .3, 1)',
       fill: 'both',
     })),
@@ -511,22 +511,23 @@ async function runCourseHandoff(
     clearElementAnimations(copy)
     copy.style.removeProperty('opacity')
   })
-  drawRevealParts.forEach(({ root, text, guide, characters }) => {
-    clearElementAnimations(guide)
-    characters.forEach(({ outline, fill }) => {
-      clearElementAnimations(outline)
-      clearElementAnimations(fill)
+  ;[timeSweep, stateSweep, countdownSweep]
+    .filter((part): part is ReturnType<typeof prepareSweepReveal> => Boolean(part))
+    .forEach(({ root, text, copy, edge }) => {
+      clearElementAnimations(copy)
+      clearElementAnimations(edge)
+      root.classList.remove('course-sweep-reveal')
+      root.textContent = text
     })
-    root.classList.remove('course-draw-reveal')
-    root.textContent = text
-  })
-  softRevealParts.forEach((part) => {
+  supportingParts.forEach((part) => {
     clearElementAnimations(part)
     part.style.removeProperty('opacity')
-    part.style.removeProperty('clip-path')
     part.style.removeProperty('transform')
   })
-  if (targetTimeCopy) targetTimeCopy.textContent = fullTargetTime
+  if (targetTimeCopy) {
+    targetTimeCopy.classList.remove('is-shared-time-range')
+    targetTimeCopy.textContent = fullTargetTime
+  }
   targetPrimary.replaceWith(targetLayer)
   targetLayer.classList.remove('course-morph-target')
   targetLayer.style.removeProperty('opacity')
