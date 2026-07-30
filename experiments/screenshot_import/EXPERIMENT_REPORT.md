@@ -1,127 +1,149 @@
-# 实验执行记录
+# 截图课表识别实验执行记录
 
-## 同步基线
+## 当前基线
 
-本轮开始后 `main` 两次前进，实验分支最终已同步到 `e3c1f5b6a3bce33089f8bb08f3d1d3c5c8a08723`。同步提交仅带入官网产品体验页变更；实验相对 `main` 的 diff 仍限定在 `experiments/`、Rust 校验示例和必要 Validate 步骤。
-
-基础执行环境：Python 3.13.5、OpenCV 4.13.0、NumPy 2.3.5、Pillow 12.2.0、pytest 9.0.2。
+- 分支：`feat/screenshot-recognition-spike`
+- PR：#72，Draft、Open、未合并
+- 实验相对最新 `main`：behind 0
+- 净 diff：仅实验目录、一个手动真实 OCR workflow、必要 Validate 和 Rust ImportDraft 校验示例
+- 正式设置页、图片入口、Excel 导入、事务、课程管理、网站、动画、Nexus 和 NSIS 内容均未接入或修改
 
 ## 结果口径
 
-本报告严格区分：
+严格区分：
 
-- **fixture pipeline result**：网格和课程块真实运行，OCR token 来自合成样本的 `.ocr.json`；
-- **real PaddleOCR result**：真实调用本地 PaddleOCR 模型；
-- **grid/block detection result**：只评价结构检测；
-- **field parsing result**：只评价确定性字段规则；
-- **Rust structural validation result**：只证明输出可被现有 Rust `ImportDraft` 反序列化并通过结构校验。
+- **fixture pipeline result**：结构检测真实执行，OCR token 来自合成 `.ocr.json`；
+- **real PaddleOCR result**：真实调用 PaddleOCR 3.7.0 / PaddlePaddle 3.3.1 CPU 模型；
+- **field evaluation**：按机器真值逐字段比较；
+- **Rust structural validation**：证明草稿可由现有 Rust 类型解析，并区分结构错误与待人工确认状态。
 
-fixture 结果不是 OCR 准确率，Cargo 编译、模型下载、Paddle 初始化、热推理和调试文件写入也不能合并成一个“单图 OCR 耗时”。
+模型下载、Paddle 初始化、冷/热推理、Rust 首次编译和调试文件写入分别记录，不合并为单一“识别耗时”。
 
-## 课程块边界修复
+完整真实数据见 [`REAL_OCR_BENCHMARK.md`](./REAL_OCR_BENCHMARK.md)。
 
-原逻辑在 `not merge` 后要求 `boundary_strength < 0.12`，但 `not merge` 已意味着强度不低于默认 `0.28`，颜色连续性分支不可达。
+## 已完成实验能力
 
-现逻辑明确区分：
+- 标准 7 天网格检测；
+- 10～14 节次行；
+- 课程块和跨节范围检测；
+- 弱边界、缺失边界与颜色连续性；
+- 网格候选筛选与歧义诊断；
+- PaddleOCR 3.x 返回结构兼容；
+- block / full 两种 OCR 模式；
+- 全图 token 中心点和重叠比例分配；
+- token 跨块歧义与未归属调试输出；
+- 课程名、教师、地点、周次、单双周解析；
+- ImportDraft V2 映射；
+- Rust 结构校验；
+- 机器可读 ground truth；
+- 字段正确、错误、缺失和 confirmed/review 混淆统计；
+- 错误自动确认率；
+- 模型下载、缓存、离线启动、冷/热推理、内存和输出大小测量。
 
-1. 清晰内部横线：始终分离，不受颜色影响；
-2. 缺失横线 + 颜色连续：合并；
-3. 弱横线 + 颜色连续：合并并产生复核 warning；
-4. 缺失/弱横线 + 颜色差异大：保持分离，并将 warning 同时附加到边界两侧课程块。
+## 结构检测结果
 
-复杂合成样本结果：
+| 样本 | 结果 |
+|---|---|
+| `standard_10` | 7×10，5/5 课程块，网格置信度约 0.9846 |
+| `tilted_12` | 7×12，4/4 课程块，约 1.8° 倾斜校正，保留候选歧义 warning |
+| `weak_internal_line_10` | 同色连续跨三节块正确合并，弱边界进入 review |
+| `similar_adjacent_10` | 同色相邻独立课程保持分离 |
+| `distinct_missing_boundary_10` | 异色缺失边界保持分离并警告两侧 |
+| `double_border_10` | 从多余边框候选中选择正确内框 |
+| `title_decoration_10` | 标题装饰横线未被识别为表头 |
+| `extra_vertical_10` | 跳过额外竖线，星期列未偏移 |
 
-| 场景 | 结构结果 | warning |
-|---|---|---|
-| `weak_internal_line_10` | 周二，第 2～4 节，1 个块 | 两条弱横线均提示“依据颜色连续性合并” |
-| `similar_adjacent_10` | 周三第 4 节、周三第 5 节，2 个块 | 无错误合并 warning |
-| `distinct_missing_boundary_10` | 周四第 6 节、周四第 7 节，2 个块 | 两侧均提示“边界缺失但颜色差异较大” |
+结构 warning 会使 weekday、startSection、endSection 进入 review，不被 OCR 高分覆盖。
 
-课程块 warning 会沿用现有字段解析语义，使 `weekday`、`startSection`、`endSection` 进入 `review`，没有放宽 Rust 校验。
+## 真实 Windows CPU 环境
 
-## 网格候选诊断
+- Windows Server 2025 x64
+- Python 3.13.14
+- pip 26.2
+- PaddlePaddle 3.3.1
+- PaddleOCR 3.7.0
+- 官方 PyPI `paddlepaddle-3.3.1-cp313-cp313-win_amd64.whl`
+- wheel 大小 104,794,530 bytes
+- 安装耗时 71.4094694 s
+- 虚拟环境 849,741,223 bytes
 
-`grid.json` 新增实验调试字段 `candidateDiagnostics`，分别记录横线和竖线的：
+Python 3.13 官方 wheel 可用，没有降级 3.12。
 
-- 原始候选数量；
-- 最终选择数量和索引；
-- 候选组合数量；
-- 最佳与次佳得分；
-- 得分差；
-- 是否发生筛选；
-- 是否存在近似最优歧义；
-- 前五个候选方案。
+PaddlePaddle 3.3.1 默认 oneDNN/PIR 路径在首次真实推理中触发 `pir::ArrayAttribute<pir::DoubleAttribute>` 转换异常。实验使用有真实失败证据支撑的 `enable_mkldnn=False`，随后模型和完整基准均成功；没有更换版本或使用未知 wheel。
 
-额外竖线不再要求只能选择连续候选窗口，检测器可以跳过中间装饰线。候选发生筛选或得分接近时会产生 warning 并降低置信度；无法唯一确定时明确失败。
+## 模型和返回结构
 
-| 场景 | 候选结果 | 最终网格 | 置信度 |
-|---|---|---|---:|
-| `double_border_10` | 竖线 11→9，横线 14→12，竖线差值 0.0225 | 7×10，正确内框 | 0.808934 |
-| `title_decoration_10` | 横线 13→12 | 7×10，装饰线未成为表头 | 0.950948 |
-| `extra_vertical_10` | 竖线 10→9，跳过索引 2 | 7×10，星期列未偏移 | 0.953927 |
+- `PP-OCRv6_medium_det`：62,273,512 bytes
+- `PP-OCRv6_medium_rec`：76,837,481 bytes
+- 缓存总计：139,110,993 bytes
+- 缓存目录：`%USERPROFILE%\.paddlex`
+- 观察到的模型缓存写入：23.9724856 s
+- 首次初始化总耗时：57.9035817 s
+- bootstrap 峰值内存：498.188 MB
+- 完全离线缓存初始化和推理：成功
 
-基础结构结果：
+真实 `predict()` 返回：
 
-- `standard_10`：7×10，网格置信度 `0.984558`，课程块 `5/5`；
-- `tilted_12`：7×12，网格置信度 `0.876138`，课程块 `4/4`；横线候选差值 `0.0085`，因此明确保留歧义 warning。
+- 顶层 `list`；
+- 单项 `paddlex.inference.pipelines.ocr.result.OCRResult`；
+- `.json` 是不可调用的 `dict` 属性；
+- 无 `to_dict()`；
+- `rec_boxes` 为 shape `[37, 4]`、dtype `int16` 的 NumPy 数组；
+- 其余文本、分数和多边形字段为 list。
 
-## PaddleOCR 适配器测试
+当前适配器真实覆盖该结构，并保留旧兼容分支。
 
-测试通过 fake `paddleocr` 模块实际实例化 `PaddleOcrEngine` 并调用 `recognize()`，覆盖：
+## block / full 对比
 
-- `.json` 字典属性；
-- `.json()` 方法；
-- `.json`/`.json()` 返回 JSON 字符串；
-- `to_dict()`；
-- `predict()` 直接返回字典；
-- NumPy `rec_texts`、`rec_scores`、二维 `rec_boxes`、多边形 `rec_polys`、`dt_polys`；
-- 空数组；
-- 文本、分数和框数量不一致；
-- 缺少坐标时回退到课程区域；
-- crop 坐标加回原图偏移；
-- 空文本过滤；
-- 不支持类型和推理异常转换为明确 `OcrError`。
+| 样本 | 模式 | predict | 冷 OCR | 热 OCR 平均 | 热管道平均 |
+|---|---|---:|---:|---:|---:|
+| `standard_10` | block | 5 | 10.402373 s | 10.083595 s | 10.935031 s |
+| `standard_10` | full | 1 | 26.631320 s | 29.804321 s | 30.660159 s |
+| `tilted_12` | block | 4 | 8.516407 s | 8.016003 s | 8.971746 s |
+| `tilted_12` | full | 1 | 25.505942 s | 26.203480 s | 27.420503 s |
 
-适配器不再对任何 Paddle/NumPy 数组执行 `value or []` 或其他真假值判断。
+两种模式字段输出一致，但 block 热推理快约 2.96～3.27 倍且峰值内存更低。因此保持 block 为实验默认，full 只用于架构对照和未来真实布局验证。
 
-## 真实 PaddleOCR 安装与运行状态
+## 字段评估
 
-本轮在独立虚拟环境 `/mnt/data/paddleocr-spike-venv` 中执行：
+### `standard_10`
 
-```text
-python -m venv /mnt/data/paddleocr-spike-venv
-/mnt/data/paddleocr-spike-venv/bin/python -m pip install --index-url https://pypi.org/simple paddlepaddle==3.3.1 paddleocr==3.7.0
-/mnt/data/paddleocr-spike-venv/bin/python -m pip install --index-url https://www.paddlepaddle.org.cn/packages/stable/cpu/ paddlepaddle==3.3.1
-```
+- 5/5 课程；
+- 40 个字段；
+- 39 个完全正确，1 个可选空地点标准化后正确；
+- confirmed 35、review 4、missing 1；
+- 错误字段 0；
+- 错误且 confirmed 0；
+- 错误自动确认率 0。
 
-两次均在域名解析阶段连续重试后失败：
+### `tilted_12`
 
-```text
-Failed to establish a new connection: [Errno -3] Temporary failure in name resolution
-ERROR: No matching distribution found for paddlepaddle==3.3.1
-```
+- 4/4 课程；
+- 32 个字段；
+- 31 个完全正确，1 个可选空地点标准化后正确；
+- confirmed 29、review 2、missing 1；
+- 错误字段 0；
+- 错误且 confirmed 0；
+- 错误自动确认率 0。
 
-因此：
+每种架构合计 confirmed 64、review 6、missing 2。review 包含 5 个没有显式单双周标记的 `parity=all`，以及裸教师姓名“李明”；missing 仅为两个真值本来为空的可选地点。
 
-- PaddlePaddle/PaddleOCR 未安装；
-- 模型下载未发生；
-- 没有 Paddle/PaddleX 缓存目录或模型占用空间可报告；
-- 未运行真实 `PaddleOcrEngine`；
-- 没有真实初始化、冷启动或热推理耗时；
-- 不报告真实课程名、周次、教师、地点准确率。
+## 单双周与自动确认
 
-## fixture pipeline result
+真实 OCR 正确识别 `(单)`、`(双)` 和周次范围。显式 odd/even 可按置信度确认；图片来源没有明确单双周标记时，`parity=all` 强制 review。周次解析或结构 warning 也始终覆盖 OCR 高分。
 
-两张基础合成图继续用于 fixture 端到端链路：
+两张合成图没有产生“单→旦”“双→又”等自然错误，不能据此推断真实学校截图的发生率。当前没有证据支持放宽自动确认规则，也不把实验阈值宣布为最终产品阈值。
 
-- `standard_10`：真实执行预处理、7×10 网格、5 个课程块、字段规则、ImportDraft V2 输出和 Rust 结构校验；
-- `tilted_12`：真实执行倾斜校正、7×12 网格、4 个课程块、字段规则、ImportDraft V2 输出和 Rust 结构校验；
-- OCR 文本来自合成 `.ocr.json`，不能作为 PaddleOCR 结果。
+## 自动化与人工边界
 
-流水线现在分别记录预处理、网格、课程块、OCR、字段解析、调试文件写入、Rust 校验和总流程。CI 在 fixture 运行前单独预编译 Rust 示例，避免把首次 Cargo 编译计入 `rustValidationSeconds`。
+常规 Validate 不下载 Paddle 模型，只运行：
 
-## 自动化测试
+- 全部 Python 实验测试；
+- 两张样本的 block / full fixture 管道；
+- Rust library tests 和 ImportDraft 示例；
+- 版本、time-flow、import-review、Edge DOM、presentation clock；
+- web build 和 Windows NSIS。
 
-Windows GitHub Actions 已在代码修复 HEAD 上运行 **51 项 Python 测试并全部通过**。覆盖现有图片、解析、ImportDraft、Rust/Windows 编码测试，以及新增的课程块边界、网格装饰线和 PaddleOCR 返回格式回归。
+真实模型基准只通过手动 `Real PaddleOCR Benchmark` workflow 执行。
 
-最终 Validate Run、最终 HEAD 和 NSIS artifact 以 Draft PR #72 当前描述为准。
+当前已达到 2～3 张受控真实学校截图的下一阶段测试条件，但图片必须只留在用户本机、不进入 Git/Artifact/fixture，提交前检查姓名、学号、班级等个人信息，识别结果仍必须人工审阅。尚未达到正式设置页接入、免审保存或多学校支持声明条件。
