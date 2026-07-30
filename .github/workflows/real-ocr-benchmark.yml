@@ -10,6 +10,12 @@ on:
 
 permissions:
   contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: real-paddleocr-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   benchmark:
@@ -219,7 +225,20 @@ jobs:
           "installSeconds=$(($installEnded - $installStarted).TotalSeconds)" >> $env:GITHUB_OUTPUT
           "venvBytes=$venvBytes" >> $env:GITHUB_OUTPUT
 
+      - name: Bootstrap and measure model download
+        id: bootstrap
+        continue-on-error: true
+        shell: pwsh
+        env:
+          PADDLE_PDX_MODEL_SOURCE: BOS
+        run: |
+          $python = '${{ steps.install.outputs.python }}'
+          & $python -m experiments.screenshot_import.model_bootstrap `
+            --output .tmp/real-ocr-benchmark/bootstrap *>&1 | Tee-Object -FilePath .tmp/real-ocr-benchmark/model-bootstrap-console.log
+          exit $LASTEXITCODE
+
       - name: Run real block and full-image OCR benchmark
+        if: steps.bootstrap.outcome == 'success'
         id: benchmark
         continue-on-error: true
         shell: pwsh
@@ -231,7 +250,16 @@ jobs:
             --output .tmp/real-ocr-benchmark/results `
             --repo-root . `
             --install-metadata .tmp/real-ocr-benchmark/install-metadata.json *>&1 | Tee-Object -FilePath .tmp/real-ocr-benchmark/benchmark-console.log
-          "exitCode=$LASTEXITCODE" >> $env:GITHUB_OUTPUT
+          exit $LASTEXITCODE
+
+      - name: Merge bootstrap metrics into benchmark
+        if: steps.benchmark.outcome == 'success'
+        id: finalize
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $python = '${{ steps.install.outputs.python }}'
+          & $python -c "from pathlib import Path; from experiments.screenshot_import.benchmark_io import finalize_benchmark; from experiments.screenshot_import.real_benchmark import _markdown; p=finalize_benchmark(r'.tmp/real-ocr-benchmark/results/benchmark.json', r'.tmp/real-ocr-benchmark/bootstrap/model-bootstrap.json'); Path(r'.tmp/real-ocr-benchmark/results/REAL_OCR_BENCHMARK.md').write_text(_markdown(p), encoding='utf-8')"
           exit $LASTEXITCODE
 
       - name: Upload sanitized benchmark evidence
@@ -244,6 +272,8 @@ jobs:
             .tmp/real-ocr-benchmark/install-metadata.json
             .tmp/real-ocr-benchmark/pip-debug.txt
             .tmp/real-ocr-benchmark/pip-freeze.txt
+            .tmp/real-ocr-benchmark/model-bootstrap-console.log
+            .tmp/real-ocr-benchmark/bootstrap/model-bootstrap.json
             .tmp/real-ocr-benchmark/benchmark-console.log
             .tmp/real-ocr-benchmark/results/benchmark.json
             .tmp/real-ocr-benchmark/results/REAL_OCR_BENCHMARK.md
@@ -254,7 +284,49 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+      - name: Post sanitized benchmark receipt to Draft PR
+        if: always()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $lines = @(
+            '### Real Windows CPU PaddleOCR benchmark receipt',
+            '',
+            "- Run ID: `${{ github.run_id }}`",
+            "- HEAD: `${{ github.sha }}`",
+            "- Install: `${{ steps.install.outcome }}`",
+            "- Model bootstrap: `${{ steps.bootstrap.outcome }}`",
+            "- Benchmark: `${{ steps.benchmark.outcome }}`",
+            "- Finalization: `${{ steps.finalize.outcome }}`",
+            "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          )
+          $benchmarkPath = '.tmp/real-ocr-benchmark/results/benchmark.json'
+          if (Test-Path $benchmarkPath) {
+            $payload = Get-Content $benchmarkPath -Raw | ConvertFrom-Json
+            $lines += ''
+            $lines += "- Python: `$($payload.environment.pythonVersion)`"
+            $lines += "- PaddlePaddle: `$($payload.environment.paddlepaddleVersion)`"
+            $lines += "- PaddleOCR: `$($payload.environment.paddleocrVersion)`"
+            $lines += "- Model cache: `$($payload.model.cacheBytes)` bytes"
+            $lines += "- Model download: `$($payload.model.modelDownloadSeconds)` s"
+            $lines += ''
+            $lines += '| Sample | Mode | Calls | Cold OCR s | Average hot OCR s | Wrong-confirmed rate |'
+            $lines += '|---|---|---:|---:|---:|---:|'
+            foreach ($item in $payload.comparisons) {
+              $rate = $item.fieldEvaluation.wrongConfirmedRate
+              $lines += "| $($item.sample) | $($item.ocrMode) | $($item.predictCallCount) | $($item.coldInferenceSeconds) | $($item.averageHotInferenceSeconds) | $rate |"
+            }
+          } else {
+            $lines += ''
+            $lines += 'No benchmark JSON was produced. Installation and console logs are retained in the workflow artifact.'
+          }
+          $lines += ''
+          $lines += 'The artifact excludes generated images, model files, caches and the virtual environment.'
+          $body = $lines -join "`n"
+          gh api --method POST "repos/$env:GITHUB_REPOSITORY/issues/72/comments" -f body="$body"
+
       - name: Fail when real benchmark failed
-        if: steps.benchmark.outcome != 'success'
+        if: always() && (steps.install.outcome != 'success' || steps.bootstrap.outcome != 'success' || steps.benchmark.outcome != 'success' || steps.finalize.outcome != 'success')
         shell: pwsh
         run: exit 1
