@@ -5,19 +5,21 @@
 ## Canonical 回执
 
 - Workflow：`Real PaddleOCR Benchmark`
-- Run ID：`30518005940`
-- 基准源 HEAD：`486300eded50134e32b98cec631bc944eb4e5bd3`
-- Workflow event SHA：`e1c87637ebb50fc4c628b36053783749b7a60a22`
-- Artifact ID：`8749892221`
-- Artifact：`real-paddleocr-benchmark-486300eded50134e32b98cec631bc944eb4e5bd3`
-- GitHub artifact digest：`sha256:591d73f733d7a45705e08f150c1ea52596791b6341db28f99a11e7e70f93904d`
-- Artifact 大小：`211,494 bytes`
-- 生成时间：`2026-07-30T06:10:02.109262+00:00`
-- 到期时间：`2026-08-06T06:10:02Z`
+- Run ID：`30518750039`
+- 基准源 HEAD：`5a81930eecc78854c3a628233fa1d7bbc8e041b9`
+- Workflow event SHA：`6524f2f127b0811e474d4f5f416b2933420f2881`
+- Artifact ID：`8750145689`
+- Artifact：`real-paddleocr-benchmark-5a81930eecc78854c3a628233fa1d7bbc8e041b9`
+- GitHub artifact digest：`sha256:fd36deab4509304230665a73c3dba618a7f79f1456a3f607d5a7e6205acdbde0`
+- 下载 ZIP SHA-256：`fd36deab4509304230665a73c3dba618a7f79f1456a3f607d5a7e6205acdbde0`
+- Artifact 大小：`208,772 bytes`
+- 生成时间：`2026-07-30T06:23:33.222244+00:00`
+- 到期时间：`2026-08-06T06:23:34Z`
+- Artifact 状态：未过期
 
 该 Run 完成了环境安装、Rust 校验器预编译、官方模型 bootstrap、16 次真实 OCR 管道、指标合并、报告渲染、canonical 完整性校验和脱敏 Artifact 上传。此前真实 OCR Run 仅保留为历史诊断证据，不再作为性能或环境数据引用来源。
 
-Artifact 不包含图片像素、模型文件、模型缓存、虚拟环境或用户课表，只包含安装日志、环境摘要、脱敏返回结构以及 JSON/Markdown 报告。
+下载后重新审计确认：Artifact 共 75 个脱敏文件，包含唯一 `benchmark.json`、16 份 `report.json`、16 份 `draft.json`、16 份 `ocr.json` 和 16 份 `grid.json`。`benchmark.json` 可解析，覆盖 `standard_10` / `tilted_12`、block / full、每组一次 cold 和三次 hot，共 16 次真实管道。Artifact 不包含 PNG/JPG 图片、模型、缓存、wheel、虚拟环境、安装包或用户数据。
 
 ## 实际安装环境
 
@@ -31,7 +33,7 @@ Artifact 不包含图片像素、模型文件、模型缓存、虚拟环境或�
 | PaddleOCR | 3.7.0 |
 | Paddle wheel | `paddlepaddle-3.3.1-cp313-cp313-win_amd64.whl` |
 | wheel 大小 | 104,794,530 bytes |
-| 依赖安装耗时 | 68.105691 s |
+| 依赖安装耗时 | 76.481755 s |
 | 隔离虚拟环境 | 849,659,311 bytes |
 | oneDNN | 关闭 |
 
@@ -56,26 +58,26 @@ pir::ArrayAttribute<pir::DoubleAttribute>
 | 模型缓存总计 | 139,110,993 bytes |
 | `PP-OCRv6_medium_det` | 62,273,512 bytes |
 | `PP-OCRv6_medium_rec` | 76,837,481 bytes |
-| 观察到的缓存写入 | 92.946170 s |
-| 首次初始化（含下载） | 173.365640 s |
-| 首次完整预测 | 29.287120 s |
-| 初始化后 RSS | 419.668 MB |
-| bootstrap 峰值内存 | 490.047 MB |
+| 观察到的缓存写入 | 48.027835 s |
+| 首次初始化（含下载） | 55.541439 s |
+| 首次完整预测 | 28.924223 s |
+| 初始化后 RSS | 427.402 MB |
+| bootstrap 峰值内存 | 492.262 MB |
 
 缓存建立后，将代理指向不可访问的 `127.0.0.1:9` 并启用离线标记，仍可完成初始化与推理：
 
-- 初始化：`0.994001 s`
+- 初始化：`1.199096 s`
 - token：`37`
 - 结果：成功
 
-该结果证明“网络被阻断且启用离线标记时可复用缓存”，不等同于测试了所有物理断网环境。
+该结果证明“不可访问代理和离线标记下可复用已有缓存”，不等同于测试了所有物理断网、DNS 隔离或企业网络环境。
 
 ## PaddleOCR 3.7.0 真实返回结构
 
 - 顶层类型：`builtins.list`
 - 顶层项数：1
 - 单项类型：`paddlex.inference.pipelines.ocr.result.OCRResult`
-- `.json`：存在，是不可调用的 `dict` 属性
+- `.json`：存在，是不可调用的 `builtins.dict` 属性
 - `to_dict()`：不可调用
 - `rec_texts`：list，长度 37
 - `rec_scores`：list，长度 37
@@ -91,39 +93,90 @@ pir::ArrayAttribute<pir::DoubleAttribute>
 
 | 样本 | 模式 | predict 调用 | 冷 OCR | 热 OCR 平均 | 冷 pipeline | 热 pipeline 平均 | 值正确/总数 | confirmed/review/missing | unexpected | wrong confirmed rate | 匹配歧义 |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| `standard_10` | block | 5 | 10.384034 s | 11.476607 s | 17.679286 s | 12.345182 s | 40/40 | 35/4/1 | 0 | 0.0 | 0 |
-| `standard_10` | full | 1 | 33.014611 s | 27.757325 s | 33.874143 s | 28.604932 s | 40/40 | 35/4/1 | 0 | 0.0 | 0 |
-| `tilted_12` | block | 4 | 8.314605 s | 8.811158 s | 9.218626 s | 9.757986 s | 32/32 | 29/2/1 | 0 | 0.0 | 0 |
-| `tilted_12` | full | 1 | 26.486853 s | 26.863633 s | 27.470095 s | 27.849931 s | 32/32 | 29/2/1 | 0 | 0.0 | 0 |
+| `standard_10` | block | 5 | 10.153921 s | 10.969456 s | 17.933786 s | 12.100223 s | 40/40 | 35/4/1 | 0 | 0.0 | 0 |
+| `standard_10` | full | 1 | 28.367157 s | 27.893194 s | 29.318483 s | 28.807959 s | 40/40 | 35/4/1 | 0 | 0.0 | 0 |
+| `tilted_12` | block | 4 | 8.409430 s | 8.730079 s | 9.391315 s | 9.768451 s | 32/32 | 29/2/1 | 0 | 0.0 | 0 |
+| `tilted_12` | full | 1 | 25.954214 s | 26.489778 s | 27.056603 s | 27.532324 s | 32/32 | 29/2/1 | 0 | 0.0 | 0 |
 
 在这两张合成图上：
 
-- `standard_10` 的 block 热 OCR 约为 full 的 `2.42×` 更快；
-- `tilted_12` 的 block 热 OCR 约为 full 的 `3.05×` 更快；
+- `standard_10` 的 block 热 OCR 约为 full 的 `2.54×` 更快；
+- `tilted_12` 的 block 热 OCR 约为 full 的 `3.03×` 更快；
 - block 与 full 的最终字段结果一致；
 - 两种模式均未产生额外课程、错误自动确认或匹配歧义。
 
 因此实验默认值继续保持 `block`。该结论不能外推到真实学校布局。
 
-## 字段评估
+## 字段评估与 missing 语义
 
-评估使用连通分量内的全局最大匹配，不依赖预测课程顺序；同分最优方案会进入 `ambiguousCourseMatches`，未匹配预测课程会作为 false positive 进入错误与自动确认统计。
+评估拆分为两套独立维度：
+
+- `valueAccuracy`：`exactlyCorrect`、`normalizedCorrect`、`wrong`、`valueMissing`；
+- `reviewStatus`：`confirmed`、`review`、`missing`。
+
+可选字段真值为空、预测为空时，值可以标准化正确，但证据状态仍可为 missing。兼容字段 `counts.missing` 仅表示 `valueAccuracy.valueMissing`，`counts.statusMissing` 才表示 `reviewStatus.missing`。
 
 | 样本 | 课程 expected/predicted/matched | 完全正确 | 标准化正确 | 错误 | 值缺失 | confirmed | review | 状态 missing | unexpected | wrong confirmed | 歧义 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | `standard_10` | 5/5/5 | 39 | 1 | 0 | 0 | 35 | 4 | 1 | 0 | 0 | 0 |
 | `tilted_12` | 4/4/4 | 31 | 1 | 0 | 0 | 29 | 2 | 1 | 0 | 0 | 0 |
 
-两个“标准化正确”字段都是真值为空、预测为 `null` 的可选地点；字段值正确，但证据状态仍为 `missing`。`valueAccuracy` 与 `reviewStatus` 是独立维度，不能把状态缺失误写成字段值错误。
+每种 OCR 模式汇总：
+
+- 课程：9 expected / 9 predicted / 9 matched
+- 字段值：70 exact + 2 normalized = 72/72 正确
+- confirmed：64
+- review：6
+- review-status missing：2
+- value missing：0
+- unexpected course：0
+- false-positive course：0
+- unexpected confirmed field：0
+- unexpected review field：0
+- 错误且 confirmed：0
+- `autoConfirmationErrors`：0
+- `wrongConfirmedRate`：`0 / 64 = 0.0`
+- `ambiguousCourseMatches`：0
+
+## unexpected course 规则
+
+没有匹配任何 ground truth 的预测课程不会再被忽略：
+
+1. 整门课程进入 `unexpectedCourses` 和 `falsePositiveCourseCount`；
+2. 所有非 missing 字段计入错误；
+3. confirmed 字段进入 `autoConfirmationErrors`、`confusion.wrongConfirmed` 和 `wrongConfirmedRate` 分子；
+4. review 字段进入 `confusion.wrongReview`；
+5. missing 字段单独进入 `unexpectedMissingFieldCount`。
+
+本次两张合成图实际 unexpected course 数为 0，但该错误路径已有独立自动化测试覆盖。
+
+## 课程匹配算法
+
+课程匹配不再按预测遍历顺序执行逐门贪心。当前实现：
+
+1. 根据 weekday、startSection、endSection 与名称相似度建立候选边；
+2. 按候选图连通分量执行动态规划全局最大匹配；
+3. 对预测课程使用字段指纹稳定排序；
+4. 多个同分全局最优方案进入 `ambiguousCourseMatches`；
+5. 无法唯一匹配时不会静默宣布唯一正确。
+
+测试覆盖结构正确但 OCR 名称错误、预测顺序变化、贪心局部最优失败场景和同分歧义。
 
 ## 单双周安全审计
 
-- 明确 `(单)` / `(双)` 的课程被正确解析为 odd/even，并可按置信度确认；
-- 图片来源没有明确单双周标记时，`parity=all` 强制进入 review；
-- 周次解析失败或存在结构 warning 时，不因 OCR 高分绕过复核；
-- canonical 样本中没有单双周错误自动确认。
+| 样本 | truth course | expected | actual | review status | classification |
+|---|---:|---|---|---|---|
+| `standard_10` | 0 | all | all | review | correctReview |
+| `standard_10` | 1 | odd | odd | confirmed | correctConfirmed |
+| `standard_10` | 2 | even | even | confirmed | correctConfirmed |
+| `standard_10` | 3 | all | all | review | correctReview |
+| `standard_10` | 4 | all | all | review | correctReview |
+| `tilted_12` | 0 | all | all | review | correctReview |
+| `tilted_12` | 1 | odd | odd | confirmed | correctConfirmed |
+| `tilted_12` | 2 | even | even | confirmed | correctConfirmed |
+| `tilted_12` | 3 | all | all | review | correctReview |
 
-两张合成图没有自然产生“单→旦”“双→又”等错误，不能据此推断真实截图发生率。
+所有显式 odd/even 均正确 confirmed；所有没有显式单双周标记的 all 均正确但保守进入 review。没有单双周错误自动确认，也没有因两张合成图结果良好而放宽策略。
 
 ## Canonical 完整性门禁
 
@@ -143,7 +196,8 @@ pir::ArrayAttribute<pir::DoubleAttribute>
 - PaddleOCR 3.7.0 在 Windows CPU、oneDNN 关闭时可完成完整基准；
 - 模型缓存可在受控网络阻断测试中复用；
 - 两张合成样本的结构、字段、单双周和自动确认结果符合预期；
-- block 在当前样本上明显快于 full。
+- block 在当前样本上明显快于 full；
+- Artifact 的 `benchmark.json`、16 份 `report.json`、本报告和 README 使用同一套 Run `30518750039` 数据。
 
 仍不能声称：
 
@@ -152,4 +206,4 @@ pir::ArrayAttribute<pir::DoubleAttribute>
 - GitHub Hosted Runner 性能代表普通用户电脑；
 - 已达到正式应用接入或免审保存条件。
 
-本轮没有运行、上传或分析任何真实学校课表截图，也没有修改正式产品代码。
+本轮没有运行、上传或分析任何真实学校课表截图，也没有修改正式产品代码。通过外部审计后，功能上已具备邀请用户在本机测试 2～3 张脱敏标准网格截图的条件；所有识别结果仍需人工核对。
