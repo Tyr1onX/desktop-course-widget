@@ -8,26 +8,27 @@
 
 唯一 canonical benchmark：
 
-- Run ID：`30518005940`
-- 基准源 HEAD：`486300eded50134e32b98cec631bc944eb4e5bd3`
-- Artifact ID：`8749892221`
-- Artifact：`real-paddleocr-benchmark-486300eded50134e32b98cec631bc944eb4e5bd3`
-- GitHub artifact digest：`sha256:591d73f733d7a45705e08f150c1ea52596791b6341db28f99a11e7e70f93904d`
-- Artifact 大小：`211,494 bytes`
-- 到期时间：`2026-08-06T06:10:02Z`
+- Run ID：`30518750039`
+- 基准源 HEAD：`5a81930eecc78854c3a628233fa1d7bbc8e041b9`
+- Artifact ID：`8750145689`
+- Artifact：`real-paddleocr-benchmark-5a81930eecc78854c3a628233fa1d7bbc8e041b9`
+- GitHub artifact digest：`sha256:fd36deab4509304230665a73c3dba618a7f79f1456a3f607d5a7e6205acdbde0`
+- 下载 ZIP SHA-256：`fd36deab4509304230665a73c3dba618a7f79f1456a3f607d5a7e6205acdbde0`
+- Artifact 大小：`208,772 bytes`
+- 到期时间：`2026-08-06T06:23:34Z`
 
 该 Run 在 Windows Server 2025 x64 上使用 Python 3.13.14、PaddlePaddle 3.3.1、PaddleOCR 3.7.0，完成官方模型 bootstrap、16 次真实 block/full OCR、全局课程匹配、字段评估、canonical 完整性校验和脱敏 Artifact 上传。
 
-| 样本 | 模式 | 冷 OCR | 热 OCR 平均 | 热 pipeline 平均 | 值正确/总数 | unexpected | wrong confirmed rate | 歧义 |
-|---|---|---:|---:|---:|---:|---:|---:|---:|
-| `standard_10` | block | 10.384034 s | 11.476607 s | 12.345182 s | 40/40 | 0 | 0.0 | 0 |
-| `standard_10` | full | 33.014611 s | 27.757325 s | 28.604932 s | 40/40 | 0 | 0.0 | 0 |
-| `tilted_12` | block | 8.314605 s | 8.811158 s | 9.757986 s | 32/32 | 0 | 0.0 | 0 |
-| `tilted_12` | full | 26.486853 s | 26.863633 s | 27.849931 s | 32/32 | 0 | 0.0 | 0 |
+| 样本 | 模式 | 冷 OCR | 热 OCR 平均 | 冷 pipeline | 热 pipeline 平均 | 值正确/总数 | confirmed/review/missing | unexpected | wrong confirmed rate | 歧义 |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `standard_10` | block | 10.153921 s | 10.969456 s | 17.933786 s | 12.100223 s | 40/40 | 35/4/1 | 0 | 0.0 | 0 |
+| `standard_10` | full | 28.367157 s | 27.893194 s | 29.318483 s | 28.807959 s | 40/40 | 35/4/1 | 0 | 0.0 | 0 |
+| `tilted_12` | block | 8.409430 s | 8.730079 s | 9.391315 s | 9.768451 s | 32/32 | 29/2/1 | 0 | 0.0 | 0 |
+| `tilted_12` | full | 25.954214 s | 26.489778 s | 27.056603 s | 27.532324 s | 32/32 | 29/2/1 | 0 | 0.0 | 0 |
 
-在两张合成图上，block 热 OCR 分别约比 full 快 `2.42×` 和 `3.05×`，字段结果一致，因此继续作为实验默认模式。完整环境、缓存、返回结构、字段语义和限制见 [`REAL_OCR_BENCHMARK.md`](./REAL_OCR_BENCHMARK.md)。
+在两张合成图上，两种模式字段结果一致，block 热 OCR 分别约比 full 快 `2.54×` 和 `3.03×`，因此继续作为实验默认模式。完整环境、缓存、返回结构、字段语义和限制见 [`REAL_OCR_BENCHMARK.md`](./REAL_OCR_BENCHMARK.md)。
 
-此前真实 OCR Run 仅保留为历史诊断证据，不再作为性能或环境数据引用来源。本结论只覆盖两张合成图，不代表多学校真实课表准确率。
+本结论只覆盖两张合成图，不代表多学校真实课表准确率。此前真实 OCR Run 仅保留为历史诊断证据，不再作为性能或环境数据引用来源。
 
 ## 支持范围
 
@@ -160,8 +161,8 @@ python -m experiments.screenshot_import recognize `
 - `valueAccuracy`：字段值是完全正确、标准化正确、错误或值缺失；
 - `reviewStatus`：证据状态是 `confirmed`、`review` 或 `missing`；
 - 可选字段真值为空、预测为空时，值可标准化正确，但状态仍可为 `missing`；
-- 未匹配预测课程作为 false positive，非 missing 字段计入错误，confirmed 字段计入 `wrongConfirmedRate`；
-- 课程匹配使用连通分量内的全局最大匹配；同分最优方案进入 `ambiguousCourseMatches`。
+- 未匹配预测课程作为 false positive，非 missing 字段计入错误，confirmed 字段进入 `autoConfirmationErrors` 并计入 `wrongConfirmedRate`；
+- 课程匹配使用连通分量内的全局最大匹配；同分最优方案进入 `ambiguousCourseMatches`，不会静默选取并宣布唯一正确。
 
 ## 单双周安全规则
 
@@ -195,4 +196,38 @@ python -m pytest experiments\screenshot_import\tests
 
 真实 PaddleOCR 基准不进入常规 Validate，只通过手动 `Real PaddleOCR Benchmark` workflow 执行。工作流在上传前强制校验 source HEAD、16 次运行覆盖和完整评估字段。
 
-本轮没有运行、上传或分析真实学校课表截图。
+## 下一阶段本机真实截图入口
+
+本轮没有运行、上传或分析真实学校课表截图。通过最终外部审计后，用户可以在本机用 2～3 张脱敏标准网格截图进行受控测试；本轮不要求立即执行。
+
+测试前必须检查姓名、学号、班级、手机号和其他个人信息。图片不得提交 Git、不得进入 Artifact、不得写入 fixture；模型、缓存和虚拟环境同样不得提交。文件与报告仅使用 `sample-01`、`sample-02` 等匿名编号，所有识别结果仍需人工核对。
+
+创建隔离环境：
+
+```powershell
+py -3.13 -m venv .venv-screenshot-ocr
+.\.venv-screenshot-ocr\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r experiments\screenshot_import\requirements.txt
+```
+
+将脱敏截图保存在仓库外的本机目录，例如 `D:\screenshot-import-private\inputs\sample-01.png`。为每种模式保留独立输出目录：
+
+```powershell
+python -m experiments.screenshot_import recognize `
+  --input D:\screenshot-import-private\inputs\sample-01.png `
+  --output D:\screenshot-import-private\outputs\sample-01-block `
+  --engine paddle `
+  --ocr-mode block `
+  --repo-root .
+
+python -m experiments.screenshot_import recognize `
+  --input D:\screenshot-import-private\inputs\sample-01.png `
+  --output D:\screenshot-import-private\outputs\sample-01-full `
+  --engine paddle `
+  --ocr-mode full `
+  --assignment-overlap-threshold 0.35 `
+  --repo-root .
+```
+
+只汇总 block/full 各自的 `report.json` 和人工核对结果，不上传原图、OCR 明文、模型或缓存。人工核对至少包括课程数、漏课、unexpected course、错误且 confirmed 字段、单双周错误和两种模式差异。
