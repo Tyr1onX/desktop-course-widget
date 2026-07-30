@@ -95,13 +95,17 @@ jobs:
         run: |
           python -m experiments.screenshot_import generate-synthetic --output .tmp/screenshot-import
           foreach ($sample in @('standard_10', 'tilted_12')) {
-            python -m experiments.screenshot_import recognize `
-              --input ".tmp/screenshot-import/$sample.png" `
-              --output ".tmp/screenshot-import/$sample-output" `
-              --engine fixture `
-              --fixture ".tmp/screenshot-import/$sample.ocr.json" `
-              --repo-root .
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            foreach ($mode in @('block', 'full')) {
+              python -m experiments.screenshot_import recognize `
+                --input ".tmp/screenshot-import/$sample.png" `
+                --output ".tmp/screenshot-import/$sample-$mode-output" `
+                --engine fixture `
+                --fixture ".tmp/screenshot-import/$sample.ocr.json" `
+                --ocr-mode $mode `
+                --ground-truth ".tmp/screenshot-import/$sample.ground-truth.json" `
+                --repo-root .
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            }
           }
 
       - name: Build Windows NSIS installer
