@@ -11,7 +11,9 @@ from experiments.screenshot_import.benchmark_io import (
 )
 
 
-def test_benchmark_json_serialization_and_bootstrap_merge(tmp_path: Path):
+def test_benchmark_json_serialization_and_bootstrap_merge(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     results = tmp_path / "results"
     run_dir = results / "runs" / "standard_10" / "block" / "cold-1"
     run_dir.mkdir(parents=True)
@@ -37,10 +39,18 @@ def test_benchmark_json_serialization_and_bootstrap_merge(tmp_path: Path):
     }
     bootstrap_path = tmp_path / "model-bootstrap.json"
     bootstrap_path.write_text(json.dumps(bootstrap), encoding="utf-8")
+    monkeypatch.setenv("GITHUB_SHA", "workflow-event-sha")
+    monkeypatch.setenv("BENCHMARK_SOURCE_SHA", "checked-out-source-sha")
+    monkeypatch.setenv("GITHUB_RUN_ID", "123")
 
     finalized = finalize_benchmark(benchmark_path, bootstrap_path)
     assert finalized["model"]["cacheBytes"] == 1234
     assert finalized["model"]["modelDownloadSeconds"] == 3.0
+    assert finalized["provenance"]["benchmarkHead"] == "checked-out-source-sha"
+    assert finalized["provenance"]["workflowEventSha"] == "workflow-event-sha"
+    assert finalized["provenance"]["artifactName"] == (
+        "real-paddleocr-benchmark-checked-out-source-sha"
+    )
     persisted = json.loads(benchmark_path.read_text(encoding="utf-8"))
     assert persisted == finalized
     report = json.loads(report_path.read_text(encoding="utf-8"))
