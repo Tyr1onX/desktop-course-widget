@@ -2,17 +2,12 @@ name: Real PaddleOCR Benchmark
 
 on:
   workflow_dispatch:
-  pull_request:
-    branches:
-      - main
-    paths:
-      - .github/workflows/real-ocr-benchmark.yml
 
 permissions:
   contents: read
 
 env:
-  BENCHMARK_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  BENCHMARK_SOURCE_SHA: ${{ github.sha }}
   PYTHONUTF8: '1'
   PYTHONIOENCODING: utf-8
   FLAGS_use_mkldnn: '0'
@@ -125,7 +120,6 @@ jobs:
           exit $LASTEXITCODE
 
       - name: Upload sanitized benchmark evidence
-        id: upload
         uses: actions/upload-artifact@v4
         with:
           name: real-paddleocr-benchmark-${{ env.BENCHMARK_SOURCE_SHA }}
