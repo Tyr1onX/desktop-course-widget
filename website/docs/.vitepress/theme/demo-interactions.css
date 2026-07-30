@@ -1,7 +1,7 @@
 .course-demo-status {
   position: absolute;
   z-index: 8;
-  top: 24px;
+  top: 12px;
   left: 50%;
   display: inline-flex;
   min-height: 30px;
@@ -22,7 +22,7 @@
 .course-demo-controls {
   position: absolute;
   z-index: 8;
-  bottom: 24px;
+  bottom: 20px;
   left: 50%;
   display: flex;
   min-height: 38px;
@@ -103,13 +103,9 @@
 }
 
 @media (max-width: 720px) {
-  .course-demo-status {
-    top: 20px;
-  }
-
   .course-demo-controls {
     right: 18px;
-    bottom: 18px;
+    bottom: 16px;
     left: 18px;
     justify-content: center;
     transform: none;
