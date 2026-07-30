@@ -1,6 +1,5 @@
 output/
 debug/
-.local-screenshot-test/
 models/
 *.onnx
 *.pdmodel
