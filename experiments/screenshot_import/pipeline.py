@@ -10,6 +10,14 @@ from typing import Any
 
 import cv2
 
+from .benchmark import (
+    assign_tokens_to_blocks,
+    enforce_image_parity_review,
+    evaluate_draft,
+    load_ground_truth,
+    validate_confidence_thresholds,
+    validate_overlap_threshold,
+)
 from .blocks import detect_course_blocks
 from .draft import build_import_draft
 from .grid import detect_grid
@@ -32,6 +40,18 @@ def _rounded(values: dict[str, float]) -> dict[str, float]:
     return {key: round(float(value), 6) for key, value in values.items()}
 
 
+def _rounded_runtime(values: dict[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in values.items():
+        if isinstance(value, float):
+            result[key] = round(value, 6)
+        elif isinstance(value, list):
+            result[key] = [round(item, 6) if isinstance(item, float) else item for item in value]
+        else:
+            result[key] = value
+    return result
+
+
 def recognize_image(
     *,
     input_path: str | Path,
@@ -40,7 +60,18 @@ def recognize_image(
     preprocess_config: PreprocessConfig | None = None,
     parser_config: FieldParserConfig | None = None,
     repo_root: str | Path | None = None,
+    ocr_mode: str = "block",
+    assignment_overlap_threshold: float = 0.35,
+    ground_truth_path: str | Path | None = None,
 ) -> dict[str, Any]:
+    parser_config = parser_config or FieldParserConfig()
+    validate_confidence_thresholds(
+        parser_config.review_confidence, parser_config.high_confidence
+    )
+    validate_overlap_threshold(assignment_overlap_threshold)
+    if ocr_mode not in {"block", "full"}:
+        raise ValueError("ocr-mode must be either block or full")
+
     started = time.perf_counter()
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
@@ -62,18 +93,48 @@ def recognize_image(
 
     all_tokens: list[OcrToken] = []
     course_results = []
-    ocr_seconds = 0.0
+    inference_durations: list[float] = []
     parse_seconds = 0.0
-    for block in blocks:
+    assignment_debug: dict[str, Any] = {
+        "assignedCounts": [],
+        "ambiguous": [],
+        "unassigned": [],
+    }
+
+    if ocr_mode == "block":
+        tokens_by_block: list[list[OcrToken]] = []
+        for block in blocks:
+            stage = time.perf_counter()
+            tokens = ocr_engine.recognize(preprocessed.original_bgr, block.original_box)
+            inference_durations.append(time.perf_counter() - stage)
+            tokens_by_block.append(tokens)
+            all_tokens.extend(tokens)
+        assignment_debug["assignedCounts"] = [len(tokens) for tokens in tokens_by_block]
+    else:
         stage = time.perf_counter()
-        tokens = ocr_engine.recognize(preprocessed.original_bgr, block.original_box)
-        ocr_seconds += time.perf_counter() - stage
-        all_tokens.extend(tokens)
+        all_tokens = ocr_engine.recognize(
+            preprocessed.original_bgr, grid.original_table_box
+        )
+        inference_durations.append(time.perf_counter() - stage)
+        assignment = assign_tokens_to_blocks(
+            all_tokens,
+            blocks,
+            overlap_threshold=assignment_overlap_threshold,
+        )
+        tokens_by_block = assignment.by_block
+        assignment_debug = assignment.debug_dict(
+            preprocessed.original_width, preprocessed.original_height
+        )
+
+    for block, tokens in zip(blocks, tokens_by_block):
         stage = time.perf_counter()
         fields = parse_course_fields(tokens, block, parser_config)
+        enforce_image_parity_review(fields)
         parse_seconds += time.perf_counter() - stage
         course_results.append((block, fields))
-    timings["ocrInferenceSeconds"] = ocr_seconds
+
+    total_inference_seconds = sum(inference_durations)
+    timings["ocrInferenceSeconds"] = total_inference_seconds
     timings["fieldParsingSeconds"] = parse_seconds
 
     recognizer = ocr_engine.version_info()
@@ -83,6 +144,10 @@ def recognize_image(
             [*grid.warnings, *(warning for block in blocks for warning in block.warnings)]
         )
     )
+    if assignment_debug["ambiguous"]:
+        warnings.append(
+            f"{len(assignment_debug['ambiguous'])} 个 OCR token 同时匹配多个课程块，需要复核"
+        )
     draft = build_import_draft(
         source_path=input_path,
         image_width=preprocessed.original_width,
@@ -113,14 +178,18 @@ def recognize_image(
         json.dumps(grid_payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    diagnostics = getattr(ocr_engine, "diagnostics", lambda: {})()
     ocr_path.write_text(
         json.dumps(
             {
                 "engine": recognizer,
+                "ocrMode": ocr_mode,
                 "tokens": [
                     token.to_dict(preprocessed.original_width, preprocessed.original_height)
                     for token in all_tokens
                 ],
+                "assignment": assignment_debug,
+                "resultStructure": diagnostics.get("resultStructure"),
             },
             ensure_ascii=False,
             indent=2,
@@ -141,7 +210,12 @@ def recognize_image(
         for course in draft["courses"]
         for evidence in course["review"]["fields"]
     )
+    evaluation = None
+    if ground_truth_path is not None:
+        evaluation = evaluate_draft(draft, load_ground_truth(ground_truth_path))
+
     timings["totalPipelineSeconds"] = time.perf_counter() - started
+    runtime = _rounded_runtime(ocr_engine.runtime_info())
     report = {
         "success": True,
         "resultKind": (
@@ -149,6 +223,23 @@ def recognize_image(
             if recognizer.get("engine") == "fixture"
             else "real PaddleOCR result"
         ),
+        "ocrMode": ocr_mode,
+        "predictCallCount": len(inference_durations),
+        "modelDownloadSeconds": runtime.get("modelDownloadSeconds"),
+        "initializationSeconds": runtime.get("initializationSeconds"),
+        "coldInferenceSeconds": None,
+        "hotInferenceSeconds": None,
+        "totalInferenceSeconds": round(total_inference_seconds, 6),
+        "averageInferenceSeconds": (
+            round(total_inference_seconds / len(inference_durations), 6)
+            if inference_durations
+            else None
+        ),
+        "maximumInferenceSeconds": (
+            round(max(inference_durations), 6) if inference_durations else None
+        ),
+        "peakMemoryMb": runtime.get("peakMemoryMb"),
+        "modelCacheBytes": runtime.get("modelCacheBytes"),
         "input": str(Path(input_path)),
         "image": {
             "width": preprocessed.original_width,
@@ -170,6 +261,16 @@ def recognize_image(
                 "missing": statuses.get("missing", 0),
             }
         },
+        "fieldEvaluation": evaluation,
+        "autoConfirmationErrors": (
+            evaluation.get("autoConfirmationErrors", []) if evaluation else []
+        ),
+        "wrongConfirmedRate": (
+            evaluation.get("wrongConfirmedRate") if evaluation else None
+        ),
+        "groundTruthSource": (
+            evaluation.get("groundTruthSource") if evaluation else None
+        ),
         "versions": {
             "python": platform.python_version(),
             "opencv": cv2.__version__,
@@ -178,10 +279,12 @@ def recognize_image(
             **recognizer,
         },
         "thresholds": {
-            "confirmed": (parser_config or FieldParserConfig()).high_confidence,
-            "review": (parser_config or FieldParserConfig()).review_confidence,
+            "confirmed": parser_config.high_confidence,
+            "review": parser_config.review_confidence,
+            "assignmentOverlap": assignment_overlap_threshold,
         },
-        "ocrRuntime": _rounded(ocr_engine.runtime_info()),
+        "ocrRuntime": runtime,
+        "ocrDiagnostics": diagnostics,
         "rustValidation": rust,
         "rustStructuralValidation": rust,
         "timings": _rounded(timings),
