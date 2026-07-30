@@ -175,6 +175,57 @@ test.describe('shared course handoff', () => {
     expect(Math.abs(finalHeight - firstHeight)).toBeLessThanOrEqual(0.5)
   })
 
+  test('keeps ended-to-empty automatic sequence within one height settle', async ({ page }) => {
+    await openExperience(page)
+    const host = page.locator(hostSelector)
+
+    await page.locator(stepSelector).nth(2).click()
+    await waitForStableHandoff(page)
+    await expect(page.locator('.course-stage--experience .course-demo-status')).toContainText('今日结束')
+    await expect(host).toHaveAttribute('data-demo-timer-state', 'scheduled')
+
+    await installGeometryTrace(page)
+    await page.locator(stepSelector).nth(3).click()
+    await expect(host).toHaveAttribute('data-demo-transition-state', 'running')
+    await expect(host).toHaveAttribute('data-demo-timer-state', 'idle')
+    await waitForStableHandoff(page)
+    await expectEmptyState(page)
+    await expect(host).toHaveAttribute('data-demo-timer-state', 'scheduled')
+
+    const settledHeight = await host.locator('.course-widget').evaluate((widget) => widget.getBoundingClientRect().height)
+    await page.waitForTimeout(220)
+    const delayedHeight = await host.locator('.course-widget').evaluate((widget) => widget.getBoundingClientRect().height)
+    const trace = await readGeometryTrace(page)
+    const phaseNames = trace.phases.map(({ phase }) => phase)
+    const installed = trace.phases.find(({ phase }) => phase === 'content-installed')!
+    const resizing = trace.phases.find(({ phase }) => phase === 'resizing')!
+    const complete = trace.phases.find(({ phase }) => phase === 'complete')!
+
+    expect(phaseNames.filter((phase) => phase === 'resizing')).toHaveLength(1)
+    expect(resizing.time - installed.time).toBeLessThan(80)
+    expect(Math.abs(resizing.height - installed.height)).toBeLessThanOrEqual(1)
+    expect(complete.time).toBeGreaterThan(resizing.time)
+    expect(Math.abs(delayedHeight - settledHeight)).toBeLessThanOrEqual(0.5)
+
+    const lateSizes = trace.sizes.filter(({ time }) => time > complete.time + 32)
+    expect(lateSizes.every(({ height }) => Math.abs(height - settledHeight) <= 0.5)).toBe(true)
+
+    await expect(host.locator([
+      '.widget-body-handoff',
+      '.course-transition-overlay',
+      '.course-shared-morph',
+      '.course-shared-float',
+      '.course-final-wipe',
+      '[data-shared-source-hidden]',
+      '.is-shared-copy-hidden',
+      '.is-promoting-course',
+      '.is-promoting-source',
+    ].join(', '))).toHaveCount(0)
+    const runningHandoffAnimations = await host.evaluate((element) => element.getAnimations({ subtree: true })
+      .filter((animation) => animation.id === 'course-handoff' && animation.playState === 'running').length)
+    expect(runningHandoffAnimations).toBe(0)
+  })
+
   test('rapid requests cancel stale transitions and settle on the latest target', async ({ page }) => {
     await openExperience(page)
 
