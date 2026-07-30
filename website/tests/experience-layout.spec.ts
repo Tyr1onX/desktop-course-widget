@@ -41,12 +41,42 @@ for (const viewport of viewports) {
       await expect(page.locator('.course-stage--experience .course-demo-toggle')).toBeVisible()
       await expect(page.locator('.experience-capabilities__line')).toHaveCount(2)
       await expect(page.locator('#import-edit, #desktop-behavior, #privacy, .experience-import, .experience-focus, .experience-privacy, .experience-closing, .focus-desktop')).toHaveCount(0)
+      await expect(page.locator('.course-stage__chrome, .course-stage__signal, .course-stage__battery, .course-stage__dock, .course-stage__light--two')).toHaveCount(0)
+      await expect(page.locator('.course-stage--experience .course-stage__light')).toHaveCount(1)
 
       const toggle = page.locator('.course-stage--experience .course-demo-toggle')
       await toggle.click()
       await expect(toggle).toHaveText('继续')
       await toggle.click()
       await expect(toggle).toHaveText('暂停')
+
+      const stage = page.locator('.course-stage--experience')
+      const status = page.locator('.course-demo-status')
+      const host = page.locator('.real-widget-host')
+      const controls = page.locator('.course-demo-controls')
+      const steps = page.locator('.course-demo-step')
+      for (let index = 0; index < 6; index += 1) {
+        await steps.nth(index).click()
+        await expect(steps.nth(index)).toHaveAttribute('aria-current', 'true')
+        await page.waitForFunction(() => document.querySelector<HTMLElement>('.real-widget-host')?.dataset.demoTransitionState === 'idle')
+
+        const spacing = await page.evaluate(() => {
+          const rect = (selector: string) => document.querySelector<HTMLElement>(selector)?.getBoundingClientRect()
+          const stageRect = rect('.course-stage--experience')!
+          const statusRect = rect('.course-demo-status')!
+          const hostRect = rect('.real-widget-host')!
+          const controlsRect = rect('.course-demo-controls')!
+          return {
+            statusGap: hostRect.top - statusRect.bottom,
+            controlsGap: controlsRect.top - hostRect.bottom,
+            controlsBottomGap: stageRect.bottom - controlsRect.bottom,
+          }
+        })
+
+        expect(spacing.statusGap, `state ${index} status should not touch the widget`).toBeGreaterThanOrEqual(12)
+        expect(spacing.controlsGap, `state ${index} controls should not overlap the widget`).toBeGreaterThanOrEqual(12)
+        expect(spacing.controlsBottomGap, `state ${index} controls should keep a stage inset`).toBeGreaterThanOrEqual(14)
+      }
 
       const metrics = await page.evaluate(() => {
         const layoutPosition = (element: HTMLElement) => {
@@ -80,8 +110,10 @@ for (const viewport of viewports) {
         })
         const hero = document.querySelector<HTMLElement>('.experience-hero')!
         const footer = document.querySelector<HTMLElement>('.experience-footer')!
+        const stage = document.querySelector<HTMLElement>('.course-stage--experience')!
         const heroPosition = layoutPosition(hero)
         const footerPosition = layoutPosition(footer)
+        const stageStyle = getComputedStyle(stage)
         return {
           viewportWidth: window.innerWidth,
           viewportHeight: window.innerHeight,
@@ -94,6 +126,8 @@ for (const viewport of viewports) {
           leadLineCounts: Array.from(document.querySelectorAll<HTMLElement>('.experience-hero__lead span')).map(textLineCount),
           heroBottom: heroPosition.top + hero.offsetHeight,
           footerTop: footerPosition.top,
+          stageHeight: stage.getBoundingClientRect().height,
+          stageBackground: stageStyle.backgroundImage,
           navLinks: Array.from(document.querySelectorAll<HTMLAnchorElement>('.course-nav__links a')).map((link) => link.getAttribute('href')),
           downloadHref: document.querySelector<HTMLAnchorElement>('.experience-hero .course-button--primary')?.getAttribute('href') ?? '',
           guideHref: document.querySelector<HTMLAnchorElement>('.experience-hero .course-button--text')?.getAttribute('href') ?? '',
@@ -110,6 +144,8 @@ for (const viewport of viewports) {
       expect(metrics.footerTop).toBeGreaterThanOrEqual(metrics.heroBottom - 1)
       expect(metrics.footerTop - metrics.heroBottom).toBeLessThanOrEqual(2)
       expect(metrics.scrollHeight).toBeLessThanOrEqual(metrics.viewportHeight * 2.35)
+      expect(metrics.stageHeight).toBeLessThanOrEqual(572)
+      expect((metrics.stageBackground.match(/gradient/g) ?? []).length).toBe(1)
       for (const bound of metrics.bounds) {
         expect(bound.missing, `${bound.selector} should exist`).toBe(false)
         if (bound.missing) continue
@@ -142,10 +178,16 @@ test('removes the retired sections and their runtime modules', async ({ page }) 
   const demoSource = readFileSync(resolve(themeRoot, 'website-demo.ts'), 'utf8')
   const demoStyles = readFileSync(resolve(themeRoot, 'demo-interactions.css'), 'utf8')
   const sharedStyles = readFileSync(resolve(themeRoot, 'custom.css'), 'utf8')
+  const motionStyles = readFileSync(resolve(themeRoot, 'motion.css'), 'utf8')
   expect(experienceSource).not.toContain('import-edit')
   expect(experienceSource).not.toContain('desktop-behavior')
   expect(experienceSource).not.toContain('experience-privacy')
   expect(experienceSource).not.toContain('experience-closing')
+  expect(experienceSource).not.toContain('course-stage__chrome')
+  expect(experienceSource).not.toContain('course-stage__signal')
+  expect(experienceSource).not.toContain('course-stage__battery')
+  expect(experienceSource).not.toContain('course-stage__dock')
+  expect(experienceSource).not.toContain('course-stage__light--two')
   expect(demoSource).not.toContain('setupTrayDemo')
   expect(demoSource).not.toContain('website-demo-story')
   expect(demoStyles).not.toContain('focus-desktop')
@@ -153,6 +195,14 @@ test('removes the retired sections and their runtime modules', async ({ page }) 
   expect(sharedStyles).not.toContain('.focus-desktop')
   expect(sharedStyles).not.toContain('.course-privacy')
   expect(sharedStyles).not.toContain('.course-closing')
+  expect(sharedStyles).not.toContain('.course-stage__chrome')
+  expect(sharedStyles).not.toContain('.course-stage__signal')
+  expect(sharedStyles).not.toContain('.course-stage__battery')
+  expect(sharedStyles).not.toContain('.course-stage__dock')
+  expect(sharedStyles).not.toContain('.course-stage__light--two')
+  expect(motionStyles).not.toContain('course-stage__dock')
+  expect(motionStyles).not.toContain('course-stage__light--two')
+  expect(motionStyles).not.toContain('course-dock-breathe')
 
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto(experiencePath, { waitUntil: 'networkidle' })
