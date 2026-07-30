@@ -87,6 +87,9 @@ jobs:
       - name: Run Rust library tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --lib
 
+      - name: Prebuild ImportDraft validator example
+        run: cargo build --quiet --manifest-path src-tauri/Cargo.toml --example validate_import_draft
+
       - name: Validate synthetic screenshot drafts with Rust
         shell: pwsh
         run: |
