@@ -23,6 +23,13 @@ function emitPhase(host: HTMLElement, phase: CourseHandoffPhase, callback?: (pha
   host.dispatchEvent(new CustomEvent('course-handoff:phase', { detail: { phase } }))
 }
 
+function transitionPrimaryParts(root: ParentNode | null) {
+  if (!root) return []
+  return Array.from(root.querySelectorAll<HTMLElement>(
+    ':scope > .focus-course, :scope > .state-label, :scope > .empty-state, :scope > .opening-date',
+  ))
+}
+
 export class CourseHandoffSession implements CourseHandoffHandle {
   readonly finished: Promise<CourseHandoffResult>
 
@@ -199,9 +206,10 @@ export class CourseHandoffSession implements CourseHandoffHandle {
     await this.nextFrame()
     if (!this.isActive()) return
 
+    const targetHeight = nextBody.getBoundingClientRect().height
     const outgoingPrimary = transitionPrimary(currentBody)
     const outgoingSecondary = transitionSecondary(currentBody)
-    const targetPrimary = transitionPrimary(nextBody)
+    const targetPrimary = nextBody.querySelector<HTMLElement>('.focus-course') ?? transitionPrimary(nextBody)
     const sharedSource = findSharedCourseSource(currentBody, nextBody)
     let sharedHandoffCompleted = false
 
@@ -218,10 +226,10 @@ export class CourseHandoffSession implements CourseHandoffHandle {
       if (!this.isActive()) return
     } else {
       await Promise.all([
-        this.animate(outgoingPrimary, [
+        ...transitionPrimaryParts(currentBody).map((part) => this.animate(part, [
           { opacity: 1, transform: 'translateY(0) scale(1)', filter: 'blur(0)' },
           { opacity: 0, transform: 'translateY(-46px) scale(.97)', filter: 'blur(5px)' },
-        ], { duration: this.timings.exit, easing: 'cubic-bezier(.4, 0, .7, .2)', fill: 'both' }),
+        ], { duration: this.timings.exit, easing: 'cubic-bezier(.4, 0, .7, .2)', fill: 'both' })),
         this.animate(outgoingSecondary, [
           { opacity: 1, transform: 'translateY(0)' },
           { opacity: 0, transform: 'translateY(-16px)' },
@@ -243,22 +251,20 @@ export class CourseHandoffSession implements CourseHandoffHandle {
     stage.classList.add('is-size-settling')
     this.contentInstalled = true
     this.phase('content-installed')
-    const targetHeight = nextBody.getBoundingClientRect().height
 
-    if (!sharedHandoffCompleted) {
-      await this.animate(transitionPrimary(nextBody), [
+    const resizeAnimation = this.animate(stage, [
+      { height: `${currentHeight}px` },
+      { height: `${targetHeight}px` },
+    ], { duration: this.timings.resize, easing: 'cubic-bezier(.22, 1, .36, 1)', fill: 'both' })
+    this.phase('resizing')
+
+    const enteringPrimary = sharedHandoffCompleted ? [] : transitionPrimaryParts(nextBody)
+    await Promise.all([
+      resizeAnimation,
+      ...enteringPrimary.map((part) => this.animate(part, [
         { opacity: 0, transform: 'translateY(34px) scale(.96)', filter: 'blur(5px)' },
         { opacity: 1, transform: 'translateY(0) scale(1)', filter: 'blur(0)' },
-      ], { duration: this.timings.normalEnter, easing: 'cubic-bezier(.16, 1, .3, 1)', fill: 'both' })
-      if (!this.isActive()) return
-    }
-
-    this.phase('resizing')
-    await Promise.all([
-      this.animate(stage, [
-        { height: `${currentHeight}px` },
-        { height: `${targetHeight}px` },
-      ], { duration: this.timings.resize, easing: 'cubic-bezier(.22, 1, .36, 1)', fill: 'both' }),
+      ], { duration: this.timings.normalEnter, easing: 'cubic-bezier(.16, 1, .3, 1)', fill: 'both' })),
       this.animate(nextFollowing, [
         { opacity: 0, transform: `translateY(${sharedHandoffCompleted ? 10 : 14}px)` },
         { opacity: 1, transform: 'translateY(0)' },
@@ -275,8 +281,10 @@ export class CourseHandoffSession implements CourseHandoffHandle {
       nextFollowing.style.removeProperty('opacity')
       nextFollowing.style.removeProperty('transform')
     }
+    enteringPrimary.forEach((part) => clearElementAnimations(part))
 
-    stage.style.removeProperty('height')
+    stage.style.height = `${targetHeight}px`
+    clearElementAnimations(stage)
     stage.replaceWith(nextBody)
     this.stage = null
     resetHandoffBody(nextBody)
