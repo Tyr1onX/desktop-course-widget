@@ -7,7 +7,8 @@ from pathlib import Path
 
 from .benchmark import validate_confidence_thresholds, validate_overlap_threshold
 from .ground_truth import GROUND_TRUTHS, write_ground_truth
-from .ocr import FixtureOcrEngine, PaddleOcrEngine
+from .ocr import FixtureOcrEngine
+from .paddle_cpu import WindowsCpuPaddleOcrEngine
 from .parse_fields import FieldParserConfig
 from .pipeline import recognize_image
 from .preprocess import PreprocessConfig
@@ -72,7 +73,7 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("--engine fixture requires --fixture")
             engine = FixtureOcrEngine(args.fixture)
         else:
-            engine = PaddleOcrEngine()
+            engine = WindowsCpuPaddleOcrEngine()
         report = recognize_image(
             input_path=args.input,
             output_dir=args.output,
