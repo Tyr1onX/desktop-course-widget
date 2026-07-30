@@ -44,13 +44,17 @@ def finalize_benchmark(
             "firstPredictionSeconds": bootstrap.get("firstPredictionSeconds"),
         }
     )
-    run_head = os.environ.get("GITHUB_SHA")
+    workflow_event_sha = os.environ.get("GITHUB_SHA")
+    benchmark_head = os.environ.get("BENCHMARK_SOURCE_SHA") or workflow_event_sha
     benchmark["provenance"] = {
         "workflowRunId": os.environ.get("GITHUB_RUN_ID"),
         "workflowRunAttempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
-        "benchmarkHead": run_head,
+        "benchmarkHead": benchmark_head,
+        "workflowEventSha": workflow_event_sha,
         "workflowName": os.environ.get("GITHUB_WORKFLOW"),
-        "artifactName": f"real-paddleocr-benchmark-{run_head}" if run_head else None,
+        "artifactName": (
+            f"real-paddleocr-benchmark-{benchmark_head}" if benchmark_head else None
+        ),
         "generatedAtUtc": datetime.now(timezone.utc).isoformat(),
     }
     cache_test = benchmark.get("offlineCacheTest")
