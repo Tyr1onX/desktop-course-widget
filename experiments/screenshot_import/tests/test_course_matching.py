@@ -69,7 +69,7 @@ def test_global_matching_avoids_greedy_local_optimum():
         name="同名课程", weekday=1, start=1, end=2
     )
     only_other_global_option = _course(
-        name="完全不同", weekday=1, start=1, end=2
+        name="ABCD", weekday=1, start=1, end=2
     )
 
     result = evaluate_draft(
