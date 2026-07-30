@@ -9,7 +9,6 @@ on:
       - main
 
 permissions:
-  actions: read
   contents: read
 
 concurrency:
@@ -24,28 +23,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Capture prebuilt real OCR benchmark status
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh run list `
-            --repo $env:GITHUB_REPOSITORY `
-            --workflow "Real PaddleOCR Benchmark (oneDNN safe v2)" `
-            --branch feat/screenshot-recognition-spike `
-            --limit 5 `
-            --json databaseId,status,conclusion,headSha,url,createdAt,event `
-            | Out-File -Encoding utf8 real-ocr-runs.json
-          Get-Content real-ocr-runs.json
-
-      - name: Upload real OCR run status
-        uses: actions/upload-artifact@v4
-        with:
-          name: real-ocr-run-status
-          path: real-ocr-runs.json
-          if-no-files-found: error
-          retention-days: 1
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
