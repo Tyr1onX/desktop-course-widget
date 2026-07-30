@@ -2,9 +2,9 @@ name: Real PaddleOCR Benchmark
 
 on:
   workflow_dispatch:
-  push:
+  pull_request:
     branches:
-      - feat/screenshot-recognition-spike
+      - main
     paths:
       - .github/workflows/real-ocr-benchmark.yml
 
@@ -14,6 +14,7 @@ permissions:
   issues: write
 
 env:
+  BENCHMARK_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
   PYTHONUTF8: '1'
   PYTHONIOENCODING: utf-8
   FLAGS_use_mkldnn: '0'
@@ -26,12 +27,16 @@ jobs:
     timeout-minutes: 90
 
     steps:
-      - name: Checkout
+      - name: Checkout benchmark source HEAD
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BENCHMARK_SOURCE_SHA }}
 
       - name: Open canonical benchmark receipt
         id: receipt
         uses: actions/github-script@v7
+        env:
+          SOURCE_SHA: ${{ env.BENCHMARK_SOURCE_SHA }}
         with:
           script: |
             const response = await github.rest.issues.createComment({
@@ -43,7 +48,8 @@ jobs:
                 '',
                 '- Status: `running`',
                 `- Run ID: \`${context.runId}\``,
-                `- Run HEAD: \`${context.sha}\``,
+                `- Benchmark source HEAD: \`${process.env.SOURCE_SHA}\``,
+                `- Workflow event SHA: \`${context.sha}\``,
                 '- Workflow: `real-ocr-benchmark.yml`',
                 '',
                 'This run is not canonical until every benchmark step and the artifact upload succeed.',
@@ -101,6 +107,8 @@ jobs:
             venvPath = $venv
             venvBytes = $venvBytes
             mkldnnDisabled = $true
+            benchmarkSourceSha = $env:BENCHMARK_SOURCE_SHA
+            workflowRunId = $env:GITHUB_RUN_ID
             commands = @(
               'python -m venv <RUNNER_TEMP>/paddleocr-real-benchmark',
               'python -m pip download --no-deps --only-binary=:all: --index-url https://pypi.org/simple paddlepaddle==3.3.1',
@@ -138,7 +146,7 @@ jobs:
       - name: Upload sanitized benchmark evidence
         uses: actions/upload-artifact@v4
         with:
-          name: real-paddleocr-benchmark-${{ github.sha }}
+          name: real-paddleocr-benchmark-${{ env.BENCHMARK_SOURCE_SHA }}
           path: |
             .tmp/real-ocr/install-*.log
             .tmp/real-ocr/install-metadata.json
@@ -161,9 +169,10 @@ jobs:
         uses: actions/github-script@v7
         env:
           COMMENT_ID: ${{ steps.receipt.outputs.comment_id }}
+          SOURCE_SHA: ${{ env.BENCHMARK_SOURCE_SHA }}
         with:
           script: |
-            const expectedName = `real-paddleocr-benchmark-${context.sha}`;
+            const expectedName = `real-paddleocr-benchmark-${process.env.SOURCE_SHA}`;
             let artifact = null;
             for (let attempt = 0; attempt < 20 && !artifact; attempt += 1) {
               const response = await github.rest.actions.listWorkflowRunArtifacts({
@@ -188,7 +197,8 @@ jobs:
                 '',
                 '- Status: `success`',
                 `- Run ID: \`${context.runId}\``,
-                `- Run HEAD: \`${context.sha}\``,
+                `- Benchmark source HEAD: \`${process.env.SOURCE_SHA}\``,
+                `- Workflow event SHA: \`${context.sha}\``,
                 `- Artifact ID: \`${artifact.id}\``,
                 `- Artifact: \`${artifact.name}\``,
                 `- Artifact digest: \`${artifact.digest}\``,
@@ -204,6 +214,7 @@ jobs:
         uses: actions/github-script@v7
         env:
           COMMENT_ID: ${{ steps.receipt.outputs.comment_id }}
+          SOURCE_SHA: ${{ env.BENCHMARK_SOURCE_SHA }}
         with:
           script: |
             await github.rest.issues.updateComment({
@@ -215,7 +226,8 @@ jobs:
                 '',
                 '- Status: `failure`',
                 `- Run ID: \`${context.runId}\``,
-                `- Run HEAD: \`${context.sha}\``,
+                `- Benchmark source HEAD: \`${process.env.SOURCE_SHA}\``,
+                `- Workflow event SHA: \`${context.sha}\``,
                 '',
                 'This run is not canonical. Inspect the workflow logs and sanitized partial artifact before retrying.',
               ].join('\n'),
