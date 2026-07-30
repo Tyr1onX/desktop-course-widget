@@ -83,8 +83,24 @@
 
 .course-stage--experience {
   width: min(1120px, calc(100% - 32px));
-  min-height: 620px;
+  min-height: 570px;
   margin-top: 48px;
+  background: linear-gradient(150deg, #e1e5e9 0%, #d5dbe0 52%, #ccd3d9 100%);
+  box-shadow: 0 30px 76px rgba(35, 48, 62, 0.13);
+}
+
+.course-stage--experience::before {
+  content: none;
+}
+
+.course-stage--experience .course-stage__light {
+  top: -16%;
+  left: 12%;
+  width: 76%;
+  height: 72%;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+  filter: blur(44px);
 }
 
 .experience-capabilities {
@@ -171,7 +187,7 @@
   }
 
   .course-stage--experience {
-    min-height: 570px;
+    min-height: 550px;
     margin-top: 40px;
   }
 }
@@ -199,8 +215,15 @@
 
   .course-stage--experience {
     width: 100%;
-    min-height: 520px;
+    min-height: 500px;
     margin-top: 36px;
+  }
+
+  .course-stage--experience .course-stage__light {
+    top: -8%;
+    left: 4%;
+    width: 92%;
+    height: 64%;
   }
 
   .experience-capabilities {
@@ -235,7 +258,7 @@
   }
 
   .course-stage--experience {
-    min-height: 500px;
+    min-height: 490px;
     margin-top: 32px;
   }
 
@@ -260,6 +283,6 @@
   }
 
   .course-stage--experience {
-    min-height: 490px;
+    min-height: 480px;
   }
 }
