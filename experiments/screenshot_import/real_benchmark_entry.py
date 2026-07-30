@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -26,13 +27,11 @@ def main(argv: list[str] | None = None) -> int:
         model_bootstrap.PaddleOcrEngine = WindowsCpuPaddleOcrEngine
         try:
             result = model_bootstrap.run(Path(args.output))
-            model_bootstrap.print(
-                model_bootstrap.json.dumps(result, ensure_ascii=False, indent=2)
-            )
+            print(json.dumps(result, ensure_ascii=False, indent=2))
             return 0
         except Exception as error:
             print(
-                model_bootstrap.json.dumps(
+                json.dumps(
                     {"success": False, "error": f"{type(error).__name__}: {error}"},
                     ensure_ascii=False,
                     indent=2,
@@ -48,7 +47,7 @@ def main(argv: list[str] | None = None) -> int:
             Path(args.output), Path(args.repo_root), Path(args.install_metadata)
         )
         print(
-            real_benchmark.json.dumps(
+            json.dumps(
                 {"success": True, "comparisons": payload["comparisons"]},
                 ensure_ascii=False,
                 indent=2,
@@ -57,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     except Exception as error:
         print(
-            real_benchmark.json.dumps(
+            json.dumps(
                 {"success": False, "error": f"{type(error).__name__}: {error}"},
                 ensure_ascii=False,
                 indent=2,
