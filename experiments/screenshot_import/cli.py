@@ -5,6 +5,8 @@ import json
 import sys
 from pathlib import Path
 
+from .benchmark import validate_confidence_thresholds, validate_overlap_threshold
+from .ground_truth import GROUND_TRUTHS, write_ground_truth
 from .ocr import FixtureOcrEngine, PaddleOcrEngine
 from .parse_fields import FieldParserConfig
 from .pipeline import recognize_image
@@ -33,6 +35,9 @@ def parser() -> argparse.ArgumentParser:
     recognize.add_argument("--no-deskew", action="store_true")
     recognize.add_argument("--high-confidence", type=float, default=0.90)
     recognize.add_argument("--review-confidence", type=float, default=0.55)
+    recognize.add_argument("--ocr-mode", choices=["block", "full"], default="block")
+    recognize.add_argument("--assignment-overlap-threshold", type=float, default=0.35)
+    recognize.add_argument("--ground-truth")
     recognize.add_argument("--repo-root")
     synth = sub.add_parser("generate-synthetic")
     synth.add_argument("--output", required=True)
@@ -46,9 +51,22 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "generate-synthetic":
             names = args.scenario or sorted(scenarios())
-            payload = {name: {key: str(value) for key, value in generate_synthetic_sample(args.output, name).items()} for name in names}
+            payload = {}
+            for name in names:
+                generated = {
+                    key: str(value)
+                    for key, value in generate_synthetic_sample(args.output, name).items()
+                }
+                if name in GROUND_TRUTHS:
+                    generated["groundTruth"] = str(write_ground_truth(name, args.output))
+                payload[name] = generated
             print(json.dumps(payload, ensure_ascii=False, indent=2))
             return 0
+
+        validate_confidence_thresholds(
+            args.review_confidence, args.high_confidence
+        )
+        validate_overlap_threshold(args.assignment_overlap_threshold)
         if args.engine == "fixture":
             if not args.fixture:
                 raise ValueError("--engine fixture requires --fixture")
@@ -59,9 +77,17 @@ def main(argv: list[str] | None = None) -> int:
             input_path=args.input,
             output_dir=args.output,
             ocr_engine=engine,
-            preprocess_config=PreprocessConfig(scale=args.scale, deskew=not args.no_deskew),
-            parser_config=FieldParserConfig(high_confidence=args.high_confidence, review_confidence=args.review_confidence),
+            preprocess_config=PreprocessConfig(
+                scale=args.scale, deskew=not args.no_deskew
+            ),
+            parser_config=FieldParserConfig(
+                high_confidence=args.high_confidence,
+                review_confidence=args.review_confidence,
+            ),
             repo_root=args.repo_root,
+            ocr_mode=args.ocr_mode,
+            assignment_overlap_threshold=args.assignment_overlap_threshold,
+            ground_truth_path=args.ground_truth,
         )
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 0
