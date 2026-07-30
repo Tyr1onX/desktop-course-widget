@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +44,24 @@ def finalize_benchmark(
             "firstPredictionSeconds": bootstrap.get("firstPredictionSeconds"),
         }
     )
+    run_head = os.environ.get("GITHUB_SHA")
+    benchmark["provenance"] = {
+        "workflowRunId": os.environ.get("GITHUB_RUN_ID"),
+        "workflowRunAttempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
+        "benchmarkHead": run_head,
+        "workflowName": os.environ.get("GITHUB_WORKFLOW"),
+        "artifactName": f"real-paddleocr-benchmark-{run_head}" if run_head else None,
+        "generatedAtUtc": datetime.now(timezone.utc).isoformat(),
+    }
+    cache_test = benchmark.get("offlineCacheTest")
+    if isinstance(cache_test, dict):
+        cache_test["testKind"] = "network-blocked cache reuse test"
+        cache_test["limitations"] = (
+            "proxy variables pointed to unreachable 127.0.0.1:9 and offline flags were enabled; "
+            "this does not prove every physically disconnected environment"
+        )
+        benchmark["networkBlockedCacheReuseTest"] = dict(cache_test)
+
     for report_path in benchmark_file.parent.glob("runs/**/report.json"):
         report = json.loads(report_path.read_text(encoding="utf-8"))
         report["modelDownloadSeconds"] = None
@@ -49,6 +69,9 @@ def finalize_benchmark(
             "model download was measured once in the separate bootstrap stage"
         )
         report["modelCacheBytes"] = bootstrap.get("cacheBytes")
+        evaluation = report.get("fieldEvaluation") or {}
+        report["unexpectedCourseCount"] = evaluation.get("unexpectedCourseCount", 0)
+        report["ambiguousCourseMatches"] = evaluation.get("ambiguousCourseMatches", [])
         report_path.write_text(
             json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
         )
