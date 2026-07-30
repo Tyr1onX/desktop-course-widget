@@ -15,6 +15,55 @@ async function waitForStableHandoff(page: import('@playwright/test').Page) {
   await expect(page.locator(`${hostSelector}.is-course-handoff-active`)).toHaveCount(0)
 }
 
+async function pauseAutomaticDemo(page: import('@playwright/test').Page) {
+  const toggle = page.locator('.course-stage--experience .course-demo-toggle')
+  if (await toggle.textContent() === '暂停') await toggle.click()
+  await expect(toggle).toHaveText('继续')
+}
+
+async function installGeometryTrace(page: import('@playwright/test').Page) {
+  await page.evaluate((selector) => {
+    const host = document.querySelector<HTMLElement>(selector)!
+    const widget = host.querySelector<HTMLElement>('.course-widget')!
+    const phases: Array<{ phase: string; time: number; height: number }> = []
+    const sizes: Array<{ time: number; height: number }> = []
+    const measure = () => (host.querySelector<HTMLElement>('.widget-body-handoff')
+      ?? host.querySelector<HTMLElement>('.widget-body'))?.getBoundingClientRect().height ?? 0
+    const observer = new ResizeObserver(() => {
+      sizes.push({ time: performance.now(), height: widget.getBoundingClientRect().height })
+    })
+    observer.observe(widget)
+    sizes.push({ time: performance.now(), height: widget.getBoundingClientRect().height })
+    host.addEventListener('course-handoff:phase', (event) => {
+      const phase = (event as CustomEvent<{ phase: string }>).detail.phase
+      phases.push({ phase, time: performance.now(), height: measure() })
+    })
+    ;(window as typeof window & {
+      __courseGeometryTrace?: {
+        phases: Array<{ phase: string; time: number; height: number }>
+        sizes: Array<{ time: number; height: number }>
+      }
+    }).__courseGeometryTrace = { phases, sizes }
+  }, hostSelector)
+}
+
+async function readGeometryTrace(page: import('@playwright/test').Page) {
+  return page.evaluate(() => (window as typeof window & {
+    __courseGeometryTrace?: {
+      phases: Array<{ phase: string; time: number; height: number }>
+      sizes: Array<{ time: number; height: number }>
+    }
+  }).__courseGeometryTrace ?? { phases: [], sizes: [] })
+}
+
+async function expectEmptyState(page: import('@playwright/test').Page) {
+  await expect(page.locator(`${hostSelector} .state-label`)).toHaveText('今天无课')
+  await expect(page.locator(`${hostSelector} .focus-kicker`)).toHaveText('下一次课程')
+  await expect(page.locator(`${hostSelector} .focus-course h2`)).toHaveText('计算机网络')
+  await expect(page.locator(`${hostSelector} .course-time`)).toHaveText('08:00–09:40')
+  await expect(page.locator(`${hostSelector} .course-location`)).toHaveText('教学楼 A101')
+}
+
 test.describe('shared course handoff', () => {
   test.use({ reducedMotion: 'no-preference' })
 
@@ -72,6 +121,112 @@ test.describe('shared course handoff', () => {
     expect(transferred).toMatchObject({ floats: 3, hiddenFloats: 3, hiddenTargets: 0, overlay: 1, morph: 1 })
     const complete = trace.snapshots.find((snapshot) => snapshot.phase === 'complete')
     expect(complete).toMatchObject({ floats: 0, hiddenSources: 0, hiddenTargets: 0, overlay: 0, morph: 0 })
+  })
+
+  test('couples compound empty-state entry with one height settle', async ({ page }) => {
+    await openExperience(page)
+    await pauseAutomaticDemo(page)
+    await page.locator(stepSelector).nth(1).click()
+    await waitForStableHandoff(page)
+    await expect(page.locator(`${hostSelector} .focus-course h2`)).toHaveText('概率论')
+
+    await installGeometryTrace(page)
+    await page.locator(stepSelector).nth(3).click()
+    await waitForStableHandoff(page)
+    await expectEmptyState(page)
+
+    const settledHeight = await page.locator(`${hostSelector} .course-widget`).evaluate((widget) => widget.getBoundingClientRect().height)
+    await page.waitForTimeout(220)
+    const delayedHeight = await page.locator(`${hostSelector} .course-widget`).evaluate((widget) => widget.getBoundingClientRect().height)
+    const trace = await readGeometryTrace(page)
+    const phaseNames = trace.phases.map(({ phase }) => phase)
+    const installed = trace.phases.find(({ phase }) => phase === 'content-installed')!
+    const resizing = trace.phases.find(({ phase }) => phase === 'resizing')!
+    const complete = trace.phases.find(({ phase }) => phase === 'complete')!
+
+    expect(phaseNames.filter((phase) => phase === 'resizing')).toHaveLength(1)
+    expect(resizing.time - installed.time).toBeLessThan(80)
+    expect(Math.abs(resizing.height - installed.height)).toBeLessThanOrEqual(1)
+    expect(complete.time).toBeGreaterThan(resizing.time)
+    expect(Math.abs(delayedHeight - settledHeight)).toBeLessThanOrEqual(0.5)
+
+    const lateSizes = trace.sizes.filter(({ time }) => time > complete.time + 32)
+    expect(lateSizes.every(({ height }) => Math.abs(height - settledHeight) <= 0.5)).toBe(true)
+  })
+
+  test('keeps stable-sync empty state free of a delayed second geometry change', async ({ page }) => {
+    await openExperience(page)
+    await pauseAutomaticDemo(page)
+    await installGeometryTrace(page)
+
+    await page.locator(stepSelector).nth(3).click()
+    await waitForStableHandoff(page)
+    await expectEmptyState(page)
+
+    const firstHeight = await page.locator(`${hostSelector} .course-widget`).evaluate((widget) => widget.getBoundingClientRect().height)
+    await page.waitForTimeout(520)
+    const finalHeight = await page.locator(`${hostSelector} .course-widget`).evaluate((widget) => widget.getBoundingClientRect().height)
+    const trace = await readGeometryTrace(page)
+    const phaseNames = trace.phases.map(({ phase }) => phase)
+
+    expect(phaseNames).toContain('stable-sync')
+    expect(phaseNames).not.toContain('resizing')
+    await expect(page.locator(`${hostSelector} .widget-body-handoff`)).toHaveCount(0)
+    expect(Math.abs(finalHeight - firstHeight)).toBeLessThanOrEqual(0.5)
+  })
+
+  test('keeps ended-to-empty automatic sequence within one height settle', async ({ page }) => {
+    await openExperience(page)
+    const host = page.locator(hostSelector)
+
+    await page.locator(stepSelector).nth(2).click()
+    await expect(host).toHaveAttribute('data-demo-transition-state', 'running')
+    await page.mouse.move(0, 0)
+    await waitForStableHandoff(page)
+    await expect(page.locator('.course-stage--experience .course-demo-status')).toContainText('今日结束')
+    await expect(host).toHaveAttribute('data-demo-timer-state', 'scheduled')
+
+    await installGeometryTrace(page)
+    await page.locator(stepSelector).nth(3).click()
+    await expect(host).toHaveAttribute('data-demo-transition-state', 'running')
+    await page.mouse.move(0, 0)
+    await expect(host).toHaveAttribute('data-demo-timer-state', 'idle')
+    await waitForStableHandoff(page)
+    await expectEmptyState(page)
+    await expect(host).toHaveAttribute('data-demo-timer-state', 'scheduled')
+
+    const settledHeight = await host.locator('.course-widget').evaluate((widget) => widget.getBoundingClientRect().height)
+    await page.waitForTimeout(220)
+    const delayedHeight = await host.locator('.course-widget').evaluate((widget) => widget.getBoundingClientRect().height)
+    const trace = await readGeometryTrace(page)
+    const phaseNames = trace.phases.map(({ phase }) => phase)
+    const installed = trace.phases.find(({ phase }) => phase === 'content-installed')!
+    const resizing = trace.phases.find(({ phase }) => phase === 'resizing')!
+    const complete = trace.phases.find(({ phase }) => phase === 'complete')!
+
+    expect(phaseNames.filter((phase) => phase === 'resizing')).toHaveLength(1)
+    expect(resizing.time - installed.time).toBeLessThan(80)
+    expect(Math.abs(resizing.height - installed.height)).toBeLessThanOrEqual(1)
+    expect(complete.time).toBeGreaterThan(resizing.time)
+    expect(Math.abs(delayedHeight - settledHeight)).toBeLessThanOrEqual(0.5)
+
+    const lateSizes = trace.sizes.filter(({ time }) => time > complete.time + 32)
+    expect(lateSizes.every(({ height }) => Math.abs(height - settledHeight) <= 0.5)).toBe(true)
+
+    await expect(host.locator([
+      '.widget-body-handoff',
+      '.course-transition-overlay',
+      '.course-shared-morph',
+      '.course-shared-float',
+      '.course-final-wipe',
+      '[data-shared-source-hidden]',
+      '.is-shared-copy-hidden',
+      '.is-promoting-course',
+      '.is-promoting-source',
+    ].join(', '))).toHaveCount(0)
+    const runningHandoffAnimations = await host.evaluate((element) => element.getAnimations({ subtree: true })
+      .filter((animation) => animation.id === 'course-handoff' && animation.playState === 'running').length)
+    expect(runningHandoffAnimations).toBe(0)
   })
 
   test('rapid requests cancel stale transitions and settle on the latest target', async ({ page }) => {
