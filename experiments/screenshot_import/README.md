@@ -4,22 +4,30 @@
 
 本目录不接入设置页，不提供图片选择或剪贴板入口，不参与正式应用构建，也不会把 Python、PaddleOCR 或模型打包进安装程序。
 
-## 当前结论
+## 当前 canonical 结论
 
-真实 Windows x86-64 CPU 基准已经完成：
+唯一 canonical benchmark：
 
-- Python `3.13.14`
-- PaddlePaddle CPU `3.3.1`
-- PaddleOCR `3.7.0`
-- 官方 PyPI `cp313-cp313-win_amd64` wheel
-- 官方 `PP-OCRv6_medium_det` / `PP-OCRv6_medium_rec` 模型
-- `standard_10`、`tilted_12`
-- block / full 两种 OCR 模式
-- 每组一次冷运行和三次热运行
-- 不可访问代理和离线标记下的缓存复用测试
-- 逐字段 ground truth、值准确性、审阅状态、额外课程、匹配歧义和错误自动确认率
+- Run ID：`30518005940`
+- 基准源 HEAD：`486300eded50134e32b98cec631bc944eb4e5bd3`
+- Artifact ID：`8749892221`
+- Artifact：`real-paddleocr-benchmark-486300eded50134e32b98cec631bc944eb4e5bd3`
+- GitHub artifact digest：`sha256:591d73f733d7a45705e08f150c1ea52596791b6341db28f99a11e7e70f93904d`
+- Artifact 大小：`211,494 bytes`
+- 到期时间：`2026-08-06T06:10:02Z`
 
-完整结果见 [`REAL_OCR_BENCHMARK.md`](./REAL_OCR_BENCHMARK.md)。该结果只覆盖两张合成图，不代表多学校真实课表准确率。
+该 Run 在 Windows Server 2025 x64 上使用 Python 3.13.14、PaddlePaddle 3.3.1、PaddleOCR 3.7.0，完成官方模型 bootstrap、16 次真实 block/full OCR、全局课程匹配、字段评估、canonical 完整性校验和脱敏 Artifact 上传。
+
+| 样本 | 模式 | 冷 OCR | 热 OCR 平均 | 热 pipeline 平均 | 值正确/总数 | unexpected | wrong confirmed rate | 歧义 |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| `standard_10` | block | 10.384034 s | 11.476607 s | 12.345182 s | 40/40 | 0 | 0.0 | 0 |
+| `standard_10` | full | 33.014611 s | 27.757325 s | 28.604932 s | 40/40 | 0 | 0.0 | 0 |
+| `tilted_12` | block | 8.314605 s | 8.811158 s | 9.757986 s | 32/32 | 0 | 0.0 | 0 |
+| `tilted_12` | full | 26.486853 s | 26.863633 s | 27.849931 s | 32/32 | 0 | 0.0 | 0 |
+
+在两张合成图上，block 热 OCR 分别约比 full 快 `2.42×` 和 `3.05×`，字段结果一致，因此继续作为实验默认模式。完整环境、缓存、返回结构、字段语义和限制见 [`REAL_OCR_BENCHMARK.md`](./REAL_OCR_BENCHMARK.md)。
+
+此前真实 OCR Run 仅保留为历史诊断证据，不再作为性能或环境数据引用来源。本结论只覆盖两张合成图，不代表多学校真实课表准确率。
 
 ## 支持范围
 
@@ -42,14 +50,15 @@
 - `grid.py`：提取网格线、比较候选、确定星期列、节次行和单元格，并输出候选诊断。
 - `blocks.py`：结合浅色块占用率、边界强度和颜色连续性定位课程块。
 - `ocr.py`：OCR 抽象、fixture 适配器、Paddle 返回结构兼容和运行时诊断。
-- `paddle_cpu.py`：真实 Windows CPU 适配层；基于实际 Paddle 3.3.1 oneDNN/PIR 故障关闭 MKLDNN。
+- `paddle_cpu.py`：Windows CPU 适配层；基于实际 oneDNN/PIR 故障关闭 MKLDNN。
 - `benchmark.py`：阈值校验、全图 token 分配和评估入口。
 - `course_evaluation.py`：全局课程匹配、匹配歧义、值准确性、审阅状态、unexpected course 和错误自动确认统计。
-- `benchmark_report.py`：生成包含可追溯信息和明确指标语义的人类可读基准报告。
+- `benchmark_io.py`：bootstrap 指标合并、canonical provenance 和机器报告落盘。
+- `benchmark_report.py`：生成带可追溯信息和指标语义的人类可读报告。
 - `ground_truth.py`：合成样本机器真值。
 - `parse_fields.py`：课程名、教师、地点、周次和单双周解析。
-- `pipeline.py`：block / full 管道、报告输出和 Rust 校验。
-- `model_bootstrap.py`、`real_benchmark.py`：真实模型下载、缓存、内存、冷/热推理和汇总。
+- `pipeline.py`：block/full 管道、报告输出和 Rust 校验。
+- `model_bootstrap.py`、`real_benchmark.py`：模型下载、缓存、内存、冷/热推理和汇总。
 - `draft.py`：映射到现有 `ImportDraft V2`。
 - `rust_validate.py`：复用 `src-tauri/examples/validate_import_draft.rs`。
 - `synthetic.py`：运行时生成样本和 fixture token，不提交字体或图片。
@@ -73,9 +82,9 @@ python -m pip install --upgrade pip
 python -m pip install -r experiments\screenshot_import\requirements.txt
 ```
 
-真实验证中 Python 3.13 官方 Windows wheel 可用，无需降级 3.12。PaddleOCR 首次运行会下载模型到用户缓存；本实验不调用云端 OCR API，也不上传输入图片。
+canonical Run 证明 Python 3.13 官方 Windows wheel 可用，无需降级 3.12。PaddleOCR 首次运行会下载模型到用户缓存；本实验不调用云端 OCR API，也不上传输入图片。
 
-PaddlePaddle 3.3.1 在 Windows CPU 默认 oneDNN/PIR 路径上真实触发属性转换异常，因此实验使用 `WindowsCpuPaddleOcrEngine` 显式设置 `enable_mkldnn=False`。该结论有真实错误日志和成功重跑支撑，不是无证据的版本规避。
+PaddlePaddle 3.3.1 在 Windows CPU 默认 oneDNN/PIR 路径上真实触发属性转换异常，因此实验使用 `WindowsCpuPaddleOcrEngine` 显式设置 `enable_mkldnn=False`。该结论有失败日志和成功 canonical Run 支撑。
 
 ## 生成合成样本
 
@@ -89,9 +98,7 @@ python -m experiments.screenshot_import generate-synthetic `
 - `standard_10`：10 节、五个课程块、单双周、教师/地点和缺失地点；
 - `tilted_12`：12 节、跨三节课程、缩放和约 1.8° 倾斜。
 
-复杂课程块与网格样本还覆盖弱内部线、同色相邻块、缺失边界、双边框、标题装饰线和额外竖线。
-
-对应 `.ocr.json` 只用于 fixture 测试，不是真实 PaddleOCR 输出。
+复杂 fixture 还覆盖弱内部线、同色相邻块、缺失边界、双边框、标题装饰线和额外竖线。对应 `.ocr.json` 只用于测试，不是真实 PaddleOCR 输出。
 
 ## 运行识别
 
@@ -136,37 +143,25 @@ python -m experiments.screenshot_import recognize `
 0 <= review-confidence <= high-confidence <= 1
 ```
 
-无效阈值在 OCR 和输出目录创建前失败。默认值仍为 `review=0.55`、`high=0.90`，只是实验基线，不是最终产品策略。
+默认值为 `review=0.55`、`high=0.90`，只是实验基线，不是最终产品策略。
 
 ## 两种 OCR 模式
 
 ### block
 
-每个课程块单独裁剪并调用一次 `predict`。真实合成图基准中调用次数为 5 和 4，但推理和内存均显著优于 full，因此继续作为实验默认值。
+每个课程块单独裁剪并调用一次 `predict`。canonical 合成图基准中调用次数为 5 和 4，推理耗时明显低于 full，因此继续作为实验默认值。
 
 ### full
 
-对完整表格调用一次 `predict`，再按中心点和重叠比例分配 token：
-
-1. 中心点只命中一个课程块时分配；
-2. 未命中时按重叠阈值分配；
-3. 同时命中多个块时标记歧义；
-4. 表头、节次等未归属 token 只保留在调试输出。
-
-full 模式保留用于架构比较和未来真实布局验证，不作为当前默认结论。
+对完整表格调用一次 `predict`，再按中心点和重叠比例分配 token。跨块歧义与未归属 token 会进入调试输出，不会静默复制。full 保留用于架构比较和调试。
 
 ## 评估语义
 
-评估结果明确拆为两套维度：
-
-- `valueAccuracy`：字段值是完全正确、标准化后正确、错误或值缺失；
-- `reviewStatus`：字段证据状态是 `confirmed`、`review` 或 `missing`。
-
-可选字段真值为空、预测为空时，值可以是标准化后正确，同时审阅状态仍为 `missing`。旧 `counts.missing` 仅是 `valueAccuracy.valueMissing` 的兼容别名，审阅状态缺失使用 `counts.statusMissing`。
-
-没有匹配任何 ground truth 的预测课程会进入 `unexpectedCourses` / `falsePositiveCourseCount`。其中所有非 missing 字段都算错误；`confirmed` 字段会进入 `autoConfirmationErrors` 并影响 `wrongConfirmedRate`。
-
-课程匹配使用连通分量内的全局最大匹配，不依赖预测课程顺序。存在多个同分全局最优方案时，会输出 `ambiguousCourseMatches`，不会静默宣布唯一正确。
+- `valueAccuracy`：字段值是完全正确、标准化正确、错误或值缺失；
+- `reviewStatus`：证据状态是 `confirmed`、`review` 或 `missing`；
+- 可选字段真值为空、预测为空时，值可标准化正确，但状态仍可为 `missing`；
+- 未匹配预测课程作为 false positive，非 missing 字段计入错误，confirmed 字段计入 `wrongConfirmedRate`；
+- 课程匹配使用连通分量内的全局最大匹配；同分最优方案进入 `ambiguousCourseMatches`。
 
 ## 单双周安全规则
 
@@ -175,52 +170,29 @@ full 模式保留用于架构比较和未来真实布局验证，不作为当前
 - 周次解析失败时，weeks 与 parity 均进入 `review`；
 - 结构 warning 始终覆盖 OCR 高分。
 
-这避免 `1-15周(单)` 被 OCR 漏掉“单”后静默确认成每周。
-
 ## 输出
 
-每次运行独立输出目录，包含：
+每次运行独立输出：
 
 - `draft.json`：现有 `ImportDraft V2`；
 - `grid.json`：网格、课程块、warning 和候选诊断；
 - `ocr.json`：token、坐标、置信度、全图分配歧义和未归属 token；
 - `overlay.png`：调试图；
-- `report.json`：模式、调用次数、初始化/推理/管道耗时、峰值内存、缓存、字段评估和 Rust 校验。
+- `report.json`：模式、调用次数、耗时、内存、缓存、字段评估和 Rust 校验。
 
-真实批量基准另生成：
-
-- `benchmark.json`；
-- `REAL_OCR_BENCHMARK.md`。
-
-无法获得的指标使用 `null`，不使用 0 冒充未测量结果。
+批量基准另生成 `benchmark.json` 与 `REAL_OCR_BENCHMARK.md`。无法获得的指标使用 `null`，不使用 0 冒充未测量结果。
 
 ## 测试
 
-不依赖模型的完整实验测试：
+不依赖模型的实验测试：
 
 ```powershell
 python -m pip install -r experiments\screenshot_import\requirements-test.txt
 python -m pytest experiments\screenshot_import\tests
 ```
 
-常规 Validate 还执行：
+常规 Validate 还执行版本、time-flow、import-review、DOM lifecycle、PresentationClock、Web build、Rust library tests、ImportDraft 示例、两张基础样本的 block/full fixture 管道和 Windows NSIS。
 
-- 版本、time-flow、import-review、Edge DOM、presentation clock；
-- web build；
-- Rust library tests；
-- ImportDraft 校验示例预编译；
-- 两张基础样本的 block / full fixture 管道和 Rust 校验；
-- Windows Tauri Release / NSIS。
+真实 PaddleOCR 基准不进入常规 Validate，只通过手动 `Real PaddleOCR Benchmark` workflow 执行。工作流在上传前强制校验 source HEAD、16 次运行覆盖和完整评估字段。
 
-真实 PaddleOCR 大模型基准不进入每次 Validate，只通过手动 `Real PaddleOCR Benchmark` workflow 执行。
-
-## 下一阶段真实样本边界
-
-完成最终权威基准并通过外部审计后，下一阶段仅邀请 2～3 张受控标准网格课表在用户本机测试：
-
-- 用户在本机保存，不提交 Git、不进入 Artifact、不加入 fixture；
-- 报告只使用匿名编号；
-- 提供前检查姓名、学号、班级和其他个人信息；
-- 所有识别结果仍需人工审阅。
-
-具体命令和汇总格式见 [`REAL_SCREENSHOT_TESTING.md`](./REAL_SCREENSHOT_TESTING.md)。
+本轮没有运行、上传或分析真实学校课表截图。
