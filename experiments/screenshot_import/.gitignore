@@ -1,0 +1,8 @@
+output/
+debug/
+models/
+*.onnx
+*.pdmodel
+*.pdiparams
+__pycache__/
+.pytest_cache/
