@@ -16,8 +16,8 @@
 - `standard_10`、`tilted_12`
 - block / full 两种 OCR 模式
 - 每组一次冷运行和三次热运行
-- 离线缓存初始化和推理
-- 逐字段 ground truth、混淆统计和错误自动确认率
+- 不可访问代理和离线标记下的缓存复用测试
+- 逐字段 ground truth、值准确性、审阅状态、额外课程、匹配歧义和错误自动确认率
 
 完整结果见 [`REAL_OCR_BENCHMARK.md`](./REAL_OCR_BENCHMARK.md)。该结果只覆盖两张合成图，不代表多学校真实课表准确率。
 
@@ -43,7 +43,9 @@
 - `blocks.py`：结合浅色块占用率、边界强度和颜色连续性定位课程块。
 - `ocr.py`：OCR 抽象、fixture 适配器、Paddle 返回结构兼容和运行时诊断。
 - `paddle_cpu.py`：真实 Windows CPU 适配层；基于实际 Paddle 3.3.1 oneDNN/PIR 故障关闭 MKLDNN。
-- `benchmark.py`：阈值校验、全图 token 分配、ground truth 评估和混淆统计。
+- `benchmark.py`：阈值校验、全图 token 分配和评估入口。
+- `course_evaluation.py`：全局课程匹配、匹配歧义、值准确性、审阅状态、unexpected course 和错误自动确认统计。
+- `benchmark_report.py`：生成包含可追溯信息和明确指标语义的人类可读基准报告。
 - `ground_truth.py`：合成样本机器真值。
 - `parse_fields.py`：课程名、教师、地点、周次和单双周解析。
 - `pipeline.py`：block / full 管道、报告输出和 Rust 校验。
@@ -153,6 +155,19 @@ python -m experiments.screenshot_import recognize `
 
 full 模式保留用于架构比较和未来真实布局验证，不作为当前默认结论。
 
+## 评估语义
+
+评估结果明确拆为两套维度：
+
+- `valueAccuracy`：字段值是完全正确、标准化后正确、错误或值缺失；
+- `reviewStatus`：字段证据状态是 `confirmed`、`review` 或 `missing`。
+
+可选字段真值为空、预测为空时，值可以是标准化后正确，同时审阅状态仍为 `missing`。旧 `counts.missing` 仅是 `valueAccuracy.valueMissing` 的兼容别名，审阅状态缺失使用 `counts.statusMissing`。
+
+没有匹配任何 ground truth 的预测课程会进入 `unexpectedCourses` / `falsePositiveCourseCount`。其中所有非 missing 字段都算错误；`confirmed` 字段会进入 `autoConfirmationErrors` 并影响 `wrongConfirmedRate`。
+
+课程匹配使用连通分量内的全局最大匹配，不依赖预测课程顺序。存在多个同分全局最优方案时，会输出 `ambiguousCourseMatches`，不会静默宣布唯一正确。
+
 ## 单双周安全规则
 
 - 明确识别“单/双”且解析成功时，按置信度和 warning 判断；
@@ -201,10 +216,11 @@ python -m pytest experiments\screenshot_import\tests
 
 ## 下一阶段真实样本边界
 
-已达到少量受控真实截图测试条件，但尚未达到正式产品接入条件：
+完成最终权威基准并通过外部审计后，下一阶段仅邀请 2～3 张受控标准网格课表在用户本机测试：
 
-- 仅先测试 2～3 张标准网格课表；
 - 用户在本机保存，不提交 Git、不进入 Artifact、不加入 fixture；
 - 报告只使用匿名编号；
 - 提供前检查姓名、学号、班级和其他个人信息；
 - 所有识别结果仍需人工审阅。
+
+具体命令和汇总格式见 [`REAL_SCREENSHOT_TESTING.md`](./REAL_SCREENSHOT_TESTING.md)。
