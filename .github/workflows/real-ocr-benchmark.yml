@@ -110,13 +110,22 @@ jobs:
           & $python -m experiments.screenshot_import.real_benchmark_entry benchmark --output .tmp/real-ocr/results --repo-root . --install-metadata .tmp/real-ocr/install-metadata.json *>&1 | Tee-Object .tmp/real-ocr/benchmark-console.log
           exit $LASTEXITCODE
 
-      - name: Merge bootstrap metrics
+      - name: Merge bootstrap metrics and render report
         shell: pwsh
         run: |
           $python = '${{ steps.install.outputs.python }}'
-          & $python -c "from pathlib import Path; from experiments.screenshot_import.benchmark_io import finalize_benchmark; from experiments.screenshot_import.real_benchmark import _markdown; p=finalize_benchmark(r'.tmp/real-ocr/results/benchmark.json', r'.tmp/real-ocr/bootstrap/model-bootstrap.json'); Path(r'.tmp/real-ocr/results/REAL_OCR_BENCHMARK.md').write_text(_markdown(p), encoding='utf-8')"
+          & $python -c "from pathlib import Path; from experiments.screenshot_import.benchmark_io import finalize_benchmark; from experiments.screenshot_import.benchmark_report import render_markdown; p=finalize_benchmark(r'.tmp/real-ocr/results/benchmark.json', r'.tmp/real-ocr/bootstrap/model-bootstrap.json'); Path(r'.tmp/real-ocr/results/REAL_OCR_BENCHMARK.md').write_text(render_markdown(p), encoding='utf-8')"
+          exit $LASTEXITCODE
+
+      - name: Verify canonical benchmark completeness
+        shell: pwsh
+        run: |
+          $python = '${{ steps.install.outputs.python }}'
+          & $python -c "import json,os,pathlib; p=json.loads(pathlib.Path(r'.tmp/real-ocr/results/benchmark.json').read_text(encoding='utf-8')); assert p['provenance']['benchmarkHead']==os.environ['BENCHMARK_SOURCE_SHA']; assert len(p['runs'])==16; assert {(r['sample'],r['ocrMode'],r['temperature']) for r in p['runs']}=={(s,m,t) for s in ('standard_10','tilted_12') for m in ('block','full') for t in ('cold','hot')}; assert all('valueAccuracy' in r['fieldEvaluation'] and 'reviewStatus' in r['fieldEvaluation'] and 'unexpectedCourseCount' in r['fieldEvaluation'] and 'ambiguousCourseMatches' in r['fieldEvaluation'] for r in p['runs']); print('canonical benchmark completeness verified')"
+          exit $LASTEXITCODE
 
       - name: Upload sanitized benchmark evidence
+        id: upload
         uses: actions/upload-artifact@v4
         with:
           name: real-paddleocr-benchmark-${{ env.BENCHMARK_SOURCE_SHA }}
