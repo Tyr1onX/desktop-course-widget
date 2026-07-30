@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 import platform
-import sys
 import time
+from collections import Counter
 from importlib import metadata
 from pathlib import Path
 from typing import Any
@@ -26,6 +26,10 @@ def _version(package: str) -> str:
         return metadata.version(package)
     except metadata.PackageNotFoundError:
         return "not-installed"
+
+
+def _rounded(values: dict[str, float]) -> dict[str, float]:
+    return {key: round(float(value), 6) for key, value in values.items()}
 
 
 def recognize_image(
@@ -52,23 +56,33 @@ def recognize_image(
 
     stage = time.perf_counter()
     blocks = detect_course_blocks(preprocessed, grid)
-    timings["blockSeconds"] = time.perf_counter() - stage
+    timings["blockDetectionSeconds"] = time.perf_counter() - stage
     if not blocks:
         raise RuntimeError("网格已检测，但未定位到课程块")
 
-    stage = time.perf_counter()
     all_tokens: list[OcrToken] = []
     course_results = []
+    ocr_seconds = 0.0
+    parse_seconds = 0.0
     for block in blocks:
+        stage = time.perf_counter()
         tokens = ocr_engine.recognize(preprocessed.original_bgr, block.original_box)
+        ocr_seconds += time.perf_counter() - stage
         all_tokens.extend(tokens)
+        stage = time.perf_counter()
         fields = parse_course_fields(tokens, block, parser_config)
+        parse_seconds += time.perf_counter() - stage
         course_results.append((block, fields))
-    timings["ocrAndParseSeconds"] = time.perf_counter() - stage
+    timings["ocrInferenceSeconds"] = ocr_seconds
+    timings["fieldParsingSeconds"] = parse_seconds
 
     recognizer = ocr_engine.version_info()
     recognizer_text = ";".join(f"{key}={value}" for key, value in recognizer.items())
-    warnings = list(dict.fromkeys([*grid.warnings, *(warning for block in blocks for warning in block.warnings)]))
+    warnings = list(
+        dict.fromkeys(
+            [*grid.warnings, *(warning for block in blocks for warning in block.warnings)]
+        )
+    )
     draft = build_import_draft(
         source_path=input_path,
         image_width=preprocessed.original_width,
@@ -84,12 +98,37 @@ def recognize_image(
     ocr_path = output / "ocr.json"
     overlay_path = output / "overlay.png"
     report_path = output / "report.json"
-    draft_path.write_text(json.dumps(draft, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    stage = time.perf_counter()
+    draft_path.write_text(
+        json.dumps(draft, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     grid_payload = grid.to_dict(preprocessed.original_width, preprocessed.original_height)
-    grid_payload["courseBlocks"] = [block.to_dict(preprocessed.original_width, preprocessed.original_height) for block in blocks]
-    grid_path.write_text(json.dumps(grid_payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    ocr_path.write_text(json.dumps({"engine": recognizer, "tokens": [token.to_dict(preprocessed.original_width, preprocessed.original_height) for token in all_tokens]}, ensure_ascii=False, indent=2), encoding="utf-8")
+    grid_payload["courseBlocks"] = [
+        block.to_dict(preprocessed.original_width, preprocessed.original_height)
+        for block in blocks
+    ]
+    grid_path.write_text(
+        json.dumps(grid_payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    ocr_path.write_text(
+        json.dumps(
+            {
+                "engine": recognizer,
+                "tokens": [
+                    token.to_dict(preprocessed.original_width, preprocessed.original_height)
+                    for token in all_tokens
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
     draw_overlay(preprocessed.original_bgr, grid, course_results, overlay_path)
+    timings["debugOutputSeconds"] = time.perf_counter() - stage
 
     stage = time.perf_counter()
     rust = validate_with_rust(draft_path, repo_root)
@@ -97,17 +136,40 @@ def recognize_image(
     if rust.get("available") is not False and not rust.get("structuralValid", False):
         raise RuntimeError(f"Rust ImportDraft 校验失败：{rust}")
 
-    pending = sum(
-        1 for course in draft["courses"] for evidence in course["review"]["fields"]
-        if evidence["status"] in {"review", "missing"}
+    statuses = Counter(
+        evidence["status"]
+        for course in draft["courses"]
+        for evidence in course["review"]["fields"]
     )
-    timings["totalSeconds"] = time.perf_counter() - started
+    timings["totalPipelineSeconds"] = time.perf_counter() - started
     report = {
         "success": True,
+        "resultKind": (
+            "fixture pipeline result"
+            if recognizer.get("engine") == "fixture"
+            else "real PaddleOCR result"
+        ),
         "input": str(Path(input_path)),
-        "image": {"width": preprocessed.original_width, "height": preprocessed.original_height, "scale": preprocessed.applied_scale, "deskewAngle": preprocessed.deskew_angle},
-        "grid": {"weekdayColumns": grid.weekday_count, "sectionRows": grid.section_count, "confidence": grid.confidence, "warnings": grid.warnings},
-        "courses": {"blocks": len(blocks), "pendingFields": pending},
+        "image": {
+            "width": preprocessed.original_width,
+            "height": preprocessed.original_height,
+            "scale": preprocessed.applied_scale,
+            "deskewAngle": preprocessed.deskew_angle,
+        },
+        "gridBlockDetection": {
+            "weekdayColumns": grid.weekday_count,
+            "sectionRows": grid.section_count,
+            "gridConfidence": grid.confidence,
+            "courseBlocks": len(blocks),
+            "warnings": grid.warnings,
+        },
+        "fieldParsing": {
+            "statusCounts": {
+                "confirmed": statuses.get("confirmed", 0),
+                "review": statuses.get("review", 0),
+                "missing": statuses.get("missing", 0),
+            }
+        },
         "versions": {
             "python": platform.python_version(),
             "opencv": cv2.__version__,
@@ -119,9 +181,20 @@ def recognize_image(
             "confirmed": (parser_config or FieldParserConfig()).high_confidence,
             "review": (parser_config or FieldParserConfig()).review_confidence,
         },
+        "ocrRuntime": _rounded(ocr_engine.runtime_info()),
         "rustValidation": rust,
-        "timings": {key: round(value, 6) for key, value in timings.items()},
-        "outputs": {"draft": str(draft_path), "grid": str(grid_path), "ocr": str(ocr_path), "overlay": str(overlay_path), "report": str(report_path)},
+        "rustStructuralValidation": rust,
+        "timings": _rounded(timings),
+        "outputs": {
+            "draft": str(draft_path),
+            "grid": str(grid_path),
+            "ocr": str(ocr_path),
+            "overlay": str(overlay_path),
+            "report": str(report_path),
+        },
     }
-    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    report_path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     return report
