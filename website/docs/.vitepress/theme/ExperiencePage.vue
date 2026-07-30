@@ -62,15 +62,7 @@ const easeOut = [0.22, 1, 0.36, 1]
             :animate="{ opacity: 1, y: 0, scale: 1 }"
             :transition="{ duration: 1, delay: 0.18, ease: easeOut }"
           >
-            <div class="course-stage__chrome" aria-hidden="true">
-              <span>09:42</span>
-              <div>
-                <span class="course-stage__signal"></span>
-                <span class="course-stage__battery"></span>
-              </div>
-            </div>
             <div class="course-stage__light course-stage__light--one" aria-hidden="true"></div>
-            <div class="course-stage__light course-stage__light--two" aria-hidden="true"></div>
 
             <div class="widget-window">
               <div class="widget-window__top">
@@ -83,10 +75,6 @@ const easeOut = [0.22, 1, 0.36, 1]
                 <div class="widget-course__line" aria-hidden="true"><span></span></div>
                 <div class="widget-course__content"><span>正在上课</span><strong>计算机网络</strong><p>教学楼 A101</p></div>
               </div>
-            </div>
-
-            <div class="course-stage__dock" aria-hidden="true">
-              <span></span><span></span><span></span><span></span><span></span>
             </div>
           </motion.div>
 
