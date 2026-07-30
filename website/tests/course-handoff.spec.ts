@@ -180,6 +180,8 @@ test.describe('shared course handoff', () => {
     const host = page.locator(hostSelector)
 
     await page.locator(stepSelector).nth(2).click()
+    await expect(host).toHaveAttribute('data-demo-transition-state', 'running')
+    await page.mouse.move(0, 0)
     await waitForStableHandoff(page)
     await expect(page.locator('.course-stage--experience .course-demo-status')).toContainText('今日结束')
     await expect(host).toHaveAttribute('data-demo-timer-state', 'scheduled')
@@ -187,6 +189,7 @@ test.describe('shared course handoff', () => {
     await installGeometryTrace(page)
     await page.locator(stepSelector).nth(3).click()
     await expect(host).toHaveAttribute('data-demo-transition-state', 'running')
+    await page.mouse.move(0, 0)
     await expect(host).toHaveAttribute('data-demo-timer-state', 'idle')
     await waitForStableHandoff(page)
     await expectEmptyState(page)
