@@ -43,7 +43,7 @@ export function setupExperienceHeroDemo(
   stage.append(status, controls)
 
   let currentIndex = 0
-  const activeOptions = optionsFor(presets[currentIndex])
+  const activeOptions = optionsFor(presets[currentIndex], { showNav: false })
   let timerId: number | undefined
   let activeHandoff: CourseHandoffHandle | undefined
   let requestVersion = 0
@@ -89,11 +89,7 @@ export function setupExperienceHeroDemo(
     host.dataset.demoTransitionState = 'idle'
   }
 
-  const buildActiveWidget = () => createLatestWidget(activeOptions, () => {
-    userPaused = true
-    updateControls()
-    requestActiveOptions()
-  }, 'website-real-widget--hero')
+  const buildActiveWidget = () => createLatestWidget(activeOptions, undefined, 'website-real-widget--hero')
 
   const installImmediately = (nextWidget: HTMLElement) => {
     cancelActiveHandoff('target')
@@ -138,7 +134,7 @@ export function setupExperienceHeroDemo(
   function requestPreset(index: number, immediate = false) {
     if (disposed || index < 0 || index >= presets.length) return
     currentIndex = index
-    Object.assign(activeOptions, optionsFor(presets[index]))
+    Object.assign(activeOptions, optionsFor(presets[index], { showNav: false }))
     status.textContent = `${statusPrefix} · ${presets[index].label}`
     updateControls()
     requestActiveOptions(immediate)
