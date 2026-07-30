@@ -1,5 +1,9 @@
 # 实验执行记录
 
+## 同步基线
+
+本轮开始后 `main` 两次前进，实验分支最终已同步到 `e3c1f5b6a3bce33089f8bb08f3d1d3c5c8a08723`。同步提交仅带入官网产品体验页变更；实验相对 `main` 的 diff 仍限定在 `experiments/`、Rust 校验示例和必要 Validate 步骤。
+
 基础执行环境：Python 3.13.5、OpenCV 4.13.0、NumPy 2.3.5、Pillow 12.2.0、pytest 9.0.2。
 
 ## 结果口径
