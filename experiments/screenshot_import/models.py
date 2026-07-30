@@ -107,6 +107,7 @@ class GridResult:
     cells: list[GridCell]
     confidence: float
     warnings: list[str]
+    candidate_diagnostics: dict[str, Any] = field(default_factory=dict)
     horizontal_mask: np.ndarray | None = None
     vertical_mask: np.ndarray | None = None
 
@@ -119,7 +120,7 @@ class GridResult:
         return len(self.section_rows)
 
     def to_dict(self, image_width: int, image_height: int) -> dict[str, Any]:
-        return {
+        payload = {
             "tableBox": self.original_table_box.to_dict(),
             "tableBoxNormalized": self.original_table_box.normalized(image_width, image_height),
             "weekdayColumnCount": self.weekday_count,
@@ -144,6 +145,9 @@ class GridResult:
             "confidence": round(self.confidence, 6),
             "warnings": self.warnings,
         }
+        if self.candidate_diagnostics:
+            payload["candidateDiagnostics"] = self.candidate_diagnostics
+        return payload
 
 
 @dataclass
@@ -194,10 +198,7 @@ class ParsedField:
     reason: str | None = None
 
     def evidence_dict(self, image_width: int, image_height: int) -> dict[str, Any]:
-        evidence: dict[str, Any] = {
-            "field": self.field,
-            "status": self.status,
-        }
+        evidence: dict[str, Any] = {"field": self.field, "status": self.status}
         if self.confidence is not None:
             evidence["confidence"] = round(float(self.confidence), 6)
         if self.raw_text:
@@ -220,12 +221,7 @@ def transform_points(points: np.ndarray, matrix: np.ndarray) -> np.ndarray:
 
 def transform_box(box: PixelBox, matrix: np.ndarray) -> PixelBox:
     points = np.array(
-        [
-            [box.x, box.y],
-            [box.right, box.y],
-            [box.right, box.bottom],
-            [box.x, box.bottom],
-        ],
+        [[box.x, box.y], [box.right, box.y], [box.right, box.bottom], [box.x, box.bottom]],
         dtype=np.float64,
     )
     transformed = transform_points(points, matrix)
