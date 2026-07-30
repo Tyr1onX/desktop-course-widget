@@ -7,6 +7,14 @@ from types import ModuleType
 from typing import Any
 
 
+def configure_utf8_console() -> None:
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            reconfigure(encoding="utf-8", errors="replace")
+
+
 def install_mkldnn_safe_constructor(paddleocr_module: ModuleType) -> None:
     """Force PaddleOCR CPU inference away from the Paddle 3.3.x oneDNN/PIR path."""
     os.environ.setdefault("FLAGS_use_mkldnn", "0")
@@ -24,6 +32,7 @@ def install_mkldnn_safe_constructor(paddleocr_module: ModuleType) -> None:
 
 
 def run_module_with_safe_paddleocr(module_name: str, arguments: list[str]) -> None:
+    configure_utf8_console()
     try:
         import paddleocr
     except Exception as error:
@@ -35,6 +44,7 @@ def run_module_with_safe_paddleocr(module_name: str, arguments: list[str]) -> No
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_utf8_console()
     values = list(sys.argv[1:] if argv is None else argv)
     if not values:
         print("usage: python -m experiments.screenshot_import.paddle_runtime <module> [args...]", file=sys.stderr)
