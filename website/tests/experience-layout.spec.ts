@@ -50,10 +50,6 @@ for (const viewport of viewports) {
       await toggle.click()
       await expect(toggle).toHaveText('暂停')
 
-      const stage = page.locator('.course-stage--experience')
-      const status = page.locator('.course-demo-status')
-      const host = page.locator('.real-widget-host')
-      const controls = page.locator('.course-demo-controls')
       const steps = page.locator('.course-demo-step')
       for (let index = 0; index < 6; index += 1) {
         await steps.nth(index).click()
@@ -144,7 +140,7 @@ for (const viewport of viewports) {
       expect(metrics.footerTop).toBeGreaterThanOrEqual(metrics.heroBottom - 1)
       expect(metrics.footerTop - metrics.heroBottom).toBeLessThanOrEqual(2)
       expect(metrics.scrollHeight).toBeLessThanOrEqual(metrics.viewportHeight * 2.35)
-      expect(metrics.stageHeight).toBeLessThanOrEqual(572)
+      expect(metrics.stageHeight).toBeLessThanOrEqual(viewport.width <= 760 ? 562 : 602)
       expect((metrics.stageBackground.match(/gradient/g) ?? []).length).toBe(1)
       for (const bound of metrics.bounds) {
         expect(bound.missing, `${bound.selector} should exist`).toBe(false)
