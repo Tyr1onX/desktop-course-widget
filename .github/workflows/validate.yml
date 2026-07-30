@@ -25,14 +25,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Capture safe real OCR benchmark run status
+      - name: Capture complete real OCR benchmark run status
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh run list `
             --repo $env:GITHUB_REPOSITORY `
-            --workflow "Real PaddleOCR Safe CPU Benchmark" `
+            --workflow "Real PaddleOCR Complete Benchmark" `
             --branch feat/screenshot-recognition-spike `
             --limit 5 `
             --json databaseId,status,conclusion,headSha,url,createdAt,event `
