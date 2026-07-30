@@ -1,0 +1,260 @@
+name: Real PaddleOCR Benchmark
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/screenshot-recognition-spike
+    paths:
+      - .github/workflows/real-ocr-benchmark.yml
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[real-ocr-benchmark]')
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare benchmark directories
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path .tmp/real-ocr-benchmark | Out-Null
+          New-Item -ItemType Directory -Force -Path .tmp/paddle-wheel-313 | Out-Null
+          New-Item -ItemType Directory -Force -Path .tmp/paddle-wheel-312 | Out-Null
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Probe PaddlePaddle 3.3.1 wheel on Python 3.13
+        id: probe313
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $destination = Resolve-Path .tmp/paddle-wheel-313
+          $available = $false
+          $selectedSource = ''
+          $wheelPath = ''
+          $started = [DateTimeOffset]::UtcNow
+          $sources = @(
+            @{ Name = 'PyPI'; Url = 'https://pypi.org/simple' },
+            @{ Name = 'Paddle official CPU index'; Url = 'https://www.paddlepaddle.org.cn/packages/stable/cpu/' }
+          )
+          foreach ($source in $sources) {
+            Remove-Item "$destination\*" -Force -ErrorAction SilentlyContinue
+            $slug = if ($source.Name -eq 'PyPI') { 'pypi' } else { 'paddle-cpu' }
+            $log = ".tmp/real-ocr-benchmark/install-python313-$slug.log"
+            python -m pip download `
+              --no-deps `
+              --only-binary=:all: `
+              --index-url $source.Url `
+              --dest $destination `
+              paddlepaddle==3.3.1 *>&1 | Tee-Object -FilePath $log
+            if ($LASTEXITCODE -eq 0) {
+              $wheel = Get-ChildItem $destination -Filter '*.whl' | Select-Object -First 1
+              if ($wheel) {
+                $available = $true
+                $selectedSource = $source.Name
+                $wheelPath = $wheel.FullName
+                break
+              }
+            }
+          }
+          $ended = [DateTimeOffset]::UtcNow
+          "available=$($available.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          "source=$selectedSource" >> $env:GITHUB_OUTPUT
+          "wheelPath=$wheelPath" >> $env:GITHUB_OUTPUT
+          "started=$($started.ToString('o'))" >> $env:GITHUB_OUTPUT
+          "ended=$($ended.ToString('o'))" >> $env:GITHUB_OUTPUT
+          "probeSeconds=$(($ended - $started).TotalSeconds)" >> $env:GITHUB_OUTPUT
+          exit 0
+
+      - name: Set up Python 3.12 after evidenced 3.13 wheel failure
+        if: steps.probe313.outputs.available != 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Probe PaddlePaddle 3.3.1 wheel on Python 3.12
+        if: steps.probe313.outputs.available != 'true'
+        id: probe312
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $destination = Resolve-Path .tmp/paddle-wheel-312
+          $available = $false
+          $selectedSource = ''
+          $wheelPath = ''
+          $started = [DateTimeOffset]::UtcNow
+          $sources = @(
+            @{ Name = 'PyPI'; Url = 'https://pypi.org/simple' },
+            @{ Name = 'Paddle official CPU index'; Url = 'https://www.paddlepaddle.org.cn/packages/stable/cpu/' }
+          )
+          foreach ($source in $sources) {
+            Remove-Item "$destination\*" -Force -ErrorAction SilentlyContinue
+            $slug = if ($source.Name -eq 'PyPI') { 'pypi' } else { 'paddle-cpu' }
+            $log = ".tmp/real-ocr-benchmark/install-python312-$slug.log"
+            python -m pip download `
+              --no-deps `
+              --only-binary=:all: `
+              --index-url $source.Url `
+              --dest $destination `
+              paddlepaddle==3.3.1 *>&1 | Tee-Object -FilePath $log
+            if ($LASTEXITCODE -eq 0) {
+              $wheel = Get-ChildItem $destination -Filter '*.whl' | Select-Object -First 1
+              if ($wheel) {
+                $available = $true
+                $selectedSource = $source.Name
+                $wheelPath = $wheel.FullName
+                break
+              }
+            }
+          }
+          $ended = [DateTimeOffset]::UtcNow
+          "available=$($available.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          "source=$selectedSource" >> $env:GITHUB_OUTPUT
+          "wheelPath=$wheelPath" >> $env:GITHUB_OUTPUT
+          "started=$($started.ToString('o'))" >> $env:GITHUB_OUTPUT
+          "ended=$($ended.ToString('o'))" >> $env:GITHUB_OUTPUT
+          "probeSeconds=$(($ended - $started).TotalSeconds)" >> $env:GITHUB_OUTPUT
+          exit 0
+
+      - name: Select evidenced Python and wheel
+        id: select
+        shell: pwsh
+        run: |
+          if ('${{ steps.probe313.outputs.available }}' -eq 'true') {
+            "pythonVersion=3.13" >> $env:GITHUB_OUTPUT
+            "source=${{ steps.probe313.outputs.source }}" >> $env:GITHUB_OUTPUT
+            "wheelPath=${{ steps.probe313.outputs.wheelPath }}" >> $env:GITHUB_OUTPUT
+          } elseif ('${{ steps.probe312.outputs.available }}' -eq 'true') {
+            "pythonVersion=3.12" >> $env:GITHUB_OUTPUT
+            "source=${{ steps.probe312.outputs.source }}" >> $env:GITHUB_OUTPUT
+            "wheelPath=${{ steps.probe312.outputs.wheelPath }}" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Error 'PaddlePaddle 3.3.1 has no downloadable Windows wheel from PyPI or the official Paddle CPU index for Python 3.13 or 3.12. Exact probe logs are retained.'
+            exit 1
+          }
+          python --version
+          python -m pip --version
+
+      - name: Install isolated PaddleOCR environment
+        id: install
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $venv = Join-Path $env:RUNNER_TEMP 'paddleocr-benchmark-venv'
+          $installStarted = [DateTimeOffset]::UtcNow
+          python -m venv $venv
+          $python = Join-Path $venv 'Scripts/python.exe'
+          & $python -m pip install --no-cache-dir --upgrade pip
+          $wheelPath = '${{ steps.select.outputs.wheelPath }}'
+          & $python -m pip install --no-cache-dir $wheelPath *>&1 | Tee-Object -FilePath .tmp/real-ocr-benchmark/install-paddlepaddle.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $python -m pip install --no-cache-dir --index-url https://pypi.org/simple paddleocr==3.7.0 psutil *>&1 | Tee-Object -FilePath .tmp/real-ocr-benchmark/install-paddleocr.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $installEnded = [DateTimeOffset]::UtcNow
+
+          & $python -m pip debug --verbose | Out-File -Encoding utf8 .tmp/real-ocr-benchmark/pip-debug.txt
+          & $python -m pip freeze | Out-File -Encoding utf8 .tmp/real-ocr-benchmark/pip-freeze.txt
+          $pythonPayload = & $python -c "import json, platform, sys, sysconfig; print(json.dumps({'pythonVersion': sys.version, 'implementation': platform.python_implementation(), 'machine': platform.machine(), 'platform': platform.platform(), 'sysconfigPlatform': sysconfig.get_platform()}))"
+          $versionPayload = & $python -c "import json; from importlib import metadata; print(json.dumps({'pipVersion': metadata.version('pip'), 'paddlepaddleVersion': metadata.version('paddlepaddle'), 'paddleocrVersion': metadata.version('paddleocr')}))"
+          $wheelPayload = & $python -c "import json, pathlib; from packaging.utils import parse_wheel_filename; p=pathlib.Path(r'''$wheelPath'''); name, version, build, tags=parse_wheel_filename(p.name); print(json.dumps({'wheelName':p.name,'wheelBytes':p.stat().st_size,'wheelTags':sorted(str(tag) for tag in tags)}))"
+          $pythonInfo = $pythonPayload | ConvertFrom-Json
+          $versions = $versionPayload | ConvertFrom-Json
+          $wheelInfo = $wheelPayload | ConvertFrom-Json
+          $venvBytes = (Get-ChildItem $venv -Recurse -File | Measure-Object -Property Length -Sum).Sum
+          $metadata = [ordered]@{
+            operatingSystem = [System.Environment]::OSVersion.VersionString
+            architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+            pythonVersion = $pythonInfo.pythonVersion
+            pythonSelected = '${{ steps.select.outputs.pythonVersion }}'
+            pythonImplementation = $pythonInfo.implementation
+            machine = $pythonInfo.machine
+            platform = $pythonInfo.platform
+            sysconfigPlatform = $pythonInfo.sysconfigPlatform
+            pipVersion = $versions.pipVersion
+            paddlepaddleVersion = $versions.paddlepaddleVersion
+            paddleocrVersion = $versions.paddleocrVersion
+            paddleWheelSource = '${{ steps.select.outputs.source }}'
+            paddleWheel = $wheelInfo
+            probePython313 = [ordered]@{
+              available = '${{ steps.probe313.outputs.available }}'
+              source = '${{ steps.probe313.outputs.source }}'
+              started = '${{ steps.probe313.outputs.started }}'
+              ended = '${{ steps.probe313.outputs.ended }}'
+              seconds = '${{ steps.probe313.outputs.probeSeconds }}'
+              logs = @('install-python313-pypi.log', 'install-python313-paddle-cpu.log')
+            }
+            probePython312 = [ordered]@{
+              available = '${{ steps.probe312.outputs.available }}'
+              source = '${{ steps.probe312.outputs.source }}'
+              started = '${{ steps.probe312.outputs.started }}'
+              ended = '${{ steps.probe312.outputs.ended }}'
+              seconds = '${{ steps.probe312.outputs.probeSeconds }}'
+              logs = @('install-python312-pypi.log', 'install-python312-paddle-cpu.log')
+            }
+            installStarted = $installStarted.ToString('o')
+            installEnded = $installEnded.ToString('o')
+            installSeconds = ($installEnded - $installStarted).TotalSeconds
+            venvPath = $venv
+            venvBytes = $venvBytes
+            commands = @(
+              'python -m venv <RUNNER_TEMP>/paddleocr-benchmark-venv',
+              'python -m pip install --no-cache-dir --upgrade pip',
+              'python -m pip install --no-cache-dir <official paddlepaddle wheel>',
+              'python -m pip install --no-cache-dir --index-url https://pypi.org/simple paddleocr==3.7.0 psutil'
+            )
+          }
+          $metadata | ConvertTo-Json -Depth 8 | Out-File -Encoding utf8 .tmp/real-ocr-benchmark/install-metadata.json
+          "venv=$venv" >> $env:GITHUB_OUTPUT
+          "python=$python" >> $env:GITHUB_OUTPUT
+          "installSeconds=$(($installEnded - $installStarted).TotalSeconds)" >> $env:GITHUB_OUTPUT
+          "venvBytes=$venvBytes" >> $env:GITHUB_OUTPUT
+
+      - name: Run real block and full-image OCR benchmark
+        id: benchmark
+        continue-on-error: true
+        shell: pwsh
+        env:
+          PADDLE_PDX_MODEL_SOURCE: BOS
+        run: |
+          $python = '${{ steps.install.outputs.python }}'
+          & $python -m experiments.screenshot_import.real_benchmark `
+            --output .tmp/real-ocr-benchmark/results `
+            --repo-root . `
+            --install-metadata .tmp/real-ocr-benchmark/install-metadata.json *>&1 | Tee-Object -FilePath .tmp/real-ocr-benchmark/benchmark-console.log
+          "exitCode=$LASTEXITCODE" >> $env:GITHUB_OUTPUT
+          exit $LASTEXITCODE
+
+      - name: Upload sanitized benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-paddleocr-benchmark-${{ github.sha }}
+          path: |
+            .tmp/real-ocr-benchmark/install-*.log
+            .tmp/real-ocr-benchmark/install-metadata.json
+            .tmp/real-ocr-benchmark/pip-debug.txt
+            .tmp/real-ocr-benchmark/pip-freeze.txt
+            .tmp/real-ocr-benchmark/benchmark-console.log
+            .tmp/real-ocr-benchmark/results/benchmark.json
+            .tmp/real-ocr-benchmark/results/REAL_OCR_BENCHMARK.md
+            .tmp/real-ocr-benchmark/results/runs/**/report.json
+            .tmp/real-ocr-benchmark/results/runs/**/draft.json
+            .tmp/real-ocr-benchmark/results/runs/**/ocr.json
+            .tmp/real-ocr-benchmark/results/runs/**/grid.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Fail when real benchmark failed
+        if: steps.benchmark.outcome != 'success'
+        shell: pwsh
+        run: exit 1
