@@ -9,7 +9,9 @@ on:
       - .github/workflows/real-ocr-benchmark.yml
 
 permissions:
+  actions: read
   contents: read
+  issues: write
 
 env:
   PYTHONUTF8: '1'
@@ -112,7 +114,6 @@ jobs:
           & $python -c "from pathlib import Path; from experiments.screenshot_import.benchmark_io import finalize_benchmark; from experiments.screenshot_import.real_benchmark import _markdown; p=finalize_benchmark(r'.tmp/real-ocr/results/benchmark.json', r'.tmp/real-ocr/bootstrap/model-bootstrap.json'); Path(r'.tmp/real-ocr/results/REAL_OCR_BENCHMARK.md').write_text(_markdown(p), encoding='utf-8')"
 
       - name: Upload sanitized benchmark evidence
-        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: real-paddleocr-benchmark-${{ github.sha }}
@@ -130,5 +131,46 @@ jobs:
             .tmp/real-ocr/results/runs/**/draft.json
             .tmp/real-ocr/results/runs/**/ocr.json
             .tmp/real-ocr/results/runs/**/grid.json
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 7
+
+      - name: Record canonical benchmark receipt
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const expectedName = `real-paddleocr-benchmark-${context.sha}`;
+            let artifact = null;
+            for (let attempt = 0; attempt < 20 && !artifact; attempt += 1) {
+              const response = await github.rest.actions.listWorkflowRunArtifacts({
+                owner,
+                repo,
+                run_id: context.runId,
+                per_page: 100,
+              });
+              artifact = response.data.artifacts.find(item => item.name === expectedName);
+              if (!artifact) await new Promise(resolve => setTimeout(resolve, 3000));
+            }
+            if (!artifact) {
+              core.setFailed(`Artifact ${expectedName} was not visible after upload`);
+              return;
+            }
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: 72,
+              body: [
+                '### Canonical real PaddleOCR benchmark receipt',
+                '',
+                `- Run ID: \`${context.runId}\``,
+                `- Run HEAD: \`${context.sha}\``,
+                `- Artifact ID: \`${artifact.id}\``,
+                `- Artifact: \`${artifact.name}\``,
+                `- Artifact digest: \`${artifact.digest}\``,
+                `- Artifact bytes: \`${artifact.size_in_bytes}\``,
+                `- Expires: \`${artifact.expires_at}\``,
+                '',
+                'The benchmark, bootstrap merge, and artifact upload completed successfully before this receipt was posted.',
+              ].join('\n'),
+            });
