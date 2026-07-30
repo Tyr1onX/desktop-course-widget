@@ -217,54 +217,6 @@ html {
   opacity: 0.8;
 }
 
-.course-stage__chrome {
-  position: absolute;
-  z-index: 3;
-  top: 22px;
-  right: 28px;
-  left: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  color: rgba(29, 29, 31, 0.56);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.course-stage__chrome > div {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.course-stage__signal {
-  display: block;
-  width: 13px;
-  height: 10px;
-  border-bottom: 2px solid currentColor;
-  border-left: 2px solid transparent;
-  border-radius: 50%;
-  transform: rotate(45deg);
-}
-
-.course-stage__battery {
-  display: block;
-  width: 19px;
-  height: 10px;
-  border: 1.5px solid currentColor;
-  border-radius: 3px;
-}
-
-.course-stage__battery::after {
-  display: block;
-  width: 12px;
-  height: 5px;
-  margin: 1px;
-  border-radius: 1px;
-  background: currentColor;
-  content: "";
-}
-
 .course-stage__light {
   position: absolute;
   border-radius: 50%;
@@ -277,14 +229,6 @@ html {
   width: 280px;
   height: 280px;
   background: rgba(255, 255, 255, 0.28);
-}
-
-.course-stage__light--two {
-  right: 7%;
-  bottom: 8%;
-  width: 360px;
-  height: 360px;
-  background: rgba(91, 121, 151, 0.12);
 }
 
 .widget-window {
@@ -465,34 +409,6 @@ html {
   color: var(--course-blue);
 }
 
-.course-stage__dock {
-  position: absolute;
-  z-index: 2;
-  bottom: 24px;
-  left: 50%;
-  display: flex;
-  padding: 11px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.55);
-  border-radius: 19px;
-  background: rgba(235, 239, 243, 0.55);
-  gap: 10px;
-  backdrop-filter: blur(18px);
-  transform: translateX(-50%);
-}
-
-.course-stage__dock span {
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.74);
-  box-shadow: inset 0 0 0 1px rgba(29, 29, 31, 0.05);
-}
-
-.course-stage__dock span:nth-child(2) { background: rgba(92, 133, 191, 0.74); }
-.course-stage__dock span:nth-child(3) { background: rgba(255, 255, 255, 0.86); }
-.course-stage__dock span:nth-child(4) { background: rgba(137, 152, 172, 0.78); }
-.course-stage__dock span:nth-child(5) { background: rgba(236, 239, 243, 0.9); }
-
 .course-footer {
   display: grid;
   width: min(1120px, calc(100% - 48px));
@@ -556,15 +472,6 @@ html {
     top: 78px;
     padding: 20px 19px 16px;
     border-radius: 24px;
-  }
-
-  .course-stage__dock {
-    bottom: 18px;
-  }
-
-  .course-stage__dock span {
-    width: 25px;
-    height: 25px;
   }
 
   .course-footer {

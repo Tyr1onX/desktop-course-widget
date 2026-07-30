@@ -9,48 +9,18 @@
 }
 
 .course-stage__light--one {
-  animation: course-light-drift-one 12s ease-in-out infinite alternate;
-}
-
-.course-stage__light--two {
-  animation: course-light-drift-two 15s ease-in-out infinite alternate;
-}
-
-.course-stage__dock {
-  animation: course-dock-breathe 8s ease-in-out infinite;
+  animation: course-light-drift-one 14s ease-in-out infinite alternate;
 }
 
 @keyframes course-light-drift-one {
   from {
-    opacity: 0.72;
-    translate: -10px 4px;
+    opacity: 0.78;
+    translate: -8px 3px;
   }
 
   to {
     opacity: 1;
-    translate: 18px -12px;
-  }
-}
-
-@keyframes course-light-drift-two {
-  from {
-    opacity: 0.68;
-    translate: 12px 8px;
-  }
-
-  to {
-    opacity: 0.92;
-    translate: -18px -10px;
-  }
-}
-
-@keyframes course-dock-breathe {
-  0%, 100% {
-    opacity: 0.86;
-  }
-
-  50% {
-    opacity: 1;
+    translate: 12px -8px;
   }
 }
 
@@ -59,9 +29,7 @@
     will-change: auto;
   }
 
-  .course-stage__light--one,
-  .course-stage__light--two,
-  .course-stage__dock {
+  .course-stage__light--one {
     animation: none;
   }
 }
