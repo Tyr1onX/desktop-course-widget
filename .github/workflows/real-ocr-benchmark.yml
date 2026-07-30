@@ -2,6 +2,11 @@ name: Real PaddleOCR Benchmark
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - feat/screenshot-recognition-spike
+    paths:
+      - .github/workflows/real-ocr-benchmark.yml
 
 permissions:
   contents: read
