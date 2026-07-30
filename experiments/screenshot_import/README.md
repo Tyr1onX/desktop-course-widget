@@ -195,4 +195,8 @@ python -m pytest experiments\screenshot_import\tests
 
 真实 PaddleOCR 基准不进入常规 Validate，只通过手动 `Real PaddleOCR Benchmark` workflow 执行。工作流在上传前强制校验 source HEAD、16 次运行覆盖和完整评估字段。
 
-本轮没有运行、上传或分析真实学校课表截图。
+## 下一阶段本机测试准备
+
+本轮没有运行、上传或分析真实学校课表截图。外部审计通过后，用户仅需在本机隔离环境中将脱敏截图保存到仓库外目录，并分别运行上文的 block 与 full 命令到独立输出目录。
+
+测试前必须检查姓名、学号、班级等个人信息；图片不得提交 Git、进入 Artifact 或 fixture；样本只使用 `sample-01`、`sample-02` 等匿名编号。仅汇总各模式的 `report.json` 与人工核对结果，所有识别字段仍需人工确认。
