@@ -28,10 +28,10 @@ python -m pip install -r experiments\screenshot_import\requirements.txt
 
 ## 2. 准备本机目录
 
-示例目录：
+将脱敏截图放在实验目录下已被 `.gitignore` 排除的本机目录：
 
 ```text
-.local-screenshot-test/
+experiments/screenshot_import/.local-screenshot-test/
 ├─ inputs/
 │  ├─ sample-01.png
 │  ├─ sample-02.png
@@ -39,7 +39,7 @@ python -m pip install -r experiments\screenshot_import\requirements.txt
 └─ outputs/
 ```
 
-`.local-screenshot-test/` 应保持在 Git 忽略范围外，或确认不会被 `git add`。文件名不要包含学校、姓名、班级或学号。
+该目录已由实验自己的 `.gitignore` 忽略，但测试前仍应执行 `git status --short`，确认图片没有进入待提交列表。文件名不要包含学校、姓名、班级或学号。
 
 ## 3. 分别运行 block 和 full
 
@@ -47,8 +47,8 @@ python -m pip install -r experiments\screenshot_import\requirements.txt
 
 ```powershell
 python -m experiments.screenshot_import recognize `
-  --input .local-screenshot-test\inputs\sample-01.png `
-  --output .local-screenshot-test\outputs\sample-01-block `
+  --input experiments\screenshot_import\.local-screenshot-test\inputs\sample-01.png `
+  --output experiments\screenshot_import\.local-screenshot-test\outputs\sample-01-block `
   --engine paddle `
   --ocr-mode block `
   --repo-root .
@@ -56,8 +56,8 @@ python -m experiments.screenshot_import recognize `
 
 ```powershell
 python -m experiments.screenshot_import recognize `
-  --input .local-screenshot-test\inputs\sample-01.png `
-  --output .local-screenshot-test\outputs\sample-01-full `
+  --input experiments\screenshot_import\.local-screenshot-test\inputs\sample-01.png `
+  --output experiments\screenshot_import\.local-screenshot-test\outputs\sample-01-full `
   --engine paddle `
   --ocr-mode full `
   --assignment-overlap-threshold 0.35 `
