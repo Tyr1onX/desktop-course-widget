@@ -29,6 +29,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Open canonical benchmark receipt
+        id: receipt
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const response = await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 72,
+              body: [
+                '### Canonical real PaddleOCR benchmark receipt',
+                '',
+                '- Status: `running`',
+                `- Run ID: \`${context.runId}\``,
+                `- Run HEAD: \`${context.sha}\``,
+                '- Workflow: `real-ocr-benchmark.yml`',
+                '',
+                'This run is not canonical until every benchmark step and the artifact upload succeed.',
+              ].join('\n'),
+            });
+            core.setOutput('comment_id', String(response.data.id));
+
       - name: Set up Python 3.13
         uses: actions/setup-python@v5
         with:
@@ -134,18 +156,19 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Record canonical benchmark receipt
+      - name: Finalize successful canonical benchmark receipt
+        if: success()
         uses: actions/github-script@v7
+        env:
+          COMMENT_ID: ${{ steps.receipt.outputs.comment_id }}
         with:
           script: |
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
             const expectedName = `real-paddleocr-benchmark-${context.sha}`;
             let artifact = null;
             for (let attempt = 0; attempt < 20 && !artifact; attempt += 1) {
               const response = await github.rest.actions.listWorkflowRunArtifacts({
-                owner,
-                repo,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
                 run_id: context.runId,
                 per_page: 100,
               });
@@ -156,13 +179,14 @@ jobs:
               core.setFailed(`Artifact ${expectedName} was not visible after upload`);
               return;
             }
-            await github.rest.issues.createComment({
-              owner,
-              repo,
-              issue_number: 72,
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: Number(process.env.COMMENT_ID),
               body: [
                 '### Canonical real PaddleOCR benchmark receipt',
                 '',
+                '- Status: `success`',
                 `- Run ID: \`${context.runId}\``,
                 `- Run HEAD: \`${context.sha}\``,
                 `- Artifact ID: \`${artifact.id}\``,
@@ -171,6 +195,28 @@ jobs:
                 `- Artifact bytes: \`${artifact.size_in_bytes}\``,
                 `- Expires: \`${artifact.expires_at}\``,
                 '',
-                'The benchmark, bootstrap merge, and artifact upload completed successfully before this receipt was posted.',
+                'All benchmark steps, bootstrap metric merging, and artifact upload completed successfully.',
+              ].join('\n'),
+            });
+
+      - name: Mark failed canonical benchmark receipt
+        if: failure() && steps.receipt.outputs.comment_id != ''
+        uses: actions/github-script@v7
+        env:
+          COMMENT_ID: ${{ steps.receipt.outputs.comment_id }}
+        with:
+          script: |
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: Number(process.env.COMMENT_ID),
+              body: [
+                '### Canonical real PaddleOCR benchmark receipt',
+                '',
+                '- Status: `failure`',
+                `- Run ID: \`${context.runId}\``,
+                `- Run HEAD: \`${context.sha}\``,
+                '',
+                'This run is not canonical. Inspect the workflow logs and sanitized partial artifact before retrying.',
               ].join('\n'),
             });
