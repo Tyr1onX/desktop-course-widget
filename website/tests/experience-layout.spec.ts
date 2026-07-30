@@ -39,6 +39,7 @@ for (const viewport of viewports) {
       await expect(page.locator('.experience-hero__lead')).toHaveText('课程会随着时间自然交接，下一节也会在需要时来到眼前。')
       await expect(page.locator('.course-stage--experience .course-demo-step')).toHaveCount(6)
       await expect(page.locator('.course-stage--experience .course-demo-toggle')).toBeVisible()
+      await expect(page.locator('.course-stage--experience .date-nav')).toHaveCount(0)
       await expect(page.locator('.experience-capabilities__line')).toHaveCount(2)
       await expect(page.locator('#import-edit, #desktop-behavior, #privacy, .experience-import, .experience-focus, .experience-privacy, .experience-closing, .focus-desktop')).toHaveCount(0)
       await expect(page.locator('.course-stage__chrome, .course-stage__signal, .course-stage__battery, .course-stage__dock, .course-stage__light--two')).toHaveCount(0)
@@ -55,6 +56,7 @@ for (const viewport of viewports) {
         await steps.nth(index).click()
         await expect(steps.nth(index)).toHaveAttribute('aria-current', 'true')
         await page.waitForFunction(() => document.querySelector<HTMLElement>('.real-widget-host')?.dataset.demoTransitionState === 'idle')
+        await expect(page.locator('.course-stage--experience .date-nav')).toHaveCount(0)
 
         const spacing = await page.evaluate(() => {
           const rect = (selector: string) => document.querySelector<HTMLElement>(selector)?.getBoundingClientRect()
@@ -73,6 +75,11 @@ for (const viewport of viewports) {
         expect(spacing.controlsGap, `state ${index} controls should not overlap the widget`).toBeGreaterThanOrEqual(12)
         expect(spacing.controlsBottomGap, `state ${index} controls should keep a stage inset`).toBeGreaterThanOrEqual(14)
       }
+
+      await expect(page.locator('.course-demo-status')).toHaveText('完整状态演示 · 浏览日期')
+      await expect(page.locator('.course-stage--experience .focus-kicker')).toHaveText('首节课')
+      await expect(page.locator('.course-stage--experience .focus-course h2')).toHaveText('概率论')
+      await expect(page.locator('.course-stage--experience .date-nav')).toHaveCount(0)
 
       const metrics = await page.evaluate(() => {
         const layoutPosition = (element: HTMLElement) => {
@@ -171,6 +178,8 @@ test('removes the retired sections and their runtime modules', async ({ page }) 
   expect(existsSync(resolve(themeRoot, 'project-footer.css'))).toBe(false)
 
   const experienceSource = readFileSync(resolve(themeRoot, 'ExperiencePage.vue'), 'utf8')
+  const experienceDemoSource = readFileSync(resolve(themeRoot, 'website-demo-experience.ts'), 'utf8')
+  const demoCoreSource = readFileSync(resolve(themeRoot, 'website-demo-core.ts'), 'utf8')
   const demoSource = readFileSync(resolve(themeRoot, 'website-demo.ts'), 'utf8')
   const demoStyles = readFileSync(resolve(themeRoot, 'demo-interactions.css'), 'utf8')
   const sharedStyles = readFileSync(resolve(themeRoot, 'custom.css'), 'utf8')
@@ -184,6 +193,9 @@ test('removes the retired sections and their runtime modules', async ({ page }) 
   expect(experienceSource).not.toContain('course-stage__battery')
   expect(experienceSource).not.toContain('course-stage__dock')
   expect(experienceSource).not.toContain('course-stage__light--two')
+  expect(experienceDemoSource).toContain('showNav: false')
+  expect(experienceDemoSource).not.toContain('userPaused = true')
+  expect(demoCoreSource).toContain('showNav: true')
   expect(demoSource).not.toContain('setupTrayDemo')
   expect(demoSource).not.toContain('website-demo-story')
   expect(demoStyles).not.toContain('focus-desktop')
