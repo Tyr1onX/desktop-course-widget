@@ -16,7 +16,7 @@ jobs:
   report:
     runs-on: ubuntu-latest
     steps:
-      - name: Report recent real OCR benchmark runs
+      - name: Report recent safe real OCR benchmark runs
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -28,7 +28,7 @@ jobs:
           command = [
               "gh", "run", "list",
               "--repo", os.environ["GITHUB_REPOSITORY"],
-              "--workflow", "Real PaddleOCR Benchmark",
+              "--workflow", "Real PaddleOCR Safe CPU Benchmark",
               "--branch", "feat/screenshot-recognition-spike",
               "--limit", "5",
               "--json", "databaseId,status,conclusion,headSha,url,createdAt,event",
@@ -36,7 +36,7 @@ jobs:
           completed = subprocess.run(command, check=True, capture_output=True, text=True)
           runs = json.loads(completed.stdout)
           lines = [
-              "### Real OCR benchmark run observer",
+              "### Safe real OCR benchmark run observer",
               "",
               f"Observer HEAD: `{os.environ['GITHUB_SHA']}`",
               "",
