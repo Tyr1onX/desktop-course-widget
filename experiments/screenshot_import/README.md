@@ -15,25 +15,25 @@
 - 7 个星期列；
 - 10～14 个节次行；
 - 无严重透视畸变；
-- 课程块使用浅色底色，跨节块会覆盖内部横线。
+- 浅色课程块，允许跨节块内部横线完全缺失或部分可见。
 
 当前不声称支持暗色截图、无网格课表、长截图、严重透视、多个课表拼接或所有学校格式。
 
 ## 模块职责
 
 - `preprocess.py`：EXIF 方向修正、缩放、灰度/CLAHE、二值化、小角度校正及坐标变换。
-- `grid.py`：OpenCV 形态学提取水平线/垂直线，投影聚类并确定表格外框、星期列、节次行和单元格。
-- `blocks.py`：结合网格、浅色块占用率、内部边界强度和颜色连续性定位跨节课程块。
-- `ocr.py`：`OcrEngine` 抽象、可测试的 fixture 适配器和本地 CPU `PaddleOcrEngine`。
+- `grid.py`：OpenCV 形态学提取水平线/垂直线，保留原始候选，比较候选方案并确定外框、星期列、节次行和单元格。
+- `blocks.py`：结合浅色块占用率、内部边界强度和颜色连续性定位跨节课程块；模糊边界会产生 warning。
+- `ocr.py`：`OcrEngine` 抽象、fixture 适配器和本地 CPU `PaddleOcrEngine`；安全处理 list、tuple、NumPy 数组及 PaddleOCR 多种结果对象。
 - `parse_fields.py`：解析课程名、教师、地点、周次和单双周；星期与节次来自网格结构。
-- `draft.py`：映射到现有 `ImportDraft V2`，最终值与识别证据分离。
+- `draft.py`：映射到现有 `ImportDraft V2`，扁平最终值与识别证据分离。
 - `rust_validate.py`：调用 `src-tauri/examples/validate_import_draft.rs`，复用现有 Rust 类型、`issues()` 和 `validate()`。
-- `synthetic.py`：运行时生成可复现测试图片和 mock OCR token，不提交字体或图片。
+- `synthetic.py`：运行时生成可复现测试图片和 fixture OCR token，不提交字体或图片。
 - `overlay.py`：单独生成调试图，不修改输入图片。
 
 ## 环境与依赖
 
-开发实测基础环境：
+已运行基础代码和测试的环境：
 
 - Python `3.13.5`
 - OpenCV `4.13.0`
@@ -41,12 +41,12 @@
 - Pillow `12.2.0`
 - pytest `9.0.2`
 
-OCR 目标依赖：
+真实 OCR 目标依赖：
 
 - PaddlePaddle CPU `3.3.1`
 - PaddleOCR `3.7.0`
 
-创建虚拟环境：
+Windows 隔离环境安装示例：
 
 ```powershell
 py -3.13 -m venv .venv
@@ -62,26 +62,37 @@ python -m pip install -r experiments\screenshot_import\requirements-test.txt
 python -m pytest experiments\screenshot_import\tests
 ```
 
-PaddleOCR 3.x 首次实例化会在本机下载所需模型，后续复用本地缓存。本实验不调用云端 OCR API，也不上传输入图片。需要完全离线运行时，应提前下载模型并在适配器中显式指定本地模型目录；确认不再使用后，可删除 PaddleOCR/PaddleX 在用户目录创建的模型缓存。PaddleOCR 3.x 底层使用 PaddleX，实际缓存位置应以本机日志中的模型目录为准，常见位置为 `%USERPROFILE%\.paddlex` 或 `%USERPROFILE%\.paddleocr`。
+PaddleOCR 3.x 首次实例化通常会在本机下载模型，后续复用本地缓存。本实验不调用云端 OCR API，也不上传输入图片。完全离线运行时应提前准备模型并显式指定本地模型目录。缓存位置以本机 PaddleOCR/PaddleX 日志为准，常见目录为 `%USERPROFILE%\.paddlex` 或 `%USERPROFILE%\.paddleocr`；清理前应确认没有其他 PaddleX 项目复用该缓存。
 
-## 生成合成样本
+## 合成样本
 
 ```powershell
 python -m experiments.screenshot_import generate-synthetic `
   --output output\synthetic
 ```
 
-会生成：
+基础 fixture 管道样本：
 
-- `standard_10.png`：7 列、10 节、普通两节连排、单双周、教师/地点、缺失地点和相邻课程块；
-- `tilted_12.png`：7 列、12 节、跨三节课程、缩放和约 1.8° 倾斜；
-- 对应 `.ocr.json`：仅供 mock OCR 测试使用。
+- `standard_10`：7 列、10 节、五个课程块、单双周、教师/地点、缺失地点和相邻课程块；
+- `tilted_12`：7 列、12 节、跨三节课程、缩放和约 1.8° 倾斜。
 
-图片由系统字体生成；仓库不包含字体文件。
+复杂课程块样本：
+
+- `weak_internal_line_10`：跨三节课程保留部分内部横线，同色连续时合并并进入结构复核；
+- `similar_adjacent_10`：两个同色相邻独立课程，中间横线清晰，必须保持分离；
+- `distinct_missing_boundary_10`：两个异色相邻课程缺少中间横线，保持分离并对两侧产生 warning。
+
+复杂网格样本：
+
+- `double_border_10`：表格外围双边框；
+- `title_decoration_10`：表格上方长装饰横线；
+- `extra_vertical_10`：左侧节次列附近额外竖线。
+
+对应 `.ocr.json` 仅供 fixture 测试使用，不是 PaddleOCR 输出。图片由系统字体生成，仓库不包含字体文件。
 
 ## 运行识别
 
-实际 PaddleOCR：
+真实本地 PaddleOCR：
 
 ```powershell
 python -m experiments.screenshot_import recognize `
@@ -91,7 +102,7 @@ python -m experiments.screenshot_import recognize `
   --repo-root .
 ```
 
-可重复 mock 端到端：
+可重复 fixture 管道：
 
 ```powershell
 python -m experiments.screenshot_import recognize `
@@ -102,12 +113,12 @@ python -m experiments.screenshot_import recognize `
   --repo-root .
 ```
 
-实验默认阈值可通过参数调整：
+实验默认字段阈值：
 
 - `>= 0.90`：文本和结构均明确时可 `confirmed`；
 - `0.55～0.90`：`review`；
 - `< 0.55` 或无法使用：保留候选并进入 `review`/`missing`；
-- 结构冲突、裸教师姓名、跨格警告等即使 OCR 分数高也进入 `review`。
+- 结构冲突、弱跨格边界、裸教师姓名等即使 OCR 分数高也进入 `review`。
 
 这些是实验阈值，不是最终产品规则。
 
@@ -115,16 +126,42 @@ python -m experiments.screenshot_import recognize `
 
 输出目录包含：
 
-- `draft.json`：严格复用现有 `ImportDraft V2` 字段；
-- `grid.json`：外框、星期列、节次行、单元格、课程块、置信度和警告；
+- `draft.json`：严格复用现有 `ImportDraft V2`；
+- `grid.json`：外框、星期列、节次行、课程块、warning，以及 `candidateDiagnostics`；
 - `ocr.json`：原始 OCR token、原图坐标和置信度；
 - `overlay.png`：网格、课程块和字段状态调试图；
-- `report.json`：统计、版本、阈值、耗时和 Rust 校验结果。
+- `report.json`：结果类型、版本、状态统计、分阶段耗时和 Rust 校验结果。
+
+`candidateDiagnostics` 分别记录横线和竖线的原始候选数、最终索引、候选方案数、最佳/次佳得分、得分差、是否筛选和是否歧义。该信息只用于实验调试，不进入正式 `ImportDraft`。
 
 退出码：
 
 - `0`：图片、网格、课程块、输出结构和 Rust 结构校验成功；草稿可以仍含人工确认项；
 - 非 `0`：图片读取、网格、课程块、OCR、JSON 或 Rust 结构校验失败。
+
+## 结果和耗时口径
+
+必须区分：
+
+- `fixture pipeline result`：图片网格/课程块是真实运行，OCR token 来自 `.ocr.json`；
+- `real PaddleOCR result`：真实调用本地 `PaddleOcrEngine.predict()`；
+- `grid/block detection result`：只评价网格和课程块，不代表文本准确率；
+- `field parsing result`：只评价规则解析；
+- `Rust structural validation result`：只证明 JSON 可由现有 Rust 类型反序列化并满足结构约束。
+
+`report.json` 分别记录：
+
+- `preprocessSeconds`；
+- `gridSeconds`；
+- `blockDetectionSeconds`；
+- `ocrInferenceSeconds`；
+- `fieldParsingSeconds`；
+- `debugOutputSeconds`；
+- `rustValidationSeconds`；
+- `totalPipelineSeconds`；
+- Paddle 适配器可用时另记录初始化和累计推理时间。
+
+Cargo 首次编译、Paddle 模型首次下载、PaddleOCR 初始化、单图热推理和调试文件写入不得合并为一个“单图 OCR 耗时”。
 
 ## Rust 校验语义
 
@@ -136,26 +173,23 @@ python -m experiments.screenshot_import recognize `
 
 这不会放宽或复制生产校验，也不会静默确认输出文件中的字段。
 
-## Overlay 图例
+## 当前真实 OCR 阻塞
 
-- 紫色：表格外框；
-- 蓝色：星期列；
-- 灰色：节次行；
-- 橙色：课程块；
-- 绿色：`confirmed`；
-- 黄色：`review`；
-- 红色：`missing`。
+本轮已在独立 Python 3.13.5 虚拟环境中执行以下安装尝试：
 
-## 当前执行环境的 OCR 阻塞
+```text
+python -m pip install --index-url https://pypi.org/simple paddlepaddle==3.3.1 paddleocr==3.7.0
+python -m pip install --index-url https://www.paddlepaddle.org.cn/packages/stable/cpu/ paddlepaddle==3.3.1
+```
 
-本轮环境无法完成真实 PaddleOCR 推理：内部 Python 镜像没有 `paddlepaddle`/`paddleocr` wheel，Paddle 官方 CPU 源又因 DNS 解析失败不可访问。没有伪造 OCR 成功率或 CPU 推理耗时。网格检测、课程块定位、OCR 接口、mock OCR、字段解析、ImportDraft 输出和 Rust 校验入口均可独立运行。
+两个公开源均在连接阶段出现 `Temporary failure in name resolution`，随后 pip 报告没有取得任何可用发行包。因此没有发生模型下载，没有产生 Paddle 缓存，也没有运行真实 `PaddleOcrEngine`。不得将 fixture 结果描述为真实 OCR 准确率或真实 OCR CPU 耗时。
 
 ## 下一步边界
 
-下一轮正式接入前需要：
+进入多学校样本评估前仍需：
 
-1. 在可安装 PaddlePaddle 的 Windows CPU 环境完成两张及更多合成图实测；
-2. 评估模型体积、首次下载、离线策略、许可证和启动耗时；
-3. 决定是否采用独立 Tauri sidecar，并定义超时、取消、日志和模型目录；
-4. 使用真实但不入库的学校样本校准网格与字段阈值；
-5. 通过现有审阅页进行用户可见确认后，才考虑设置页入口。
+1. 在可访问 PyPI/Paddle 官方源的 Windows CPU 环境安装目标版本；
+2. 单独预编译 Rust 示例，再测量 Paddle 初始化、模型下载、冷启动和热推理；
+3. 对两张基础合成图运行真实 PaddleOCR，并审查是否存在错误自动确认；
+4. 使用真实但不入库的学校样本校准网格、颜色和字段阈值；
+5. 完成准确率与资源占用评估后，再决定是否研究独立 Tauri sidecar。
