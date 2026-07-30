@@ -13,8 +13,86 @@ class CourseBlockDetectionConfig:
     minimum_fill_ratio: float = 0.12
     minimum_saturation: int = 18
     minimum_value: int = 105
-    boundary_line_threshold: float = 0.28
+    missing_boundary_threshold: float = 0.08
+    weak_boundary_threshold: float = 0.28
     color_distance_threshold: float = 42.0
+    color_ambiguity_margin: float = 8.0
+
+
+@dataclass(frozen=True)
+class BoundaryDecision:
+    merge: bool
+    ambiguous: bool
+    warning: str | None = None
+
+
+def _boundary_decision(
+    boundary_strength: float,
+    color_distance: float,
+    config: CourseBlockDetectionConfig,
+) -> BoundaryDecision:
+    """Decide whether two occupied adjacent cells belong to one block.
+
+    A clear structural line always wins. A missing/weak line is only evidence for
+    merging when the colors are continuous; missing structure plus distinct
+    colors remains split and is explicitly marked for review.
+    """
+    boundary_missing = boundary_strength < config.missing_boundary_threshold
+    boundary_weak = (
+        config.missing_boundary_threshold
+        <= boundary_strength
+        < config.weak_boundary_threshold
+    )
+    colors_continuous = color_distance <= config.color_distance_threshold
+    colors_near_limit = (
+        config.color_distance_threshold - config.color_ambiguity_margin
+        < color_distance
+        <= config.color_distance_threshold
+    )
+
+    if boundary_strength >= config.weak_boundary_threshold:
+        return BoundaryDecision(merge=False, ambiguous=False)
+
+    if boundary_missing and colors_continuous:
+        if colors_near_limit:
+            return BoundaryDecision(
+                merge=True,
+                ambiguous=True,
+                warning=(
+                    f"内部边界缺失，但相邻颜色距离 {color_distance:.1f} 接近合并阈值，"
+                    "跨节判断需要复核"
+                ),
+            )
+        return BoundaryDecision(merge=True, ambiguous=False)
+
+    if boundary_weak and colors_continuous:
+        return BoundaryDecision(
+            merge=True,
+            ambiguous=True,
+            warning=(
+                f"内部横线较弱（{boundary_strength:.2f}），依据颜色连续性合并，"
+                "跨节判断需要复核"
+            ),
+        )
+
+    if boundary_missing:
+        return BoundaryDecision(
+            merge=False,
+            ambiguous=True,
+            warning=(
+                f"内部边界缺失但相邻颜色差异较大（距离 {color_distance:.1f}），"
+                "保留为独立课程并需要复核"
+            ),
+        )
+
+    return BoundaryDecision(
+        merge=False,
+        ambiguous=True,
+        warning=(
+            f"内部横线较弱且相邻颜色不连续（距离 {color_distance:.1f}），"
+            "保留为独立课程并需要复核"
+        ),
+    )
 
 
 def _cell_inner(box: PixelBox, margin: int = 4) -> tuple[int, int, int, int]:
@@ -72,15 +150,19 @@ def detect_course_blocks(
     config = config or CourseBlockDetectionConfig()
     hsv = cv2.cvtColor(image.working_bgr, cv2.COLOR_BGR2HSV)
     blocks: list[CourseBlock] = []
-
-    # Map cells into a weekday/section matrix.
     cell_map = {(cell.weekday, cell.section): cell for cell in grid.cells}
-    for weekday in range(1, grid.weekday_count + 1):
-        features: list[tuple[float, np.ndarray]] = []
-        for section in range(1, grid.section_count + 1):
-            cell = cell_map[(weekday, section)]
-            features.append(_cell_features(hsv, image.working_bgr, cell.working_box, config))
 
+    for weekday in range(1, grid.weekday_count + 1):
+        features = [
+            _cell_features(
+                hsv,
+                image.working_bgr,
+                cell_map[(weekday, section)].working_box,
+                config,
+            )
+            for section in range(1, grid.section_count + 1)
+        ]
+        carried_warnings: dict[int, list[str]] = {}
         section = 1
         while section <= grid.section_count:
             fill_ratio, color = features[section - 1]
@@ -92,7 +174,7 @@ def detect_course_blocks(
             end = section
             ratios = [fill_ratio]
             colors = [color]
-            warnings: list[str] = []
+            warnings = list(carried_warnings.pop(start, []))
             while end < grid.section_count:
                 next_ratio, next_color = features[end]
                 if next_ratio < config.minimum_fill_ratio:
@@ -100,15 +182,17 @@ def detect_course_blocks(
                 boundary_y = grid.working_horizontal_lines[end + 1]
                 boundary_strength = _boundary_strength(grid, weekday, boundary_y)
                 color_distance = float(np.linalg.norm(np.mean(colors, axis=0) - next_color))
-                merge = boundary_strength < config.boundary_line_threshold
-                if not merge and color_distance < config.color_distance_threshold and boundary_strength < 0.12:
-                    merge = True
-                if not merge:
-                    break
-                if boundary_strength > config.boundary_line_threshold * 0.75:
+                decision = _boundary_decision(boundary_strength, color_distance, config)
+                if decision.warning:
                     warnings.append(
-                        f"第 {end} 与第 {end + 1} 节边界较弱，跨节判断需要复核"
+                        f"第 {end} 与第 {end + 1} 节：{decision.warning}"
                     )
+                if not decision.merge:
+                    if decision.warning:
+                        carried_warnings.setdefault(end + 1, []).append(
+                            f"第 {end} 与第 {end + 1} 节：{decision.warning}"
+                        )
+                    break
                 end += 1
                 ratios.append(next_ratio)
                 colors.append(next_color)
@@ -129,6 +213,7 @@ def detect_course_blocks(
                 0.0,
                 min(1.0, 0.55 * grid.confidence + 0.45 * occupancy_score),
             )
+            warnings = list(dict.fromkeys(warnings))
             if confidence < 0.75:
                 warnings.append(f"课程块定位置信度较低：{confidence:.2f}")
             blocks.append(
