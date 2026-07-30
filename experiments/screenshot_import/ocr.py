@@ -17,6 +17,10 @@ class OcrError(RuntimeError):
     pass
 
 
+def _type_name(value: Any) -> str:
+    return f"{type(value).__module__}.{type(value).__name__}"
+
+
 def _as_sequence(value: Any) -> list[Any]:
     """Convert Paddle values without relying on NumPy truth-value semantics."""
     if value is None:
@@ -51,6 +55,20 @@ def _result_items(value: Any) -> list[Any]:
         return [value]
 
 
+def _value_structure(value: Any) -> dict[str, Any]:
+    if isinstance(value, np.ndarray):
+        return {
+            "type": _type_name(value),
+            "shape": list(value.shape),
+            "dtype": str(value.dtype),
+        }
+    if isinstance(value, (list, tuple)):
+        return {"type": _type_name(value), "length": len(value)}
+    if value is None:
+        return {"type": "NoneType"}
+    return {"type": _type_name(value)}
+
+
 class OcrEngine(ABC):
     @abstractmethod
     def recognize(self, image_bgr: np.ndarray, region: PixelBox) -> list[OcrToken]:
@@ -60,7 +78,10 @@ class OcrEngine(ABC):
     def version_info(self) -> dict[str, str]:
         pass
 
-    def runtime_info(self) -> dict[str, float]:
+    def runtime_info(self) -> dict[str, Any]:
+        return {}
+
+    def diagnostics(self) -> dict[str, Any]:
         return {}
 
 
@@ -125,6 +146,8 @@ class PaddleOcrEngine(OcrEngine):
         self._last_inference_seconds = 0.0
         self._total_inference_seconds = 0.0
         self._inference_calls = 0
+        self._inference_durations_seconds: list[float] = []
+        self._last_result_structure: dict[str, Any] | None = None
         self._language = language
         self._device = device
 
@@ -162,6 +185,48 @@ class PaddleOcrEngine(OcrEngine):
         nested = value.get("res")
         return nested if isinstance(nested, dict) else value
 
+    @classmethod
+    def _prediction_structure(
+        cls, prediction: Any, items: list[Any]
+    ) -> dict[str, Any]:
+        summaries = []
+        for item in items:
+            json_attr = getattr(item, "json", None)
+            payload = cls._payload(item)
+            summaries.append(
+                {
+                    "type": _type_name(item),
+                    "publicAttributesAndMethods": sorted(
+                        name for name in dir(item) if not name.startswith("_")
+                    ),
+                    "json": {
+                        "present": hasattr(item, "json"),
+                        "callable": callable(json_attr),
+                        "attributeType": (
+                            _type_name(json_attr) if json_attr is not None else None
+                        ),
+                    },
+                    "toDictCallable": callable(getattr(item, "to_dict", None)),
+                    "payloadKeys": sorted(payload.keys()),
+                    "fields": {
+                        key: _value_structure(payload.get(key))
+                        for key in (
+                            "rec_texts",
+                            "rec_scores",
+                            "rec_boxes",
+                            "rec_polys",
+                            "dt_polys",
+                        )
+                    },
+                }
+            )
+        return {
+            "predictionType": _type_name(prediction),
+            "topLevelContainerType": _type_name(prediction),
+            "itemCount": len(items),
+            "items": summaries,
+        }
+
     @staticmethod
     def _boxes(payload: dict[str, Any]) -> list[Any]:
         for key in ("rec_boxes", "rec_polys", "dt_polys"):
@@ -189,9 +254,12 @@ class PaddleOcrEngine(OcrEngine):
         self._last_inference_seconds = elapsed
         self._total_inference_seconds += elapsed
         self._inference_calls += 1
+        self._inference_durations_seconds.append(elapsed)
 
+        items = _result_items(prediction)
+        self._last_result_structure = self._prediction_structure(prediction, items)
         tokens: list[OcrToken] = []
-        for result in _result_items(prediction):
+        for result in items:
             payload = self._payload(result)
             texts = _as_sequence(payload.get("rec_texts"))
             scores = _as_sequence(payload.get("rec_scores"))
@@ -239,10 +307,19 @@ class PaddleOcrEngine(OcrEngine):
                 values[key] = "unknown"
         return values
 
-    def runtime_info(self) -> dict[str, float]:
+    def runtime_info(self) -> dict[str, Any]:
+        durations = list(self._inference_durations_seconds)
         return {
             "initializationSeconds": self._initialization_seconds,
             "lastInferenceSeconds": self._last_inference_seconds,
             "totalInferenceSeconds": self._total_inference_seconds,
-            "inferenceCalls": float(self._inference_calls),
+            "averageInferenceSeconds": (
+                self._total_inference_seconds / len(durations) if durations else None
+            ),
+            "maximumInferenceSeconds": max(durations) if durations else None,
+            "inferenceCalls": self._inference_calls,
+            "inferenceDurationsSeconds": durations,
         }
+
+    def diagnostics(self) -> dict[str, Any]:
+        return {"resultStructure": self._last_result_structure}
