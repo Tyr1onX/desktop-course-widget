@@ -13,7 +13,7 @@ from .grid import detect_grid
 from .models import PixelBox
 from .ocr import OcrEngine
 from .ocr_first import discover_ocr_first_courses
-from .ocr_first_fields import parse_ocr_first_course_fields
+from .ocr_first_fields import enforce_ocr_first_text_review, parse_ocr_first_course_fields
 from .ocr_first_output import write_ocr_first_outputs
 from .parse_fields import FieldParserConfig
 from .preprocess import PreprocessConfig, preprocess_image
@@ -60,6 +60,7 @@ def recognize_ocr_first_image(
     courses = []
     for block, course_tokens in zip(blocks, grouped):
         fields = parse_ocr_first_course_fields(course_tokens, block, parser_config)
+        enforce_ocr_first_text_review(fields)
         enforce_image_parity_review(fields)
         courses.append((block, fields))
 

@@ -6,7 +6,10 @@ from experiments.screenshot_import.ocr_first import (
     parse_sections_from_text,
     parse_weekday_from_text,
 )
-from experiments.screenshot_import.ocr_first_fields import parse_ocr_first_course_fields
+from experiments.screenshot_import.ocr_first_fields import (
+    enforce_ocr_first_text_review,
+    parse_ocr_first_course_fields,
+)
 
 
 def token(text: str, x: float, y: float, width: float = 100, height: float = 20) -> OcrToken:
@@ -83,6 +86,13 @@ def test_ocr_first_discovers_colored_and_black_table_courses_from_text_and_coord
     assert second["name"].value == "服务机器人"
     assert second["location"].value == "实验楼203"
     assert second["weeks"].value == list(range(1, 18))
+
+    enforce_ocr_first_text_review(first)
+    enforce_ocr_first_text_review(second)
+    for fields in (first, second):
+        for field_name in ("name", "teacher", "location", "weeks", "parity"):
+            assert fields[field_name].status != "confirmed"
+        assert "人工确认" in (fields["location"].reason or "")
 
 
 def test_split_time_tokens_on_one_visual_line_do_not_create_duplicate_courses():

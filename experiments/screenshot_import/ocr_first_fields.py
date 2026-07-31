@@ -25,10 +25,31 @@ _LOCATION_HINT = re.compile(
 )
 _ROOM_ONLY = re.compile(r"^[A-Za-z]?\d{2,5}[A-Za-z]?$")
 _ROOM_CODE = re.compile(r"^[\u4e00-\u9fff]{1,4}\d{1,3}-\d{1,4}[A-Za-z]?$")
+_OCR_TEXT_FIELDS = ("name", "teacher", "location", "weeks", "parity")
 
 
 def _compact(value: str) -> str:
     return re.sub(r"\s+", "", normalize_text(value))
+
+
+def enforce_ocr_first_text_review(fields: dict[str, ParsedField]) -> None:
+    """Keep OCR-derived content as review evidence, regardless of confidence.
+
+    OCR confidence is useful diagnostic information, but it cannot stand in for
+    a comparison with the source image.  Weekday and section are structural
+    fields handled by the spatial discovery stage; every text-derived field is
+    deliberately left for human review.
+    """
+    for field_name in _OCR_TEXT_FIELDS:
+        field = fields.get(field_name)
+        if field is None or field.status != "confirmed":
+            continue
+        field.status = "review"
+        field.reason = (
+            f"{field.reason}；OCR 文字字段需人工确认"
+            if field.reason
+            else "OCR 文字字段需人工确认"
+        )
 
 
 def _week_expression_from_line(text: str) -> tuple[str, bool] | None:

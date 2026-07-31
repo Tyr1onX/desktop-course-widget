@@ -33,6 +33,9 @@ fn main() {
     let has_error = issues.iter().any(|issue| issue.severity == ImportIssueSeverity::Error);
     let has_review = issues.iter().any(|issue| issue.severity == ImportIssueSeverity::Review);
 
+    // This clone only answers whether the draft's structure can be imported
+    // after review fields are acknowledged. It never persists evidence status
+    // and must not be interpreted as a human confirmation of OCR text.
     let mut acknowledged = draft.clone();
     for evidence in acknowledged
         .courses
