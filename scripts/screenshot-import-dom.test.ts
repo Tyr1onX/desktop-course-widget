@@ -47,16 +47,20 @@ async function run(): Promise<void> {
   assert(recognizeCalls.length === 1, 'rapid duplicate clicks must start only one recognizer')
   assert(document.querySelectorAll('.import-review-toolbar').length === 1, 'shared review toolbar should remain singular')
   assert(document.body.textContent?.includes('通信原理'), 'recognized course should appear in the shared review list')
+  assert(document.querySelectorAll<HTMLDetailsElement>('.import-course-review[open]').length === 0, 'image courses should start collapsed for quick scanning')
 
   const createButton = document.querySelector<HTMLButtonElement>('[data-action="create-imported-schedule"]')
   assert(createButton?.disabled, 'unconfirmed OCR fields must block schedule creation')
 
-  const confirmCourse = document.querySelector<HTMLButtonElement>('[data-import-v2-confirm-course="0"]')
-  assert(confirmCourse, 'course confirmation control should be available')
-  confirmCourse.click()
-  await waitFor(() => createButton.disabled === false, 'confirmed review should allow schedule creation')
+  const confirmAll = document.querySelector<HTMLButtonElement>('[data-import-v2-confirm-all]')
+  assert(confirmAll, 'bulk confirmation should be available for screenshot drafts')
+  confirmAll.click()
+  await waitFor(() => createButton.disabled === false, 'bulk-confirmed review should allow schedule creation')
 
   assert(document.querySelectorAll('.import-review-toolbar').length === 1, 'review rerender must not duplicate toolbar')
+  assert(document.querySelector('[data-import-v2-confirm-all]') === null, 'bulk confirmation should disappear after completion')
+  assert(document.querySelectorAll('[data-import-v2-confirm-field]').length === 0, 'bulk confirmation should confirm all recognized fields')
+  assert(document.querySelector('.surface-message')?.textContent?.includes('可以创建课表'), 'bulk confirmation should explain the next action')
 }
 
 try {
