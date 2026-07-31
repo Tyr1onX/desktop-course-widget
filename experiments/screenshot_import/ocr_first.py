@@ -248,15 +248,58 @@ def _is_label(
     return bool(match and int(match.group(1)) in section_centers)
 
 
-def _coalesce_split_time_anchors(anchors: list[Anchor]) -> list[Anchor]:
-    """Collapse OCR fragments that describe one time line.
+def _box_gap(left: PixelBox, right: PixelBox) -> float:
+    if left.right < right.x:
+        return right.x - left.right
+    if right.right < left.x:
+        return left.x - right.right
+    return 0.0
 
-    OCR may split `周三` and `第3,4节（第1-17周）` into separate tokens.
-    Both fragments resolve to the same course slot and sit on the same visual line.
-    Treating them as two anchors creates duplicate courses, so keep the richer
-    representative while combining explicit-evidence flags. Distinct rows for
-    odd/even or otherwise separate arrangements remain independent.
+
+def _explicit_time_evidence(
+    token: OcrToken, tokens: list[OcrToken]
+) -> tuple[int | None, tuple[int, int] | None]:
+    """Resolve OCR fragments belonging to one visual time line.
+
+    A renderer may return `周三` and `第3,4节（第1-17周）` as separate
+    tokens. Their individual centers can fall in different weekday columns, so
+    complementary explicit evidence is joined before any coordinate inference.
     """
+    weekday = parse_weekday_from_text(token.text)
+    sections = parse_sections_from_text(token.text)
+    if weekday is not None and sections is not None:
+        return weekday, sections
+    best: tuple[float, OcrToken, int | None, tuple[int, int] | None] | None = None
+    for other in tokens:
+        if other is token:
+            continue
+        other_weekday = parse_weekday_from_text(other.text)
+        other_sections = parse_sections_from_text(other.text)
+        if weekday is None and other_weekday is None:
+            continue
+        if sections is None and other_sections is None:
+            continue
+        if weekday is not None and other_weekday is not None:
+            continue
+        if sections is not None and other_sections is not None:
+            continue
+        height = max(token.box.height, other.box.height, 1.0)
+        vertical_distance = abs(token.box.center[1] - other.box.center[1])
+        gap = _box_gap(token.box, other.box)
+        if vertical_distance > height * 0.75 or gap > height * 2.5:
+            continue
+        score = vertical_distance + gap
+        if best is None or score < best[0]:
+            best = (score, other, other_weekday, other_sections)
+    if best is not None:
+        _, _, other_weekday, other_sections = best
+        weekday = weekday or other_weekday
+        sections = sections or other_sections
+    return weekday, sections
+
+
+def _coalesce_split_time_anchors(anchors: list[Anchor]) -> list[Anchor]:
+    """Collapse fragments on one line while preserving distinct rows."""
     result: list[Anchor] = []
     for candidate in sorted(
         anchors,
@@ -269,9 +312,14 @@ def _coalesce_split_time_anchors(anchors: list[Anchor]) -> list[Anchor]:
         ),
     ):
         token, weekday, sections, explicit_weekday, explicit_sections = candidate
-        merged_at: int | None = None
         for index, existing in enumerate(result):
-            other, other_weekday, other_sections, other_weekday_explicit, other_sections_explicit = existing
+            (
+                other,
+                other_weekday,
+                other_sections,
+                other_weekday_explicit,
+                other_sections_explicit,
+            ) = existing
             if other_weekday != weekday or other_sections != sections:
                 continue
             tolerance = max(token.box.height, other.box.height, 1.0) * 1.25
@@ -295,9 +343,8 @@ def _coalesce_split_time_anchors(anchors: list[Anchor]) -> list[Anchor]:
                 explicit_weekday or other_weekday_explicit,
                 explicit_sections or other_sections_explicit,
             )
-            merged_at = index
             break
-        if merged_at is None:
+        else:
             result.append(candidate)
     return result
 
@@ -328,8 +375,9 @@ def discover_ocr_first_courses(
     for token in usable:
         if _is_label(token, weekday_centers, section_centers):
             continue
-        explicit_weekday = parse_weekday_from_text(token.text)
-        explicit_sections = parse_sections_from_text(token.text)
+        explicit_weekday, explicit_sections = _explicit_time_evidence(
+            token, usable
+        )
         if explicit_weekday is None and explicit_sections is None:
             continue
         weekday = explicit_weekday or _infer_weekday(
