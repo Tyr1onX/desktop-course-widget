@@ -1,4 +1,5 @@
 .import-review-toolbar,
+.import-review-toolbar-actions,
 .import-course-review-actions,
 .import-review-field-heading {
   display: flex;
@@ -12,6 +13,11 @@
   margin: 4px 0 12px;
 }
 
+.import-review-toolbar-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .import-review-filter {
   display: inline-flex;
   padding: 3px;
@@ -21,6 +27,7 @@
 }
 
 .import-review-filter button,
+.import-review-confirm-all,
 .import-course-review-actions button,
 .import-confirm-field {
   border: 0;
@@ -39,6 +46,17 @@
   background: #fff;
   color: #1167d8;
   box-shadow: 0 1px 4px rgba(24, 35, 52, 0.12);
+}
+
+.import-review-confirm-all {
+  padding: 8px 12px;
+  background: #e8f1ff;
+  color: #0e5fc1;
+  font-weight: 600;
+}
+
+.import-review-confirm-all:hover {
+  background: #dceaff;
 }
 
 .import-course-review-actions {
@@ -151,4 +169,19 @@
   border-radius: 10px;
   color: #707782;
   text-align: center;
+}
+
+@media (max-width: 620px) {
+  .import-review-toolbar,
+  .import-review-toolbar-actions {
+    align-items: stretch;
+  }
+
+  .import-review-toolbar-actions {
+    width: 100%;
+  }
+
+  .import-review-confirm-all {
+    flex: 1 1 220px;
+  }
 }
