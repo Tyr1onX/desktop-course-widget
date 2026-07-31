@@ -56,6 +56,25 @@ def test_missing_week_suffix_after_an_explicit_time_is_a_reviewable_week_range()
     assert "周单位" in (fields["weeks"].reason or "")
 
 
+def test_location_excludes_section_tail_from_combined_ocr_lines():
+    block = CourseBlock(1, 3, 4, PixelBox(0, 0, 220, 80), PixelBox(0, 0, 220, 80), 0.94)
+    variants = [
+        "3-10周,星期1,第3节-第4节,南湖-第一教学楼-四阶",
+        "节,南湖-第一教学楼-四阶",
+        "第3节-第4节南湖-第一教学楼-四阶",
+    ]
+
+    for raw_text in variants:
+        fields = parse_ocr_first_course_fields(
+            [
+                token("信息论[04]", 10, 10, 100),
+                token(raw_text, 10, 40, 260),
+            ],
+            block,
+        )
+        assert fields["location"].value == "南湖-第一教学楼-四阶"
+
+
 def test_ocr_first_discovers_colored_and_black_table_courses_from_text_and_coordinates():
     tokens = headers_and_sections()
     tokens.extend(
