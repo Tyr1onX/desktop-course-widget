@@ -1,0 +1,65 @@
+name: Apply review summary visibility patch
+
+on:
+  push:
+    branches:
+      - feat/screenshot-import-vertical-slice
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'chore: apply review summary visibility patch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/screenshot-import-vertical-slice
+          fetch-depth: 0
+      - name: Show location and teacher in collapsed summaries
+        shell: python
+        run: |
+          from pathlib import Path
+
+          controller = Path('src/import-review-controller.ts')
+          text = controller.read_text(encoding='utf-8')
+          old = """          <small>${escapeHtml(`${weekday} · ${sections} · ${api.weeksText(course.weeks) || '周次待确认'}周`)}</small>"""
+          new = """          <small>${escapeHtml(`${weekday} · ${sections} · ${api.weeksText(course.weeks) || '周次待确认'}周`)}</small>
+          <small>${escapeHtml(`地点：${course.location?.trim() || '未识别'} · 老师：${course.teacher?.trim() || '未识别'}`)}</small>"""
+          if text.count(old) != 1:
+              raise SystemExit(f'controller summary anchor count was {text.count(old)}, expected 1')
+          controller.write_text(text.replace(old, new), encoding='utf-8')
+
+          fixture = Path('scripts/screenshot-import-dom.test.html')
+          text = fixture.read_text(encoding='utf-8')
+          replacements = {
+              'summary: { arrangements: 1, highestWeek: 16, locationCount: 0 },': 'summary: { arrangements: 1, highestWeek: 16, locationCount: 1 },',
+              "                location: '',": "                location: '南湖-第一教学楼-四阶',",
+              "                    { field: 'location', status: 'missing', reason: '截图 OCR 字段需人工确认' }": "                    { field: 'location', status: 'review', reason: '截图 OCR 字段需人工确认' }",
+          }
+          for old, new in replacements.items():
+              if text.count(old) != 1:
+                  raise SystemExit(f'fixture anchor {old!r} count was {text.count(old)}, expected 1')
+              text = text.replace(old, new)
+          fixture.write_text(text, encoding='utf-8')
+
+          test = Path('scripts/screenshot-import-dom.test.ts')
+          text = test.read_text(encoding='utf-8')
+          old = """  assert(document.body.textContent?.includes('通信原理'), 'recognized course should appear in the shared review list')"""
+          new = """  assert(document.body.textContent?.includes('通信原理'), 'recognized course should appear in the shared review list')
+  assert(document.body.textContent?.includes('地点：南湖-第一教学楼-四阶'), 'collapsed summary should expose recognized location before bulk confirmation')
+  assert(document.body.textContent?.includes('老师：未识别'), 'collapsed summary should expose missing optional teacher before bulk confirmation')"""
+          if text.count(old) != 1:
+              raise SystemExit(f'test assertion anchor count was {text.count(old)}, expected 1')
+          test.write_text(text.replace(old, new), encoding='utf-8')
+
+          Path('.github/workflows/apply-review-summary-patch.yml').unlink()
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/import-review-controller.ts scripts/screenshot-import-dom.test.html scripts/screenshot-import-dom.test.ts
+          git add -u .github/workflows/apply-review-summary-patch.yml
+          git commit -m "fix: expose OCR details before bulk confirmation"
+          git push origin HEAD:feat/screenshot-import-vertical-slice
