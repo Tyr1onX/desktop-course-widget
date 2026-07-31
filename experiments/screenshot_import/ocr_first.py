@@ -8,14 +8,25 @@ from typing import Any
 from .models import CourseBlock, GridResult, OcrToken, PixelBox
 from .parse_fields import normalize_text
 
-_WEEKDAY = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "日": 7, "天": 7,
-            "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7}
+_WEEKDAY = {
+    "一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6,
+    "日": 7, "天": 7, "1": 1, "2": 2, "3": 3, "4": 4,
+    "5": 5, "6": 6, "7": 7,
+}
 _WEEKDAY_RE = re.compile(r"(?:星期|礼拜|周)\s*([一二三四五六日天1-7])")
 _HEADER_RE = re.compile(r"^(?:星期|礼拜|周)\s*([一二三四五六日天1-7])$")
-_SECTION_RANGE_RE = re.compile(r"第?\s*(\d{1,2})\s*节\s*[-~～至]\s*第?\s*(\d{1,2})\s*节")
-_SECTION_RE = re.compile(r"第?\s*(\d{1,2})(?:\s*[-~～至,，、]\s*第?\s*(\d{1,2}))?\s*节")
+_SECTION_RANGE_RE = re.compile(
+    r"第?\s*(\d{1,2})\s*节\s*[-~～至]\s*第?\s*(\d{1,2})\s*节"
+)
+_SECTION_RE = re.compile(
+    r"第?\s*(\d{1,2})(?:\s*[-~～至,，、]\s*第?\s*(\d{1,2}))?\s*节"
+)
 _SECTION_LABEL_RE = re.compile(r"^(?:第\s*)?(\d{1,2})(?:\s*节)?$")
-_WEEK_RANGE_RE = re.compile(r"(?:第\s*)?\d{1,2}(?:\s*[-~～至]\s*\d{1,2})?\s*周")
+_WEEK_RANGE_RE = re.compile(
+    r"(?:第\s*)?\d{1,2}(?:\s*[-~～至]\s*\d{1,2})?\s*周"
+)
+
+Anchor = tuple[OcrToken, int, tuple[int, int], bool, bool]
 
 
 @dataclass
@@ -32,15 +43,22 @@ class OcrFirstResult:
     def confidence(self) -> float:
         return (
             sum(block.confidence for block in self.blocks) / len(self.blocks)
-            if self.blocks else 0.0
+            if self.blocks
+            else 0.0
         )
 
     def diagnostics(self) -> dict[str, Any]:
         return {
             "strategy": "ocr-first",
             "tableBox": self.table_box.to_dict() if self.table_box else None,
-            "weekdayCenters": {str(k): round(v, 3) for k, v in self.weekday_centers.items()},
-            "sectionCenters": {str(k): round(v, 3) for k, v in self.section_centers.items()},
+            "weekdayCenters": {
+                str(key): round(value, 3)
+                for key, value in self.weekday_centers.items()
+            },
+            "sectionCenters": {
+                str(key): round(value, 3)
+                for key, value in self.section_centers.items()
+            },
             "anchors": self.anchors,
             "warnings": self.warnings,
         }
@@ -60,7 +78,8 @@ def parse_sections_from_text(text: str) -> tuple[int, int] | None:
     match = _SECTION_RANGE_RE.search(compact) or _SECTION_RE.search(compact)
     if not match:
         return None
-    start, end = int(match.group(1)), int(match.group(2) or match.group(1))
+    start = int(match.group(1))
+    end = int(match.group(2) or match.group(1))
     return (start, end) if 1 <= start <= end <= 30 else None
 
 
@@ -76,9 +95,12 @@ def _weekday_headers(tokens: list[OcrToken]) -> dict[int, OcrToken]:
         return {}
     tolerance = median(max(1.0, token.box.height) for token, _ in candidates) * 1.25
     groups: list[list[tuple[OcrToken, int]]] = []
-    for token, value in sorted(candidates, key=lambda item: item[0].box.center[1]):
+    for token, value in sorted(
+        candidates, key=lambda item: item[0].box.center[1]
+    ):
         for group in groups:
-            if abs(token.box.center[1] - median(item[0].box.center[1] for item in group)) <= tolerance:
+            group_y = median(item[0].box.center[1] for item in group)
+            if abs(token.box.center[1] - group_y) <= tolerance:
                 group.append((token, int(value)))
                 break
         else:
@@ -92,28 +114,41 @@ def _weekday_headers(tokens: list[OcrToken]) -> dict[int, OcrToken]:
 
 def _spacing(centers: dict[int, float], image_width: int) -> float:
     values = sorted(centers.values())
-    gaps = [b - a for a, b in zip(values, values[1:]) if b > a]
+    gaps = [right - left for left, right in zip(values, values[1:]) if right > left]
     return median(gaps) if gaps else max(20.0, image_width * 0.12)
 
 
 def _section_labels(
-    tokens: list[OcrToken], centers: dict[int, float], header_y: float, image_width: int
+    tokens: list[OcrToken],
+    centers: dict[int, float],
+    header_y: float,
+    image_width: int,
 ) -> dict[int, OcrToken]:
     if not centers:
         return {}
-    spacing, first_x = _spacing(centers, image_width), min(centers.values())
+    spacing = _spacing(centers, image_width)
+    first_x = min(centers.values())
     found: dict[int, list[OcrToken]] = {}
     for token in tokens:
         match = _SECTION_LABEL_RE.fullmatch(_compact(token.text))
         if not match:
             continue
-        value, (x, y) = int(match.group(1)), token.box.center
-        if 1 <= value <= 30 and first_x - 1.8 * spacing <= x <= first_x - 0.15 * spacing and y > header_y:
+        value = int(match.group(1))
+        x, y = token.box.center
+        if (
+            1 <= value <= 30
+            and first_x - 1.8 * spacing <= x <= first_x - 0.15 * spacing
+            and y > header_y
+        ):
             found.setdefault(value, []).append(token)
     result: dict[int, OcrToken] = {}
     previous_y = header_y
     for value in range(1, 31):
-        options = [token for token in found.get(value, []) if token.box.center[1] > previous_y]
+        options = [
+            token
+            for token in found.get(value, [])
+            if token.box.center[1] > previous_y
+        ]
         if not options:
             break
         result[value] = min(options, key=lambda token: token.box.center[1])
@@ -127,35 +162,53 @@ def _layout(
     headers = _weekday_headers(tokens)
     if not headers:
         return None, {}, {}, ["未可靠找到星期表头，仅使用课程文字中的显式时间"]
-    weekday_centers = {key: token.box.center[0] for key, token in headers.items()}
+    weekday_centers = {
+        key: token.box.center[0] for key, token in headers.items()
+    }
     header_y = median(token.box.center[1] for token in headers.values())
     labels = _section_labels(tokens, weekday_centers, header_y, image_width)
-    section_centers = {key: token.box.center[1] for key, token in labels.items()}
+    section_centers = {
+        key: token.box.center[1] for key, token in labels.items()
+    }
     spacing = _spacing(weekday_centers, image_width)
     left = max(0.0, min(weekday_centers.values()) - spacing * 0.48)
-    right = min(float(image_width), max(weekday_centers.values()) + spacing * 0.48)
+    right = min(
+        float(image_width), max(weekday_centers.values()) + spacing * 0.48
+    )
     top = max(0.0, min(token.box.y for token in headers.values()) - 4.0)
     warnings: list[str] = []
     if section_centers:
-        ys = [section_centers[key] for key in sorted(section_centers)]
-        gaps = [b - a for a, b in zip(ys, ys[1:])]
-        row = median(gaps) if gaps else 20.0
-        bottom = min(float(image_height), max(ys) + row * 0.6)
+        values = [section_centers[key] for key in sorted(section_centers)]
+        gaps = [right_y - left_y for left_y, right_y in zip(values, values[1:])]
+        row_height = median(gaps) if gaps else 20.0
+        bottom = min(float(image_height), max(values) + row_height * 0.6)
     else:
         bottom = float(image_height)
         warnings.append("未可靠找到节次标签，节次需由课程文字或网格辅助")
-    return PixelBox(left, top, right - left, bottom - top), weekday_centers, section_centers, warnings
+    return (
+        PixelBox(left, top, right - left, bottom - top),
+        weekday_centers,
+        section_centers,
+        warnings,
+    )
 
 
 def _infer_weekday(
-    x: float, centers: dict[int, float], grid: GridResult | None, image_width: int
+    x: float,
+    centers: dict[int, float],
+    grid: GridResult | None,
+    image_width: int,
 ) -> int | None:
     if centers:
         weekday, distance = min(
             ((key, abs(value - x)) for key, value in centers.items()),
             key=lambda item: item[1],
         )
-        return weekday if distance <= _spacing(centers, image_width) * 0.62 else None
+        return (
+            weekday
+            if distance <= _spacing(centers, image_width) * 0.62
+            else None
+        )
     if grid:
         for weekday, box in enumerate(grid.weekday_columns, start=1):
             if box.x <= x <= box.right:
@@ -164,10 +217,14 @@ def _infer_weekday(
 
 
 def _infer_sections(
-    box: PixelBox, centers: dict[int, float], grid: GridResult | None
+    box: PixelBox,
+    centers: dict[int, float],
+    grid: GridResult | None,
 ) -> tuple[int, int] | None:
     if centers:
-        section = min(centers, key=lambda key: abs(centers[key] - box.center[1]))
+        section = min(
+            centers, key=lambda key: abs(centers[key] - box.center[1])
+        )
         return section, section
     if grid:
         rows = [
@@ -191,6 +248,60 @@ def _is_label(
     return bool(match and int(match.group(1)) in section_centers)
 
 
+def _coalesce_split_time_anchors(anchors: list[Anchor]) -> list[Anchor]:
+    """Collapse OCR fragments that describe one time line.
+
+    OCR may split `周三` and `第3,4节（第1-17周）` into separate tokens.
+    Both fragments resolve to the same course slot and sit on the same visual line.
+    Treating them as two anchors creates duplicate courses, so keep the richer
+    representative while combining explicit-evidence flags. Distinct rows for
+    odd/even or otherwise separate arrangements remain independent.
+    """
+    result: list[Anchor] = []
+    for candidate in sorted(
+        anchors,
+        key=lambda item: (
+            item[1],
+            item[2][0],
+            item[2][1],
+            item[0].box.center[1],
+            item[0].box.x,
+        ),
+    ):
+        token, weekday, sections, explicit_weekday, explicit_sections = candidate
+        merged_at: int | None = None
+        for index, existing in enumerate(result):
+            other, other_weekday, other_sections, other_weekday_explicit, other_sections_explicit = existing
+            if other_weekday != weekday or other_sections != sections:
+                continue
+            tolerance = max(token.box.height, other.box.height, 1.0) * 1.25
+            if abs(token.box.center[1] - other.box.center[1]) > tolerance:
+                continue
+            candidate_score = (
+                int(explicit_weekday) + int(explicit_sections),
+                len(_compact(token.text)),
+                token.confidence,
+            )
+            existing_score = (
+                int(other_weekday_explicit) + int(other_sections_explicit),
+                len(_compact(other.text)),
+                other.confidence,
+            )
+            representative = token if candidate_score > existing_score else other
+            result[index] = (
+                representative,
+                weekday,
+                sections,
+                explicit_weekday or other_weekday_explicit,
+                explicit_sections or other_sections_explicit,
+            )
+            merged_at = index
+            break
+        if merged_at is None:
+            result.append(candidate)
+    return result
+
+
 def discover_ocr_first_courses(
     tokens: list[OcrToken],
     *,
@@ -207,11 +318,13 @@ def discover_ocr_first_courses(
         if token.confidence >= 0.45
         and (
             table_box is None
-            or table_box.x <= token.box.center[0] <= table_box.right
-            and table_box.y <= token.box.center[1] <= table_box.bottom
+            or (
+                table_box.x <= token.box.center[0] <= table_box.right
+                and table_box.y <= token.box.center[1] <= table_box.bottom
+            )
         )
     ]
-    anchors: list[tuple[OcrToken, int, tuple[int, int], bool, bool]] = []
+    anchors: list[Anchor] = []
     for token in usable:
         if _is_label(token, weekday_centers, section_centers):
             continue
@@ -243,6 +356,7 @@ def discover_ocr_first_courses(
                 explicit_sections is not None,
             )
         )
+    anchors = _coalesce_split_time_anchors(anchors)
     anchors.sort(key=lambda item: (item[1], item[2][0], item[0].box.y))
 
     blocks: list[CourseBlock] = []
@@ -270,18 +384,24 @@ def discover_ocr_first_courses(
                 (y + same_column[position + 1][0].box.center[1]) / 2.0,
             )
         if weekday_centers and weekday in weekday_centers:
-            ordered = sorted(weekday_centers.items(), key=lambda item: item[1])
-            index = next(i for i, item in enumerate(ordered) if item[0] == weekday)
-            center = ordered[index][1]
+            ordered = sorted(
+                weekday_centers.items(), key=lambda item: item[1]
+            )
+            column_index = next(
+                index
+                for index, item in enumerate(ordered)
+                if item[0] == weekday
+            )
+            center = ordered[column_index][1]
             gap = _spacing(weekday_centers, image_width)
             left = (
-                (ordered[index - 1][1] + center) / 2
-                if index
+                (ordered[column_index - 1][1] + center) / 2
+                if column_index
                 else center - gap / 2
             )
             right = (
-                (center + ordered[index + 1][1]) / 2
-                if index + 1 < len(ordered)
+                (center + ordered[column_index + 1][1]) / 2
+                if column_index + 1 < len(ordered)
                 else center + gap / 2
             )
         elif grid and 1 <= weekday <= len(grid.weekday_columns):
@@ -301,7 +421,7 @@ def discover_ocr_first_courses(
             group.append(token)
         group.sort(key=lambda item: (item.box.y, item.box.x))
         box = PixelBox.union(item.box for item in group) or token.box
-        block_warnings = []
+        block_warnings: list[str] = []
         if not explicit_weekday:
             block_warnings.append("星期由文字坐标推断，需要复核")
         if not explicit_sections:
