@@ -47,6 +47,8 @@ async function run(): Promise<void> {
   assert(recognizeCalls.length === 1, 'rapid duplicate clicks must start only one recognizer')
   assert(document.querySelectorAll('.import-review-toolbar').length === 1, 'shared review toolbar should remain singular')
   assert(document.body.textContent?.includes('通信原理'), 'recognized course should appear in the shared review list')
+  assert(document.body.textContent?.includes('地点：南湖-第一教学楼-四阶'), 'collapsed summary should expose recognized location before bulk confirmation')
+  assert(document.body.textContent?.includes('老师：未识别'), 'collapsed summary should expose missing optional teacher before bulk confirmation')
   assert(document.querySelectorAll<HTMLDetailsElement>('.import-course-review[open]').length === 0, 'image courses should start collapsed for quick scanning')
 
   const createButton = document.querySelector<HTMLButtonElement>('[data-action="create-imported-schedule"]')
