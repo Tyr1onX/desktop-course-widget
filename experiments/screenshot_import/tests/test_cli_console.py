@@ -21,3 +21,10 @@ def test_cli_configures_windows_console_streams_as_utf8(monkeypatch):
 
     assert stdout.calls == [{"encoding": "utf-8", "errors": "replace"}]
     assert stderr.calls == [{"encoding": "utf-8", "errors": "replace"}]
+
+
+def test_cli_defaults_to_ocr_first():
+    args = cli.parser().parse_args(
+        ["recognize", "--input", "sample.png", "--output", "out"]
+    )
+    assert args.ocr_mode == "ocr-first"
