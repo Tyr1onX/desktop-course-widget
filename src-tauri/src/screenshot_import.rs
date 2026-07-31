@@ -1,8 +1,10 @@
 use std::{
     env, fs,
+    fs::File,
     path::{Path, PathBuf},
-    process::Command,
-    time::{SystemTime, UNIX_EPOCH},
+    process::{Child, Command, ExitStatus, Stdio},
+    thread,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use crate::import_draft::{
@@ -12,6 +14,7 @@ use crate::import_draft::{
 
 const OCR_PYTHON_ENV: &str = "COURSE_WIDGET_OCR_PYTHON";
 const OCR_REPO_ROOT_ENV: &str = "COURSE_WIDGET_OCR_REPO_ROOT";
+const OCR_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
 struct RecognizerRuntime {
     python: PathBuf,
@@ -50,8 +53,14 @@ pub fn recognize_screenshot(image_path: &Path) -> Result<ImportDraft, String> {
     validate_image_path(image_path)?;
     let runtime = resolve_runtime()?;
     let output = TempOutput::create()?;
+    let stdout_path = output.path.join("recognizer.stdout.log");
+    let stderr_path = output.path.join("recognizer.stderr.log");
+    let stdout = File::create(&stdout_path)
+        .map_err(|error| format!("无法创建截图识别输出日志：{error}"))?;
+    let stderr = File::create(&stderr_path)
+        .map_err(|error| format!("无法创建截图识别错误日志：{error}"))?;
 
-    let process = Command::new(&runtime.python)
+    let mut process = Command::new(&runtime.python)
         .current_dir(&runtime.repo_root)
         .arg("-m")
         .arg("experiments.screenshot_import")
@@ -64,11 +73,16 @@ pub fn recognize_screenshot(image_path: &Path) -> Result<ImportDraft, String> {
         .arg("paddle")
         .arg("--repo-root")
         .arg(&runtime.repo_root)
-        .output()
+        .stdout(Stdio::from(stdout))
+        .stderr(Stdio::from(stderr))
+        .spawn()
         .map_err(|error| format!("无法启动本地截图识别器：{error}"))?;
 
-    if !process.status.success() {
-        let detail = compact_failure(&process.stderr, &process.stdout);
+    let status = wait_for_process(&mut process, OCR_TIMEOUT)?;
+    if !status.success() {
+        let stderr = fs::read(&stderr_path).unwrap_or_default();
+        let stdout = fs::read(&stdout_path).unwrap_or_default();
+        let detail = compact_failure(&stderr, &stdout);
         return Err(format!("课表截图识别失败：{detail}"));
     }
 
@@ -99,6 +113,24 @@ pub fn recognize_screenshot(image_path: &Path) -> Result<ImportDraft, String> {
         .to_owned();
     enforce_manual_review(&mut draft);
     Ok(draft)
+}
+
+fn wait_for_process(process: &mut Child, timeout: Duration) -> Result<ExitStatus, String> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Some(status) = process
+            .try_wait()
+            .map_err(|error| format!("无法读取截图识别器状态：{error}"))?
+        {
+            return Ok(status);
+        }
+        if Instant::now() >= deadline {
+            let _ = process.kill();
+            let _ = process.wait();
+            return Err("课表截图识别超时，请检查图片大小或本地 OCR 运行环境后重试".into());
+        }
+        thread::sleep(Duration::from_millis(200));
+    }
 }
 
 fn validate_image_path(path: &Path) -> Result<(), String> {
@@ -242,9 +274,7 @@ fn compact_failure(stderr: &[u8], stdout: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::import_draft::{
-        ImportCourse, ImportDraftSummary, ImportImageSource,
-    };
+    use crate::import_draft::{ImportCourse, ImportDraftSummary, ImportImageSource};
 
     fn sample_draft() -> ImportDraft {
         ImportDraft {
