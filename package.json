@@ -13,6 +13,7 @@
     "check:import-review": "node --experimental-strip-types --test scripts/import-review.test.ts",
     "check:screenshot-import": "node --experimental-strip-types --test scripts/screenshot-import-policy.test.ts",
     "check:import-review-dom": "node scripts/check-import-review-dom.mjs",
+    "check:screenshot-import-dom": "node scripts/check-screenshot-import-dom.mjs",
     "check:presentation-clock": "node --experimental-strip-types scripts/check-presentation-clock.mjs",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
