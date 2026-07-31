@@ -24,6 +24,8 @@ type ActiveSchedule = {
 
 const desktopRuntime = '__TAURI_INTERNALS__' in window
 const plugin = (command: string) => `plugin:schedule-catalog|${command}`
+const importTitle = '从文件创建独立课表'
+const importDescription = '选择 Excel 或课表截图，识别结果会进入同一套逐项复核流程；已有课表不会被覆盖。'
 
 let activeDraft: ImportDraft | null = null
 let activeSettings: AppSettings | null = null
@@ -61,8 +63,8 @@ function enhanceImportSurface(): void {
 
   const introTitle = surface.querySelector<HTMLElement>('.surface-intro h3')
   const introCopy = surface.querySelector<HTMLElement>('.surface-intro p')
-  if (introTitle) introTitle.textContent = '从文件创建独立课表'
-  if (introCopy) introCopy.textContent = '选择 Excel 或课表截图，识别结果会进入同一套逐项复核流程；已有课表不会被覆盖。'
+  if (introTitle && introTitle.textContent !== importTitle) introTitle.textContent = importTitle
+  if (introCopy && introCopy.textContent !== importDescription) introCopy.textContent = importDescription
 
   let screenshotPicker = surface.querySelector<HTMLButtonElement>('[data-action="choose-screenshot"]')
   if (!screenshotPicker) {
@@ -84,7 +86,11 @@ function updatePickerState(surface: HTMLElement): void {
   const screenshotPicker = surface.querySelector<HTMLButtonElement>('[data-action="choose-screenshot"]')
   if (excelPicker) excelPicker.disabled = recognitionPending
   if (!screenshotPicker) return
+
+  const state = `${recognitionPending}:${desktopRuntime}`
   screenshotPicker.disabled = recognitionPending
+  if (screenshotPicker.dataset.screenshotImportState === state) return
+  screenshotPicker.dataset.screenshotImportState = state
   screenshotPicker.innerHTML = `
     <strong>${recognitionPending ? '正在识别课表截图…' : '选择 PNG / JPG 课表截图'}</strong>
     <span>${desktopRuntime ? '图片与 OCR 全程留在本机；首次准备模型可能较慢' : '浏览器预览中不会读取本机图片'}</span>
