@@ -13,6 +13,20 @@ def token(text: str, x: float, y: float, width: float = 100, height: float = 20)
     return OcrToken(text=text, confidence=0.98, box=PixelBox(x, y, width, height))
 
 
+def headers_and_sections() -> list[OcrToken]:
+    tokens = [
+        token(text, 200 + index * 100, 80, 70)
+        for index, text in enumerate(
+            ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
+        )
+    ]
+    tokens.extend(
+        token(str(section), 100, 130 + section * 60, 30, 18)
+        for section in range(1, 9)
+    )
+    return tokens
+
+
 def test_combined_time_text_is_parsed_without_template_branch():
     colored = "第3-8周,星期1,第1节-第2节"
     table = "周三第3,4节(第1-17周)"
@@ -23,14 +37,7 @@ def test_combined_time_text_is_parsed_without_template_branch():
 
 
 def test_ocr_first_discovers_colored_and_black_table_courses_from_text_and_coordinates():
-    tokens: list[OcrToken] = []
-    for index, text in enumerate(
-        ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
-    ):
-        tokens.append(token(text, 200 + index * 100, 80, 70))
-    for section in range(1, 9):
-        tokens.append(token(str(section), 100, 130 + section * 60, 30, 18))
-
+    tokens = headers_and_sections()
     tokens.extend(
         [
             token("通信与网络", 210, 155),
@@ -61,14 +68,40 @@ def test_ocr_first_discovers_colored_and_black_table_courses_from_text_and_coord
     assert second["weeks"].value == list(range(1, 18))
 
 
+def test_split_time_tokens_on_one_visual_line_do_not_create_duplicate_courses():
+    tokens = headers_and_sections()
+    tokens.extend(
+        [
+            token("服务机器人", 410, 275),
+            token("李老师", 410, 300),
+            token("周三", 410, 325, 45),
+            token("第3,4节(第1-17周)", 460, 325, 150),
+            token("实验楼203", 410, 350, 120),
+        ]
+    )
+    result = discover_ocr_first_courses(tokens, image_width=1000, image_height=800)
+    assert len(result.blocks) == 1
+    assert (
+        result.blocks[0].weekday,
+        result.blocks[0].start_section,
+        result.blocks[0].end_section,
+    ) == (3, 3, 4)
+
+
+def test_same_slot_on_distinct_rows_is_not_coalesced():
+    tokens = headers_and_sections()
+    tokens.extend(
+        [
+            token("周三第3,4节(第1-8周单周)", 410, 300, 200),
+            token("周三第3,4节(第2-8周双周)", 410, 350, 200),
+        ]
+    )
+    result = discover_ocr_first_courses(tokens, image_width=1000, image_height=800)
+    assert len(result.blocks) == 2
+
+
 def test_layout_excludes_text_below_last_section_row():
-    tokens = [
-        token(text, 200 + index * 100, 80, 70)
-        for index, text in enumerate(
-            ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
-        )
-    ]
-    tokens.extend(token(str(section), 100, 130 + section * 60, 30, 18) for section in range(1, 9))
+    tokens = headers_and_sections()
     tokens.extend(
         [
             token("课程A", 210, 155),
