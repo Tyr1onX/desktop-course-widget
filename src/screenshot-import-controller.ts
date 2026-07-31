@@ -6,6 +6,11 @@ import {
   refreshImportDraftSummary,
 } from './import-review'
 import { rememberImportDraft } from './import-review-controller'
+import {
+  isFirstWeekMonday,
+  screenshotImportErrorText,
+  screenshotImportLessonCount,
+} from './screenshot-import-policy'
 
 type LessonTime = {
   section: number
@@ -129,7 +134,7 @@ async function chooseScreenshot(): Promise<void> {
     refreshImportDraftSummary(draft)
     renderReviewSurface(surface)
   } catch (error) {
-    setMessage(surface, errorText(error))
+    setMessage(surface, screenshotImportErrorText(error))
   } finally {
     recognitionPending = false
     const currentSurface = document.querySelector<HTMLElement>('.import-review-surface')
@@ -143,8 +148,8 @@ function renderReviewSurface(surface: HTMLElement): void {
   if (!draft || !settings) return
 
   surface.dataset.screenshotImportMode = 'review'
-  const lessonCount = settings.lessonTimes.at(-1)?.section ?? settings.lessonTimes.length
-  const issues = collectImportIssues(draft, Math.max(1, lessonCount))
+  const lessonCount = screenshotImportLessonCount(settings.lessonTimes)
+  const issues = collectImportIssues(draft, lessonCount)
   const pendingCount = issues.filter((issue) => issue.severity !== 'warning').length
   const lessonOptions = settings.lessonTimes
     .map((time) => `<option value="${time.section}">${time.section}</option>`)
@@ -222,10 +227,10 @@ async function createScreenshotSchedule(): Promise<void> {
   try {
     const name = importName.trim()
     if (!name) throw new Error('请填写课表名称')
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(firstWeekMonday)) throw new Error('请选择第一周星期一')
+    if (!isFirstWeekMonday(firstWeekMonday)) throw new Error('请选择星期一作为第一周开始日期')
 
-    const lessonCount = settings.lessonTimes.at(-1)?.section ?? settings.lessonTimes.length
-    const issues = collectImportIssues(draft, Math.max(1, lessonCount))
+    const lessonCount = screenshotImportLessonCount(settings.lessonTimes)
+    const issues = collectImportIssues(draft, lessonCount)
     if (hasBlockingImportIssues(issues)) throw new Error('仍有课程字段需要修正或确认')
 
     createPending = true
@@ -245,12 +250,12 @@ async function createScreenshotSchedule(): Promise<void> {
     setMessage(surface, '课表已创建。')
     window.location.reload()
   } catch (error) {
-    setMessage(surface, errorText(error))
+    setMessage(surface, screenshotImportErrorText(error))
   } finally {
     createPending = false
     if (activeDraft) {
-      const lessonCount = settings.lessonTimes.at(-1)?.section ?? settings.lessonTimes.length
-      button.disabled = hasBlockingImportIssues(collectImportIssues(activeDraft, Math.max(1, lessonCount)))
+      const lessonCount = screenshotImportLessonCount(settings.lessonTimes)
+      button.disabled = hasBlockingImportIssues(collectImportIssues(activeDraft, lessonCount))
     }
   }
 }
@@ -258,12 +263,6 @@ async function createScreenshotSchedule(): Promise<void> {
 function setMessage(surface: HTMLElement, message: string): void {
   const target = surface.querySelector<HTMLElement>('.surface-message')
   if (target) target.textContent = message
-}
-
-function errorText(error: unknown): string {
-  if (error instanceof Error) return error.message
-  if (typeof error === 'string') return error
-  return '操作失败，请稍后重试。'
 }
 
 function escapeHtml(value: string): string {
