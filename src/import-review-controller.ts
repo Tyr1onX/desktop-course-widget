@@ -246,6 +246,7 @@ function courseMarkup(
         <span class="import-course-copy">
           <strong>${escapeHtml(course.name.trim() || `未命名课程 ${index + 1}`)}</strong>
           <small>${escapeHtml(`${weekday} · ${sections} · ${api.weeksText(course.weeks) || '周次待确认'}周`)}</small>
+          <small>${escapeHtml(`地点：${course.location?.trim() || '未识别'} · 老师：${course.teacher?.trim() || '未识别'}`)}</small>
         </span>
         <span class="import-course-state">${escapeHtml(state)}</span>
       </summary>
