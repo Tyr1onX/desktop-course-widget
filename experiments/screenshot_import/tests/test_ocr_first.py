@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from experiments.screenshot_import.models import OcrToken, PixelBox
+from experiments.screenshot_import.models import CourseBlock, OcrToken, PixelBox
 from experiments.screenshot_import.ocr_first import (
     discover_ocr_first_courses,
     parse_sections_from_text,
@@ -34,6 +34,23 @@ def test_combined_time_text_is_parsed_without_template_branch():
     assert parse_sections_from_text(colored) == (1, 2)
     assert parse_weekday_from_text(table) == 3
     assert parse_sections_from_text(table) == (3, 4)
+
+
+def test_section_parser_does_not_treat_the_weekday_number_as_a_section():
+    assert parse_sections_from_text("星期1,第3节-第4") == (3, 4)
+    assert parse_sections_from_text("周五第3.4节") == (3, 4)
+    assert parse_sections_from_text("周五第10,11,12节") == (10, 12)
+
+
+def test_missing_week_suffix_after_an_explicit_time_is_a_reviewable_week_range():
+    block = CourseBlock(1, 1, 2, PixelBox(0, 0, 80, 30), PixelBox(0, 0, 80, 30), 0.9)
+    fields = parse_ocr_first_course_fields(
+        [token("周一第1,2节{第1-17", 10, 10, 170)], block
+    )
+
+    assert fields["weeks"].value == list(range(1, 18))
+    assert fields["weeks"].status == "review"
+    assert "周单位" in (fields["weeks"].reason or "")
 
 
 def test_ocr_first_discovers_colored_and_black_table_courses_from_text_and_coordinates():

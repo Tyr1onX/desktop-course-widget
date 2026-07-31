@@ -16,11 +16,13 @@ _WEEKDAY = {
 _WEEKDAY_RE = re.compile(r"(?:星期|礼拜|周)\s*([一二三四五六日天1-7])")
 _HEADER_RE = re.compile(r"^(?:星期|礼拜|周)\s*([一二三四五六日天1-7])$")
 _SECTION_RANGE_RE = re.compile(
-    r"第?\s*(\d{1,2})\s*节\s*[-~～至]\s*第?\s*(\d{1,2})\s*节"
+    r"第\s*(\d{1,2})\s*节\s*[-~～至]\s*(?:第\s*)?(\d{1,2})(?:\s*节)?"
 )
-_SECTION_RE = re.compile(
-    r"第?\s*(\d{1,2})(?:\s*[-~～至,，、]\s*第?\s*(\d{1,2}))?\s*节"
+_SECTION_LIST_RE = re.compile(
+    r"第\s*(\d{1,2})(?:\s*[,，、.]\s*\d{1,2})*\s*[,，、.]\s*(\d{1,2})\s*节"
 )
+_SECTION_PAIR_RE = re.compile(r"第\s*(\d{1,2})\s*[,，、.]\s*(?:第\s*)?(\d{1,2})\s*节")
+_SECTION_RE = re.compile(r"第\s*(\d{1,2})\s*节")
 _SECTION_LABEL_RE = re.compile(r"^(?:第\s*)?(\d{1,2})(?:\s*节)?$")
 _WEEK_RANGE_RE = re.compile(
     r"(?:第\s*)?\d{1,2}(?:\s*[-~～至]\s*\d{1,2})?\s*周"
@@ -75,7 +77,12 @@ def parse_weekday_from_text(text: str) -> int | None:
 
 def parse_sections_from_text(text: str) -> tuple[int, int] | None:
     compact = _compact(text)
-    match = _SECTION_RANGE_RE.search(compact) or _SECTION_RE.search(compact)
+    match = (
+        _SECTION_RANGE_RE.search(compact)
+        or _SECTION_LIST_RE.search(compact)
+        or _SECTION_PAIR_RE.search(compact)
+        or _SECTION_RE.search(compact)
+    )
     if not match:
         return None
     start = int(match.group(1))
