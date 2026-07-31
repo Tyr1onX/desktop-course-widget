@@ -15,6 +15,7 @@ from .ocr import OcrEngine
 from .ocr_first import discover_ocr_first_courses
 from .ocr_first_fields import enforce_ocr_first_text_review, parse_ocr_first_course_fields
 from .ocr_first_output import write_ocr_first_outputs
+from .ocr_refine import refine_location_fields
 from .parse_fields import FieldParserConfig
 from .preprocess import PreprocessConfig, preprocess_image
 from .rust_validate import validate_with_rust
@@ -60,17 +61,49 @@ def recognize_ocr_first_image(
     courses = []
     for block, course_tokens in zip(blocks, grouped):
         fields = parse_ocr_first_course_fields(course_tokens, block, parser_config)
+        courses.append((block, fields))
+
+    engine = ocr_engine.version_info()
+    refinement_seconds = 0.0
+    if engine.get("engine") == "fixture":
+        refinement: dict[str, Any] = {
+            "attemptedCourseCount": 0,
+            "changedCourseCount": 0,
+            "changedCourseIndexes": [],
+            "predictCallCount": 0,
+            "skipped": "fixture engine",
+        }
+    else:
+        stage = time.perf_counter()
+        try:
+            refinement = refine_location_fields(
+                image.original_bgr,
+                ocr_engine,
+                courses,
+                parser_config,
+            )
+        except Exception as error:
+            refinement = {
+                "attemptedCourseCount": 0,
+                "changedCourseCount": 0,
+                "changedCourseIndexes": [],
+                "predictCallCount": 0,
+                "error": str(error),
+            }
+        refinement_seconds = time.perf_counter() - stage
+
+    for _, fields in courses:
         enforce_ocr_first_text_review(fields)
         enforce_image_parity_review(fields)
-        courses.append((block, fields))
 
     warnings = [*image.warnings, *found.warnings]
     warnings.extend(grid.warnings if grid else [f"网格辅助不可用：{grid_error}"] if grid_error else [])
     warnings.extend(warning for block in blocks for warning in block.warnings)
+    if refinement.get("error"):
+        warnings.append(f"地点局部复识别失败，保留整图 OCR 结果：{refinement['error']}")
     warnings = list(dict.fromkeys(warnings))
     section_rows = grid.section_count if grid else max(block.end_section for block in blocks)
     confidence = grid.confidence if grid else found.confidence
-    engine = ocr_engine.version_info()
     draft = build_import_draft(
         source_path=input_path, image_width=image.original_width, image_height=image.original_height,
         grid_confidence=confidence, section_rows=section_rows, courses=courses,
@@ -84,6 +117,7 @@ def recognize_ocr_first_image(
         "sectionCenters": found.section_centers,
         "courseBlocks": [block.to_dict(image.original_width, image.original_height) for block in blocks],
         "ocrFirst": found.diagnostics(),
+        "ocrRefinement": refinement,
         "optionalGrid": grid.to_dict(image.original_width, image.original_height) if grid else None,
         "optionalGridError": grid_error,
         "warnings": warnings,
@@ -102,12 +136,15 @@ def recognize_ocr_first_image(
     )
     report = {
         "success": True, "ocrMode": "ocr-first", "recognitionStrategy": strategy,
-        "predictCallCount": 1, "courseCount": len(blocks), "fieldEvaluation": evaluation,
+        "predictCallCount": 1 + int(refinement.get("predictCallCount", 0)),
+        "courseCount": len(blocks), "fieldEvaluation": evaluation,
         "fieldParsing": {"statusCounts": {key: statuses.get(key, 0) for key in ("confirmed", "review", "missing")}},
+        "fieldRefinement": refinement,
         "optionalGridAvailable": grid is not None, "optionalGridError": grid_error,
         "warnings": warnings, "rustValidation": rust,
         "timings": {"preprocessSeconds": round(preprocess_seconds, 6),
                     "ocrInferenceSeconds": round(ocr_seconds, 6),
+                    "locationRefinementSeconds": round(refinement_seconds, 6),
                     "totalPipelineSeconds": round(time.perf_counter() - started, 6)},
         "outputs": outputs,
     }
