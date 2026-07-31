@@ -10,16 +10,22 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message)
 }
 
-async function settle(delay = 0): Promise<void> {
-  await Promise.resolve()
-  await new Promise<void>((resolve) => window.setTimeout(resolve, delay))
-  await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
-  await Promise.resolve()
+async function waitFor(condition: () => boolean, message: string, timeout = 3_000): Promise<void> {
+  const deadline = Date.now() + timeout
+  while (Date.now() < deadline) {
+    await Promise.resolve()
+    if (condition()) return
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 25))
+  }
+  throw new Error(message)
 }
 
 async function run(): Promise<void> {
   await import('../src/screenshot-import-controller.ts')
-  await settle()
+  await waitFor(
+    () => document.querySelectorAll('[data-action="choose-screenshot"]').length === 1,
+    'screenshot picker should be inserted exactly once',
+  )
 
   const screenshotPickers = document.querySelectorAll<HTMLButtonElement>('[data-action="choose-screenshot"]')
   assert(screenshotPickers.length === 1, 'screenshot picker should be inserted exactly once')
@@ -28,13 +34,17 @@ async function run(): Promise<void> {
   const picker = screenshotPickers[0]
   picker.click()
   picker.click()
-  await settle(180)
+  await waitFor(
+    () => document.querySelector<HTMLElement>('.import-review-surface')?.dataset.screenshotImportMode === 'review',
+    'recognized screenshot should enter review mode',
+  )
+  await waitFor(
+    () => document.querySelectorAll('.import-review-toolbar').length === 1,
+    'shared review toolbar should render once',
+  )
 
   const recognizeCalls = window.__screenshotImportCommands.filter((command) => command === 'choose_and_parse_screenshot')
   assert(recognizeCalls.length === 1, 'rapid duplicate clicks must start only one recognizer')
-
-  const surface = document.querySelector<HTMLElement>('.import-review-surface')
-  assert(surface?.dataset.screenshotImportMode === 'review', 'recognized screenshot should enter review mode')
   assert(document.querySelectorAll('.import-review-toolbar').length === 1, 'shared review toolbar should remain singular')
   assert(document.body.textContent?.includes('通信原理'), 'recognized course should appear in the shared review list')
 
@@ -44,10 +54,9 @@ async function run(): Promise<void> {
   const confirmCourse = document.querySelector<HTMLButtonElement>('[data-import-v2-confirm-course="0"]')
   assert(confirmCourse, 'course confirmation control should be available')
   confirmCourse.click()
-  await settle()
+  await waitFor(() => createButton.disabled === false, 'confirmed review should allow schedule creation')
 
   assert(document.querySelectorAll('.import-review-toolbar').length === 1, 'review rerender must not duplicate toolbar')
-  assert(createButton.disabled === false, 'confirmed review should allow schedule creation')
 }
 
 try {
