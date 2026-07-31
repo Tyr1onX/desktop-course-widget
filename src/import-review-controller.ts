@@ -106,7 +106,7 @@ function enhanceImportSurface(force = false): void {
   }
   surface.dataset.importReviewV2Signature = signature
 
-  updateSummary(surface, pendingCount)
+  updateSummary(surface, draft, pendingCount)
   const heading = surface.querySelector<HTMLElement>('.import-review-heading')
   const list = surface.querySelector<HTMLElement>('.import-review-list')
   if (!heading || !list) return
@@ -140,7 +140,14 @@ function enhanceImportSurface(force = false): void {
 
   renderWarnings(surface, issues)
   list.innerHTML = visibleIndexes.length
-    ? visibleIndexes.map((index) => courseMarkup(api, draft.courses[index], index, issues, lessonSections)).join('')
+    ? visibleIndexes.map((index) => courseMarkup(
+      api,
+      draft.courses[index],
+      index,
+      issues,
+      lessonSections,
+      imageDraft,
+    )).join('')
     : `<div class="import-review-empty">${filter === 'pending' ? '没有需要处理的课程安排' : '暂无课程安排，可以新增一项'}</div>`
 
   bindRuntimeEvents(surface, api, draft, lessonCount)
@@ -161,9 +168,18 @@ function readLessonSections(surface: HTMLElement, draft: ImportDraft): number[] 
   return activeLessonSections
 }
 
-function updateSummary(surface: HTMLElement, pendingCount: number): void {
+function updateSummary(surface: HTMLElement, draft: ImportDraft, pendingCount: number): void {
   const values = surface.querySelectorAll<HTMLElement>('.import-summary strong')
-  if (values[2]) values[2].textContent = `${pendingCount} 项`
+  if (!values[2]) return
+  if (draft.source === 'image') {
+    const pendingCourses = draft.courses.filter((course) => course.review?.fields?.some((evidence) => (
+      evidence.status === 'review'
+      || (evidence.status === 'missing' && requiredFields.has(evidence.field))
+    ))).length
+    values[2].textContent = `${pendingCourses} 门`
+    return
+  }
+  values[2].textContent = `${pendingCount} 项`
 }
 
 function renderWarnings(surface: HTMLElement, issues: ImportIssue[]): void {
@@ -201,6 +217,7 @@ function courseMarkup(
   index: number,
   allIssues: ImportIssue[],
   lessonSections: number[],
+  imageDraft: boolean,
 ): string {
   const issues = api.collectCourseIssues(allIssues, index)
   const visibleIssues = issues.filter((issue) => issue.code !== 'review.field.optionalMissing')
@@ -215,7 +232,7 @@ function courseMarkup(
     ? `第 ${course.startSection} 节`
     : `第 ${course.startSection}–${course.endSection} 节`
   const state = pending
-    ? `${pending} 个字段待确认`
+    ? imageDraft ? '待快速确认' : `${pending} 个字段待确认`
     : blockingIssues.length
       ? `${blockingIssues.length} 项需修正`
       : warningIssues.length
@@ -233,7 +250,7 @@ function courseMarkup(
         <span class="import-course-state">${escapeHtml(state)}</span>
       </summary>
       <div class="import-course-review-actions">
-        ${pending ? `<button type="button" data-import-v2-confirm-course="${index}">确认本课程剩余字段</button>` : ''}
+        ${pending ? `<button type="button" data-import-v2-confirm-course="${index}">${imageDraft ? '确认本课程' : '确认本课程剩余字段'}</button>` : ''}
         <button class="is-danger" type="button" data-import-v2-delete="${index}">删除此项</button>
       </div>
       <div class="import-course-review-grid">
