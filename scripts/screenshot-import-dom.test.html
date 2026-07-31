@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Screenshot import DOM regression</title>
+  </head>
+  <body>
+    <main class="import-review-surface">
+      <div class="surface-intro">
+        <h3>从 Excel 创建独立课表</h3>
+        <p>先逐项检查识别结果，再创建新课表。</p>
+      </div>
+      <button class="import-picker" type="button" data-action="choose-excel">
+        <strong>选择一份 .xlsx 课表</strong>
+        <span>文件只在本机解析，不会上传</span>
+      </button>
+      <div class="import-summary">
+        <div><strong>0 项</strong></div>
+        <div><strong>0 周</strong></div>
+        <div><strong>0 项</strong></div>
+      </div>
+      <div class="import-review-heading"><div><h3>逐项检查</h3></div><span>0 项</span></div>
+      <div class="import-review-list">
+        <select data-import-field="startSection">
+          <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+          <option value="4">4</option><option value="5">5</option><option value="6">6</option>
+          <option value="7">7</option><option value="8">8</option><option value="9">9</option>
+          <option value="10">10</option><option value="11">11</option><option value="12">12</option>
+        </select>
+      </div>
+      <p class="surface-message" role="status"></p>
+    </main>
+    <button type="button" data-action="create-imported-schedule" disabled>确认并创建课表</button>
+    <pre id="result" data-status="pending">PENDING</pre>
+    <script>
+      window.__screenshotImportCommands = []
+      window.__TAURI_INTERNALS__ = {
+        invoke: async (command) => {
+          window.__screenshotImportCommands.push(command)
+          if (command === 'choose_and_parse_screenshot') {
+            await new Promise((resolve) => setTimeout(resolve, 80))
+            return {
+              schemaVersion: 1,
+              source: 'image',
+              sourceName: '课表 测试.png',
+              suggestedName: '截图导入测试',
+              detectedTermText: null,
+              summary: { arrangements: 1, highestWeek: 16, locationCount: 0 },
+              warnings: [],
+              courses: [{
+                code: null,
+                name: '通信原理',
+                teacher: '',
+                weekday: 1,
+                startSection: 1,
+                endSection: 2,
+                weeks: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+                parity: 'all',
+                location: '',
+                review: {
+                  fields: [
+                    { field: 'name', status: 'review', reason: '截图 OCR 字段需人工确认' },
+                    { field: 'teacher', status: 'missing', reason: '截图 OCR 字段需人工确认' },
+                    { field: 'weekday', status: 'confirmed' },
+                    { field: 'startSection', status: 'confirmed' },
+                    { field: 'endSection', status: 'confirmed' },
+                    { field: 'weeks', status: 'review', reason: '截图 OCR 字段需人工确认' },
+                    { field: 'parity', status: 'review', reason: '截图 OCR 字段需人工确认' },
+                    { field: 'location', status: 'missing', reason: '截图 OCR 字段需人工确认' }
+                  ]
+                }
+              }],
+              imageSource: { width: 1200, height: 1800, weekdayColumns: 7, sectionRows: 12 }
+            }
+          }
+          if (command === 'read_app_settings') {
+            return {
+              lessonTimes: Array.from({ length: 12 }, (_, index) => ({
+                section: index + 1,
+                start: '08:00',
+                end: '08:45'
+              })),
+              equalDuration: false
+            }
+          }
+          if (command === 'read_schedule') return { semesterStart: '2026-09-07' }
+          throw new Error(`unexpected command: ${command}`)
+        }
+      }
+    </script>
+    <script type="module" src="/scripts/screenshot-import-dom.test.ts"></script>
+  </body>
+</html>
