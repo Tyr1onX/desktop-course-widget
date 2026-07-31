@@ -44,7 +44,7 @@ const requiredFields = new Set<ImportFieldKey>([
 let runtimeApi: RuntimeApi | null = null
 let activeDraft: ImportDraft | null = null
 let filter: ImportReviewFilter = 'all'
-let expandedCourseIndex = 0
+let expandedCourseIndex = -1
 let activeLessonSections: number[] = []
 let observer: MutationObserver | null = null
 let renderQueued = false
@@ -66,7 +66,7 @@ export function installImportReviewRuntime(api: RuntimeApi): void {
 export function rememberImportDraft(draft: ImportDraft): void {
   if (activeDraft !== draft) {
     filter = 'all'
-    expandedCourseIndex = 0
+    expandedCourseIndex = draft.source === 'image' ? -1 : 0
     activeLessonSections = []
   }
   activeDraft = draft
@@ -111,8 +111,14 @@ function enhanceImportSurface(force = false): void {
   const list = surface.querySelector<HTMLElement>('.import-review-list')
   if (!heading || !list) return
 
+  const imageDraft = draft.source === 'image'
   heading.innerHTML = `
-    <div><h3>逐项检查</h3><p>修改字段会自动确认；课程冲突会提示，但允许明确继续创建。</p></div>
+    <div>
+      <h3>${imageDraft ? '快速检查识别结果' : '逐项检查'}</h3>
+      <p>${imageDraft
+        ? '先浏览课程摘要；整体无误可一次确认全部，只有异常项需要展开修改。'
+        : '修改字段会自动确认；课程冲突会提示，但允许明确继续创建。'}</p>
+    </div>
     <span>${draft.courses.length} 项</span>
   `
   surface.querySelectorAll('.import-review-toolbar').forEach((element) => element.remove())
@@ -121,16 +127,21 @@ function enhanceImportSurface(force = false): void {
   toolbar.innerHTML = `
     <div class="import-review-filter" role="group" aria-label="导入课程筛选">
       <button type="button" data-import-v2-filter="all" class="${filter === 'all' ? 'is-active' : ''}">全部</button>
-      <button type="button" data-import-v2-filter="pending" class="${filter === 'pending' ? 'is-active' : ''}">只看待确认项</button>
+      <button type="button" data-import-v2-filter="pending" class="${filter === 'pending' ? 'is-active' : ''}">只看需处理项</button>
     </div>
-    <button class="secondary-button" type="button" data-import-v2-add>＋ 新增课程安排</button>
+    <div class="import-review-toolbar-actions">
+      ${imageDraft && pendingCount > 0
+        ? '<button class="import-review-confirm-all" type="button" data-import-v2-confirm-all>✓ 一键确认全部已识别内容</button>'
+        : ''}
+      <button class="secondary-button" type="button" data-import-v2-add>＋ 新增课程安排</button>
+    </div>
   `
   heading.after(toolbar)
 
   renderWarnings(surface, issues)
   list.innerHTML = visibleIndexes.length
     ? visibleIndexes.map((index) => courseMarkup(api, draft.courses[index], index, issues, lessonSections)).join('')
-    : `<div class="import-review-empty">${filter === 'pending' ? '没有待确认的课程安排' : '暂无课程安排，可以新增一项'}</div>`
+    : `<div class="import-review-empty">${filter === 'pending' ? '没有需要处理的课程安排' : '暂无课程安排，可以新增一项'}</div>`
 
   bindRuntimeEvents(surface, api, draft, lessonCount)
   updateCreateButton(api, draft, issues)
@@ -159,11 +170,27 @@ function renderWarnings(surface: HTMLElement, issues: ImportIssue[]): void {
   surface.querySelectorAll('.import-structured-warnings').forEach((element) => element.remove())
   const warnings = issues.filter((issue) => issue.severity === 'warning')
   if (!warnings.length) return
+
+  const grouped = new Map<string, { issue: ImportIssue, count: number }>()
+  for (const warning of warnings) {
+    const key = `${warning.code}\u0000${warning.message}`
+    const current = grouped.get(key)
+    if (current) current.count += 1
+    else grouped.set(key, { issue: warning, count: 1 })
+  }
+
   const section = document.createElement('section')
   section.className = 'import-structured-warnings'
   section.innerHTML = `
-    <strong>可继续创建的提醒</strong>
-    <ul>${warnings.map((warning) => `<li>${escapeHtml(warning.message)}</li>`).join('')}</ul>
+    <strong>可留空或稍后检查</strong>
+    <ul>${[...grouped.values()].map(({ issue, count }) => {
+      const suffix = count > 1
+        ? issue.code === 'review.field.optionalMissing'
+          ? `（${count} 门课程）`
+          : `（${count} 项）`
+        : ''
+      return `<li>${escapeHtml(`${issue.message}${suffix}`)}</li>`
+    }).join('')}</ul>
   `
   surface.querySelector('.import-review-heading')?.before(section)
 }
@@ -176,8 +203,9 @@ function courseMarkup(
   lessonSections: number[],
 ): string {
   const issues = api.collectCourseIssues(allIssues, index)
-  const blockingIssues = issues.filter((issue) => issue.severity !== 'warning')
-  const warningIssues = issues.filter((issue) => issue.severity === 'warning')
+  const visibleIssues = issues.filter((issue) => issue.code !== 'review.field.optionalMissing')
+  const blockingIssues = visibleIssues.filter((issue) => issue.severity !== 'warning')
+  const warningIssues = visibleIssues.filter((issue) => issue.severity === 'warning')
   const pending = course.review?.fields?.filter((evidence) => (
     evidence.status === 'review'
     || (evidence.status === 'missing' && requiredFields.has(evidence.field))
@@ -218,7 +246,7 @@ function courseMarkup(
         ${fieldMarkup(api, course, index, 'location', `<input value="${escapeHtml(course.location ?? '')}" maxlength="160" placeholder="选填" data-import-v2-course="${index}" data-import-v2-field="location" />`)}
         ${fieldMarkup(api, course, index, 'teacher', `<input value="${escapeHtml(course.teacher ?? '')}" maxlength="160" placeholder="选填" data-import-v2-course="${index}" data-import-v2-field="teacher" />`)}
       </div>
-      ${issues.length ? `<ul class="import-course-issues">${issues.map((issue) => `<li class="is-${issue.severity}">${escapeHtml(issue.message)}</li>`).join('')}</ul>` : ''}
+      ${visibleIssues.length ? `<ul class="import-course-issues">${visibleIssues.map((issue) => `<li class="is-${issue.severity}">${escapeHtml(issue.message)}</li>`).join('')}</ul>` : ''}
     </details>
   `
 }
@@ -264,6 +292,19 @@ function bindRuntimeEvents(
       invalidateAndRender(surface)
     })
   })
+  surface.querySelector<HTMLButtonElement>('[data-import-v2-confirm-all]')?.addEventListener('click', () => {
+    const confirmedCount = confirmRecognizedFields(api, draft)
+    const remaining = api.countPending(draft)
+    filter = remaining > 0 ? 'pending' : 'all'
+    expandedCourseIndex = remaining > 0 ? firstPendingCourseIndex(draft) : -1
+    showMessage(
+      surface,
+      remaining > 0
+        ? `已确认 ${confirmedCount} 个识别字段，仍有 ${remaining} 个必填项需要处理。`
+        : `已确认 ${confirmedCount} 个识别字段，可以创建课表。`,
+    )
+    invalidateAndRender(surface)
+  })
   surface.querySelector<HTMLButtonElement>('[data-import-v2-add]')?.addEventListener('click', () => {
     expandedCourseIndex = api.addBlankCourse(draft)
     filter = 'all'
@@ -272,7 +313,9 @@ function bindRuntimeEvents(
   })
   surface.querySelectorAll<HTMLDetailsElement>('[data-import-v2-details]').forEach((details) => {
     details.addEventListener('toggle', () => {
-      if (details.open) expandedCourseIndex = Number(details.dataset.importV2Details ?? 0)
+      const courseIndex = Number(details.dataset.importV2Details ?? -1)
+      if (details.open) expandedCourseIndex = courseIndex
+      else if (expandedCourseIndex === courseIndex) expandedCourseIndex = -1
     })
   })
   surface.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-import-v2-field]').forEach((control) => {
@@ -321,7 +364,7 @@ function bindRuntimeEvents(
       const course = draft.courses[courseIndex]
       if (!course || !window.confirm(`仅从本次导入草稿中删除“${course.name.trim() || `第 ${courseIndex + 1} 项`}”？`)) return
       api.removeCourse(draft, courseIndex)
-      expandedCourseIndex = Math.max(0, Math.min(courseIndex, draft.courses.length - 1))
+      expandedCourseIndex = Math.max(-1, Math.min(courseIndex, draft.courses.length - 1))
       invalidateAndRender(surface)
     })
   })
@@ -330,7 +373,12 @@ function bindRuntimeEvents(
   if (create && create.dataset.importV2WarningBound !== 'true') {
     create.dataset.importV2WarningBound = 'true'
     create.addEventListener('click', (event) => {
-      const warnings = api.collectIssues(draft, lessonCount).filter((issue) => issue.severity === 'warning')
+      const currentApi = runtimeApi
+      const currentDraft = activeDraft
+      if (!currentApi || !currentDraft) return
+      const currentLessonCount = activeLessonSections.at(-1) ?? lessonCount
+      const warnings = currentApi.collectIssues(currentDraft, currentLessonCount)
+        .filter((issue) => issue.severity === 'warning')
       if (!warnings.length) return
       if (!window.confirm(`检测到 ${warnings.length} 项提醒，其中可能包含课程时间冲突。仍然创建课表吗？`)) {
         event.preventDefault()
@@ -338,6 +386,27 @@ function bindRuntimeEvents(
       }
     }, { capture: true })
   }
+}
+
+function confirmRecognizedFields(api: RuntimeApi, draft: ImportDraft): number {
+  let confirmedCount = 0
+  for (const course of draft.courses) {
+    for (const evidence of course.review?.fields ?? []) {
+      const canConfirm = evidence.status === 'review'
+        || (evidence.status === 'missing' && !requiredFields.has(evidence.field))
+      if (!canConfirm) continue
+      api.confirmField(course, evidence.field)
+      confirmedCount += 1
+    }
+  }
+  return confirmedCount
+}
+
+function firstPendingCourseIndex(draft: ImportDraft): number {
+  return draft.courses.findIndex((course) => course.review?.fields?.some((evidence) => (
+    evidence.status === 'review'
+    || (evidence.status === 'missing' && requiredFields.has(evidence.field))
+  )))
 }
 
 function updateCreateButton(api: RuntimeApi, draft: ImportDraft, issues: ImportIssue[]): void {
