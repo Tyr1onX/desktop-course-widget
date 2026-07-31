@@ -70,11 +70,43 @@ jobs:
         shell: pwsh
         run: exit 1
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install screenshot experiment test dependencies
+        run: python -m pip install -r experiments/screenshot_import/requirements-test.txt
+
+      - name: Run screenshot experiment tests
+        run: python -m pytest experiments/screenshot_import/tests
+
       - name: Select stable Rust
         run: rustup default stable
 
       - name: Run Rust library tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+
+      - name: Prebuild ImportDraft validator example
+        run: cargo build --quiet --manifest-path src-tauri/Cargo.toml --example validate_import_draft
+
+      - name: Validate synthetic screenshot drafts with Rust
+        shell: pwsh
+        run: |
+          python -m experiments.screenshot_import generate-synthetic --output .tmp/screenshot-import
+          foreach ($sample in @('standard_10', 'tilted_12')) {
+            foreach ($mode in @('block', 'full')) {
+              python -m experiments.screenshot_import recognize `
+                --input ".tmp/screenshot-import/$sample.png" `
+                --output ".tmp/screenshot-import/$sample-$mode-output" `
+                --engine fixture `
+                --fixture ".tmp/screenshot-import/$sample.ocr.json" `
+                --ocr-mode $mode `
+                --ground-truth ".tmp/screenshot-import/$sample.ground-truth.json" `
+                --repo-root .
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            }
+          }
 
       - name: Build Windows NSIS installer
         run: npm run tauri:build
