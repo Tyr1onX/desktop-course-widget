@@ -45,7 +45,10 @@ def test_cli_defaults_and_ocr_modes():
     defaults = parser().parse_args(["recognize", "--input", "a.png", "--output", "out"])
     assert defaults.review_confidence == 0.55
     assert defaults.high_confidence == 0.90
-    assert defaults.ocr_mode == "block"
+    assert defaults.ocr_mode == "ocr-first"
+    assert parser().parse_args(
+        ["recognize", "--input", "a.png", "--output", "out", "--ocr-mode", "block"]
+    ).ocr_mode == "block"
     assert parser().parse_args(
         ["recognize", "--input", "a.png", "--output", "out", "--ocr-mode", "full"]
     ).ocr_mode == "full"
