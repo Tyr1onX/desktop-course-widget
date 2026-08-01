@@ -1,0 +1,30 @@
+name: Apply bundled OCR runtime patch
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/apply-bundled-ocr-runtime-patch.yml'
+      - 'scripts/apply-bundled-ocr-runtime-patch.py'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.ref == 'feat/release-ocr-component-foundation'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/release-ocr-component-foundation
+          fetch-depth: 0
+      - run: python scripts/apply-bundled-ocr-runtime-patch.py
+      - run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src-tauri/src/ocr_component.rs src-tauri/src/screenshot_import.rs
+          git diff --cached --check
+          git commit -m "fix: use the verified bundled OCR runtime in releases"
+          git push origin HEAD:feat/release-ocr-component-foundation
