@@ -1,0 +1,38 @@
+name: Timetable Corpus Hash Discovery
+
+on:
+  push:
+    branches:
+      - feat/timetable-corpus-benchmark
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install image dependencies
+        run: python -m pip install -r experiments/screenshot_import/requirements-test.txt
+
+      - name: Download corpus and print hashes
+        run: |
+          python -m experiments.screenshot_import fetch-corpus --output .tmp/screenshot-import-corpus --force
+          cat .tmp/screenshot-import-corpus/corpus-lock.json
+
+      - name: Upload lock file
+        uses: actions/upload-artifact@v4
+        with:
+          name: timetable-corpus-hashes
+          path: .tmp/screenshot-import-corpus/corpus-lock.json
+          if-no-files-found: error
+          retention-days: 1
