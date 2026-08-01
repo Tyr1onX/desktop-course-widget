@@ -39,7 +39,27 @@ async function run(): Promise<void> {
     'screenshot picker should state the current multi-image limitation',
   )
 
-  const picker = screenshotPickers[0]
+  const reviewList = document.querySelector<HTMLElement>('.import-review-list')
+  assert(reviewList, 'import review list should exist')
+  const excelDraftMarker = document.createElement('details')
+  excelDraftMarker.dataset.importCourseDetails = '0'
+  reviewList.append(excelDraftMarker)
+  await waitFor(
+    () => document.querySelector('[data-action="choose-screenshot"]') === null,
+    'an active Excel draft should hide the screenshot source picker',
+  )
+  assert(
+    window.__screenshotImportCommands.length === 0,
+    'isolating an Excel draft must not start screenshot recognition',
+  )
+  excelDraftMarker.remove()
+  await waitFor(
+    () => document.querySelectorAll('[data-action="choose-screenshot"]').length === 1,
+    'the screenshot picker should return when no import draft is active',
+  )
+
+  const picker = document.querySelector<HTMLButtonElement>('[data-action="choose-screenshot"]')
+  assert(picker, 'screenshot picker should be available after the Excel draft is cleared')
   picker.click()
   picker.click()
   await waitFor(
