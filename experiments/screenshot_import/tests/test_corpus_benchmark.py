@@ -130,6 +130,10 @@ def test_expected_negative_rejection_passes_gate(tmp_path: Path) -> None:
     assert {case["outcome"] for case in negative} == {"expected-rejection"}
     assert (tmp_path / "report" / "corpus-benchmark.json").is_file()
     assert (tmp_path / "report" / "corpus-benchmark.md").is_file()
+    stored = json.loads(
+        (tmp_path / "report" / "corpus-benchmark.json").read_text(encoding="utf-8")
+    )
+    assert stored["outputs"]["summary"].endswith("corpus-benchmark.md")
 
 
 def test_negative_false_positive_fails_gate(tmp_path: Path) -> None:
@@ -145,6 +149,34 @@ def test_negative_false_positive_fails_gate(tmp_path: Path) -> None:
     failed = [case for case in report["cases"] if not case["gatePassed"]]
     assert len(failed) == 1
     assert failed[0]["failureClass"] == "negative-false-positive"
+
+
+def test_positive_miss_is_observational_until_required(tmp_path: Path) -> None:
+    corpus, manifest = _prepare_corpus(tmp_path)
+
+    def miss(_path: Path, _output: Path) -> dict:
+        raise RuntimeError("整图 OCR 已完成，但未形成课程记录")
+
+    baseline = run_corpus_benchmark(
+        corpus,
+        tmp_path / "baseline",
+        miss,
+        manifest_path=manifest,
+        sample_ids=["positive-sample"],
+        include_variants=False,
+    )
+    required = run_corpus_benchmark(
+        corpus,
+        tmp_path / "required",
+        miss,
+        manifest_path=manifest,
+        sample_ids=["positive-sample"],
+        include_variants=False,
+        require_positive=True,
+    )
+    assert baseline["gatePassed"] is True
+    assert baseline["cases"][0]["outcome"] == "not-recognized"
+    assert required["gatePassed"] is False
 
 
 def test_incomplete_case_can_be_observational_or_strict(tmp_path: Path) -> None:
@@ -174,6 +206,25 @@ def test_incomplete_case_can_be_observational_or_strict(tmp_path: Path) -> None:
     assert observational["gatePassed"] is True
     assert observational["cases"][0]["outcome"] == "silent-incomplete-recognition"
     assert strict["gatePassed"] is False
+
+
+def test_cropped_rejection_passes_strict_incomplete(tmp_path: Path) -> None:
+    corpus, manifest = _prepare_corpus(tmp_path)
+
+    def reject(_path: Path, _output: Path) -> dict:
+        raise RuntimeError("整图 OCR 已完成，但未形成课程记录")
+
+    report = run_corpus_benchmark(
+        corpus,
+        tmp_path / "strict",
+        reject,
+        manifest_path=manifest,
+        sample_ids=["positive-sample"],
+        include_originals=False,
+        strict_incomplete=True,
+    )
+    assert report["gatePassed"] is True
+    assert report["cases"][0]["outcome"] == "incomplete-rejection"
 
 
 def test_pipeline_error_is_classified_and_fails_by_default(tmp_path: Path) -> None:
