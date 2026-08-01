@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
+  <title id="title">课刻 Windows 桌面课表</title>
+  <desc id="desc">使用课刻真实应用图标、轨道与时间线构成的深色产品封面。</desc>
+
+  <rect width="1280" height="640" fill="#0d0d10"/>
+  <rect x="24" y="24" width="1232" height="592" rx="28" fill="none" stroke="#ffffff" stroke-opacity="0.12"/>
+
+  <g stroke="#ffffff" stroke-opacity="0.045">
+    <path d="M24 160H1256M24 320H1256M24 480H1256"/>
+    <path d="M320 24V616M640 24V616M960 24V616"/>
+  </g>
+
+  <text x="72" y="82" fill="#f4f4f7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="18" font-weight="650" letter-spacing="0.2">TYR1ONX / COURSE</text>
+  <text x="1208" y="82" text-anchor="end" fill="#81818b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="15">desktop-course-widget</text>
+
+  <g transform="translate(64 122)">
+    <ellipse cx="246" cy="200" rx="202" ry="88" fill="none" stroke="#ffffff" stroke-opacity="0.16" transform="rotate(-18 246 200)"/>
+    <ellipse cx="246" cy="200" rx="150" ry="150" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-dasharray="3 10"/>
+    <circle cx="78" cy="260" r="6" fill="#0071e3"/>
+    <circle cx="407" cy="121" r="4" fill="#f4f4f7" fill-opacity="0.78"/>
+    <path d="M78 260C123 339 287 362 407 121" fill="none" stroke="#0071e3" stroke-opacity="0.36"/>
+
+    <rect x="164" y="118" width="164" height="164" rx="42" fill="#17171c" stroke="#ffffff" stroke-opacity="0.14"/>
+    <image href="app-icon-v2.svg" x="178" y="132" width="136" height="136" preserveAspectRatio="xMidYMid meet"/>
+
+    <text x="246" y="340" text-anchor="middle" fill="#f4f4f7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="34" font-weight="700" letter-spacing="-1.6">课刻</text>
+    <text x="246" y="374" text-anchor="middle" fill="#81818b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="15">Windows 桌面课表</text>
+  </g>
+
+  <g transform="translate(548 146)">
+    <text x="0" y="0" fill="#0071e3" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="16" font-weight="650">LOCAL-FIRST TIMETABLE</text>
+    <text x="0" y="84" fill="#f4f4f7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="54" font-weight="700" letter-spacing="-3">让一天在桌面上</text>
+    <text x="0" y="150" fill="#f4f4f7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="54" font-weight="700" letter-spacing="-3">缓慢流动。</text>
+    <text x="0" y="207" fill="#aaaab3" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="20">当前课程、下一节与完整周课表，抬眼就能看见。</text>
+
+    <g transform="translate(0 278)">
+      <path d="M0 0H648" stroke="#ffffff" stroke-opacity="0.16"/>
+      <circle cx="0" cy="0" r="5" fill="#0071e3"/>
+      <circle cx="324" cy="0" r="5" fill="#f4f4f7"/>
+      <circle cx="648" cy="0" r="5" fill="#81818b"/>
+
+      <text x="0" y="34" fill="#f4f4f7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="17" font-weight="650">Excel 导入</text>
+      <text x="0" y="58" fill="#81818b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="14">教务系统课表</text>
+
+      <text x="324" y="34" text-anchor="middle" fill="#f4f4f7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="17" font-weight="650">当前 / 下一节</text>
+      <text x="324" y="58" text-anchor="middle" fill="#81818b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="14">跟随一天变化</text>
+
+      <text x="648" y="34" text-anchor="end" fill="#f4f4f7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="17" font-weight="650">本地优先</text>
+      <text x="648" y="58" text-anchor="end" fill="#81818b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="14">无需账号与云端</text>
+    </g>
+  </g>
+
+  <text x="72" y="574" fill="#81818b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="14">FREE · OPEN SOURCE · WINDOWS 10 / 11</text>
+  <path d="M1014 568H1208" stroke="#0071e3" stroke-width="2"/>
+</svg>

@@ -6,6 +6,7 @@
     "docs:dev": "vitepress docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",
+    "docs:render:social": "node scripts/render-social-preview.mjs",
     "docs:test:responsive": "playwright test"
   },
   "dependencies": {

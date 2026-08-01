@@ -1,23 +1,71 @@
 import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vitepress'
 
+const siteBase = '/desktop-course-widget/'
+const siteUrl = `https://tyr1onx.github.io${siteBase}`
+const socialImageUrl = `${siteUrl}social-preview.png`
+
+function pageUrl(page: string): string {
+  const route = page.replace(/(^|\/)index\.md$/, '$1').replace(/\.md$/, '')
+  return new URL(route, siteUrl).href
+}
+
 export default defineConfig({
   lang: 'zh-CN',
   title: '课刻',
-  description: '让一天的课程，在桌面上缓慢流动的 Windows 桌面课表。',
-  base: '/desktop-course-widget/',
+  description:
+    '课刻是一款免费的 Windows 桌面课表工具，支持从教务系统 Excel 导入课表，显示当前课程、下一节和完整周课表，所有数据仅保存在本机。',
+  base: siteBase,
   cleanUrls: true,
+  lastUpdated: true,
+  sitemap: {
+    hostname: siteUrl,
+  },
   head: [
-    ['meta', { name: 'theme-color', content: '#f6f7fb' }],
+    ['meta', { name: 'theme-color', content: '#f5f5f7' }],
+    ['meta', { name: 'application-name', content: '课刻' }],
+    [
+      'meta',
+      {
+        name: 'keywords',
+        content: 'Windows课表,桌面课表,大学生课表,课程表,课表组件,Excel课表导入,Tauri,Rust',
+      },
+    ],
     [
       'link',
       {
         rel: 'icon',
         type: 'image/svg+xml',
-        href: '/desktop-course-widget/app-icon-v2.svg',
+        href: `${siteBase}app-icon-v2.svg`,
       },
     ],
   ],
+  transformHead({ title, description, page }) {
+    if (page === '404.md') {
+      return [['meta', { name: 'robots', content: 'noindex, nofollow' }]]
+    }
+
+    const canonicalUrl = pageUrl(page)
+    return [
+      ['link', { rel: 'canonical', href: canonicalUrl }],
+      ['meta', { name: 'robots', content: 'index, follow, max-image-preview:large' }],
+      ['meta', { property: 'og:type', content: 'website' }],
+      ['meta', { property: 'og:locale', content: 'zh_CN' }],
+      ['meta', { property: 'og:site_name', content: '课刻' }],
+      ['meta', { property: 'og:title', content: title }],
+      ['meta', { property: 'og:description', content: description }],
+      ['meta', { property: 'og:url', content: canonicalUrl }],
+      ['meta', { property: 'og:image', content: socialImageUrl }],
+      ['meta', { property: 'og:image:type', content: 'image/png' }],
+      ['meta', { property: 'og:image:width', content: '1280' }],
+      ['meta', { property: 'og:image:height', content: '640' }],
+      ['meta', { property: 'og:image:alt', content: '课刻 Windows 桌面课表' }],
+      ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
+      ['meta', { name: 'twitter:title', content: title }],
+      ['meta', { name: 'twitter:description', content: description }],
+      ['meta', { name: 'twitter:image', content: socialImageUrl }],
+    ]
+  },
   vite: {
     resolve: {
       alias: {
