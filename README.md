@@ -1,65 +1,80 @@
-# 课刻
+<div align="center">
+  <img src="website/docs/public/social-preview.svg" alt="课刻：Windows 桌面课表产品概览" width="100%" />
 
-课刻是一款面向 Windows 的本地桌面课表组件。它可以导入学校教务系统导出的 `.xlsx` 课表，在桌面显示当天课程，并通过独立设置窗口管理多张课表、课程与作息时间。
+  <h1>课刻</h1>
 
-> “课刻”是桌面课表项目的新名称；从 `v0.4.0` 起，安装包、快捷方式和应用窗口统一使用该名称。
+  <p><strong>把学校教务系统里的课表，放回 Windows 桌面。</strong></p>
+  <p>正在上的课、下一节和完整周课表，抬眼就能看见。无需账号，课表数据只保存在本机。</p>
+  <p><sub>A local-first Windows timetable and course schedule desktop widget built with Tauri, Rust and TypeScript.</sub></p>
 
-> 当前开发版本：`v0.4.0`。最新可下载安装版本为 `v0.4.0`；不同学校的 Excel 格式可能存在差异，欢迎通过 Issue 反馈经过隐私处理的样例结构和报错信息。
+  <p>
+    <a href="https://github.com/Tyr1onX/desktop-course-widget/releases/latest"><img alt="最新版本" src="https://img.shields.io/github/v/release/Tyr1onX/desktop-course-widget?display_name=tag&sort=semver&style=flat-square" /></a>
+    <a href="https://github.com/Tyr1onX/desktop-course-widget/releases"><img alt="累计下载" src="https://img.shields.io/github/downloads/Tyr1onX/desktop-course-widget/total?style=flat-square" /></a>
+    <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/github/license/Tyr1onX/desktop-course-widget?style=flat-square" /></a>
+    <img alt="Windows 10 / 11" src="https://img.shields.io/badge/Windows-10%20%2F%2011-4f6bed?style=flat-square&logo=windows11&logoColor=white" />
+  </p>
 
-## 功能
+  <p>
+    <a href="https://github.com/Tyr1onX/desktop-course-widget/releases/latest"><strong>下载 Windows 版</strong></a>
+    · <a href="https://tyr1onx.github.io/desktop-course-widget/">产品官网</a>
+    · <a href="https://tyr1onx.github.io/desktop-course-widget/guide/getting-started">使用指南</a>
+    · <a href="https://github.com/Tyr1onX/desktop-course-widget/issues">反馈问题</a>
+  </p>
+</div>
 
-- 桌面课表组件：显示日期、教学周、当天课程和下一节课程。
-- 七日课表视图：在设置窗口中查看星期一至星期日的完整周课表。
-- 多课表管理：每次导入生成独立课表，可快速切换、激活、编辑和删除。
-- 课表信息编辑：支持修改课表名称、第一教学周星期一和总周数。
-- 课程编辑：支持手动新增、修改和删除课程。
-- 多时间段课程：同一课程可配置多个上课时间和地点。
-- 周次设置：支持连续周、单双周和自定义周次。
-- 课程信息：支持教师、地点和课程颜色设置。
-- 动态作息：可配置 1～24 节课的开始与结束时间。
-- Excel 导入：选择 `.xlsx` 后在本机解析并预览后导入。
-- 本地数据：课表和设置仅保存在应用专属目录，不上传到服务器。
-- 兼容迁移：旧版单课表数据会自动迁移到多课表目录。
-- 系统托盘：显示或隐藏组件、打开课表与设置、切换开机启动和退出程序。
-- 单实例、窗口位置恢复、DPI 与多显示器适配。
+## 为什么使用课刻
+
+<table>
+  <tr>
+    <td width="33%" valign="top">
+      <strong>今天，而不是一整张表</strong><br />
+      桌面组件突出当前课程、下一节课程和今天剩余安排，不必反复打开教务系统。
+    </td>
+    <td width="33%" valign="top">
+      <strong>导入后仍然可以修改</strong><br />
+      支持编辑课程、周次、地点、教师、颜色和作息，也可以管理多张课表。
+    </td>
+    <td width="33%" valign="top">
+      <strong>本地优先</strong><br />
+      无需注册账号。课表文件在本机解析，课程和设置不会上传到服务器。
+    </td>
+  </tr>
+</table>
+
+## 快速开始
+
+1. 前往 [最新 Release](https://github.com/Tyr1onX/desktop-course-widget/releases/latest)，下载名称以 `_x64-setup.exe` 结尾的安装程序。
+2. 安装并启动“课刻”，打开“课表与设置”。
+3. 从学校教务系统导出 `.xlsx` 课表并导入，确认第一教学周星期一。
+4. 检查导入预览，应用后即可在桌面查看当天课程。
+
+> 当前安装包尚未进行商业代码签名。Windows 可能显示“Windows 已保护你的电脑”或“未知发布者”。确认安装包来自本仓库 Release 后，可选择“更多信息”→“仍要运行”。
+
+## 核心功能
+
+- **桌面时间流课表**：显示日期、教学周、当前课程、下一节课程和当天剩余安排。
+- **完整周课表**：在独立窗口查看星期一至星期日，并手动新增、修改或删除课程。
+- **Excel 导入**：本机解析教务系统导出的 `.xlsx`，预览确认后再写入课表。
+- **截图导入**：`main` 开发版已接入 PNG/JPG 课表识别与人工复核流程，将在后续正式版本中提供。
+- **多课表管理**：保存不同学期或不同版本的课表，并快速切换当前课表。
+- **灵活课程规则**：支持连续周、单双周、自定义周次、多时间段、教师、地点和颜色。
+- **动态作息**：可配置 1～24 节课的开始与结束时间。
+- **桌面应用能力**：系统托盘、开机启动、单实例、窗口位置恢复、DPI 和多显示器适配。
+- **本地数据**：课程、设置和导入文件均不上传，旧版数据可自动迁移并保留备份。
 
 版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
-## 下载与安装
+## 帮助课刻支持更多学校
 
-1. 打开 [课刻 v0.4.0 发布页](https://github.com/Tyr1onX/desktop-course-widget/releases/tag/v0.4.0)。
-2. 在页面下方展开 **Assets**。
-3. 下载 Windows 安装程序：
+不同学校和教务系统导出的课表结构可能不同。遇到无法识别、字段错位或课程缺失时，请提交一份经过隐私处理的反馈：
 
-   ```text
-   课刻_0.4.0_x64-setup.exe
-   ```
+[提交课表兼容性反馈](https://github.com/Tyr1onX/desktop-course-widget/issues/new?template=school-format.yml)
 
-   不需要下载 `Source code (zip)` 或 `Source code (tar.gz)`，它们是源代码压缩包，不能直接安装。
-4. 双击安装程序并按照安装界面操作。
-5. 当前安装包尚未进行商业代码签名。Windows 可能显示“Windows 已保护你的电脑”或“未知发布者”；确认文件来自本仓库 Release 后，可点击“更多信息”→“仍要运行”。
-6. 安装完成后启动“课刻”。
+提交前请遮住或删除姓名、学号、教师、教室以及其他个人信息。只保留能够复现版式或解析问题的最小样例即可。
 
-从旧版本升级时，安装程序可能先显示旧版卸载界面。请勿勾选 **Delete the application data**，课表和设置数据即可保留。
+## 数据与隐私
 
-## 首次使用
-
-1. 在学校教务系统中导出 `.xlsx` 格式的课表。
-2. 打开“课表与设置”。
-3. 点击左上角当前课表选择器，选择“导入新课表”。
-4. 选择 Excel 文件并确认第一教学周星期一的日期。
-5. 查看导入预览，按需补充缺失的上课地点。
-6. 应用课表后，可在周课表中新增、修改或删除课程。
-7. 可在“课表与数据”中编辑课表名称、第一教学周和总周数。
-8. 按需调整每节课的开始和结束时间。
-
-关闭桌面组件只会将其隐藏到系统托盘。需要再次显示、打开设置或完全退出时，请右键系统托盘中的课刻图标。
-
-## 隐私与数据位置
-
-Excel 文件只在本机处理，不会上传。程序不会主动保留姓名和学号；教师名称是否出现取决于课表内容与解析结果。
-
-Windows 数据目录通常为：
+课表文件只在本机处理。程序不会主动收集或上传课程数据，也不要求登录账号。Windows 数据目录通常为：
 
 ```text
 %LOCALAPPDATA%\com.coursewidget.desktop\
@@ -67,22 +82,21 @@ Windows 数据目录通常为：
 
 其中可能包含：
 
-- `schedule.json`：供桌面组件使用的当前课表；
-- `settings.json`：作息时间与应用设置；
+- `schedule.json`：桌面组件使用的当前课表；
+- `settings.json`：作息时间和应用设置；
 - `schedules/index.json`：多课表索引和当前课表标记；
 - `schedules/*.json`：各张独立课表的数据；
-- `backups/`：数据迁移或覆盖时留下的旧数据备份；
+- `backups/`：数据迁移或覆盖时留下的备份。
 
-公开反馈截图或样例文件前，请遮住姓名、学号、教师、教室和其他个人信息。更完整的说明见 [PRIVACY.md](PRIVACY.md)。
+完整说明见 [PRIVACY.md](PRIVACY.md)。
 
 ## 当前限制
 
-- 目前仅支持 Windows。
-- 目前只提供 `.xlsx` 的正式导入入口；不同教务系统格式可能需要适配。
-- 暂不支持手动调整多张课表的排列顺序。
-- 暂不支持课程通知、自动更新和云同步。
-- 升级安装流程仍会显示旧版卸载界面。
-- 安装包暂未进行商业代码签名，Windows 可能显示来源未知提示。
+- 目前仅支持 Windows 10 和 Windows 11。
+- 最新正式安装版以 `.xlsx` 导入为稳定入口；截图导入目前位于开发分支。
+- 不同教务系统格式可能需要单独适配。
+- 暂不支持课程通知、云同步和应用内自动更新。
+- 安装包暂未进行商业代码签名。
 
 ## 本地开发
 
@@ -99,7 +113,7 @@ npm run tauri:dev
 npm run web:dev
 ```
 
-质量检查：
+主要质量检查：
 
 ```powershell
 npm run check:version
@@ -122,12 +136,7 @@ src-tauri\target\release\bundle\nsis\
 
 ## 技术栈
 
-- Tauri 2
-- Rust
-- Vite
-- Vanilla TypeScript
-- HTML / CSS
-- Calamine（XLSX 解析）
+Tauri 2 · Rust · Vite · Vanilla TypeScript · HTML / CSS · Calamine
 
 ## 开源许可
 
