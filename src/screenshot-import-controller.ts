@@ -30,7 +30,8 @@ type ActiveSchedule = {
 const desktopRuntime = '__TAURI_INTERNALS__' in window
 const plugin = (command: string) => `plugin:schedule-catalog|${command}`
 const importTitle = '从文件创建独立课表'
-const importDescription = '选择 Excel 或课表截图，识别结果会进入同一套逐项复核流程；已有课表不会被覆盖。'
+const importDescription = '选择 Excel 或完整单张课表截图，识别结果会进入同一套复核流程；已有课表不会被覆盖。'
+const reopenImportKey = 'screenshot-import:reopen-after-reset'
 
 let activeDraft: ImportDraft | null = null
 let activeSettings: AppSettings | null = null
@@ -44,6 +45,7 @@ let renderQueued = false
 const observer = new MutationObserver(() => queueEnhance())
 observer.observe(document.body, { childList: true, subtree: true })
 queueEnhance()
+restoreImportSurfaceAfterReset()
 
 function queueEnhance(): void {
   if (renderQueued) return
@@ -52,6 +54,31 @@ function queueEnhance(): void {
     renderQueued = false
     enhanceImportSurface()
   })
+}
+
+function restoreImportSurfaceAfterReset(attempt = 0): void {
+  if (sessionStorage.getItem(reopenImportKey) !== 'true') return
+  if (document.querySelector('.import-review-surface')) {
+    sessionStorage.removeItem(reopenImportKey)
+    return
+  }
+
+  const scheduleSelector = document.querySelector<HTMLButtonElement>('[data-action="toggle-schedule-menu"]')
+  if (!scheduleSelector) {
+    if (attempt < 20) window.setTimeout(() => restoreImportSurfaceAfterReset(attempt + 1), 50)
+    return
+  }
+
+  scheduleSelector.click()
+  window.setTimeout(() => {
+    const importCommand = document.querySelector<HTMLButtonElement>('[data-open-surface="import"]')
+    if (importCommand) {
+      sessionStorage.removeItem(reopenImportKey)
+      importCommand.click()
+      return
+    }
+    if (attempt < 20) restoreImportSurfaceAfterReset(attempt + 1)
+  }, 0)
 }
 
 function enhanceImportSurface(): void {
@@ -99,7 +126,9 @@ function updatePickerState(surface: HTMLElement): void {
   screenshotPicker.dataset.screenshotImportState = state
   screenshotPicker.innerHTML = `
     <strong>${recognitionPending ? '正在识别课表截图…' : '选择 PNG / JPG 课表截图'}</strong>
-    <span>${desktopRuntime ? '图片与 OCR 全程留在本机；首次准备模型可能较慢' : '浏览器预览中不会读取本机图片'}</span>
+    <span>${desktopRuntime
+      ? '请使用完整单张截图，包含星期标题、节次和全部课程；暂不支持多图拼接'
+      : '浏览器预览中不会读取本机图片'}</span>
   `
 }
 
@@ -159,7 +188,7 @@ function renderReviewSurface(surface: HTMLElement): void {
   surface.innerHTML = `
     <div class="surface-intro">
       <h3>检查截图识别结果</h3>
-      <p>${escapeHtml(draft.sourceName)} 已在本机完成识别。修改字段会自动确认，所有待确认项处理完后才能创建课表。</p>
+      <p>${escapeHtml(draft.sourceName)} 已在本机完成识别。请先核对课程数量和摘要；可以随时放弃本次结果并重新选择图片。</p>
     </div>
     <div class="import-summary">
       <div><span>课程安排</span><strong>${draft.summary.arrangements} 项</strong></div>
@@ -171,13 +200,12 @@ function renderReviewSurface(surface: HTMLElement): void {
       <label class="field field--full"><span>第一周星期一</span><input id="screenshot-import-first-week" type="date" value="${escapeHtml(firstWeekMonday)}" /></label>
     </div>
     <div class="import-review-heading">
-      <div><h3>逐项检查</h3><p>课程名、老师、地点、周次和单双周来自 OCR，必须人工确认。</p></div>
+      <div><h3>逐项检查</h3><p>先浏览课程摘要；整体无误可一次确认全部，只有异常项需要展开修改。</p></div>
       <span>${draft.courses.length} 项</span>
     </div>
     <div class="import-review-list">
       <select hidden data-import-field="startSection">${lessonOptions}</select>
     </div>
-    <button class="secondary-button" type="button" data-screenshot-import-reset>重新选择文件</button>
     <p class="surface-message" role="status"></p>
   `
 
@@ -187,16 +215,23 @@ function renderReviewSurface(surface: HTMLElement): void {
   surface.querySelector<HTMLInputElement>('#screenshot-import-first-week')?.addEventListener('input', (event) => {
     firstWeekMonday = (event.currentTarget as HTMLInputElement).value
   })
-  surface.querySelector<HTMLButtonElement>('[data-screenshot-import-reset]')?.addEventListener('click', () => {
-    activeDraft = null
-    activeSettings = null
-    requestId = ''
-    window.location.reload()
-  })
 
   const createButton = document.querySelector<HTMLButtonElement>('[data-action="create-imported-schedule"]')
   if (createButton) {
     createButton.textContent = '确认并创建课表'
+    let resetButton = document.querySelector<HTMLButtonElement>('[data-screenshot-import-reset]')
+    if (!resetButton) {
+      resetButton = document.createElement('button')
+      resetButton.className = 'secondary-button'
+      resetButton.type = 'button'
+      resetButton.dataset.screenshotImportReset = 'true'
+      resetButton.textContent = '重新选择图片'
+      createButton.before(resetButton)
+    }
+    if (resetButton.dataset.screenshotImportBound !== 'true') {
+      resetButton.dataset.screenshotImportBound = 'true'
+      resetButton.addEventListener('click', resetScreenshotImport)
+    }
     if (createButton.dataset.screenshotImportBound !== 'true') {
       createButton.dataset.screenshotImportBound = 'true'
       createButton.addEventListener('click', (event) => {
@@ -210,6 +245,18 @@ function renderReviewSurface(surface: HTMLElement): void {
   refreshImportDraftSummary(draft)
 }
 
+function resetScreenshotImport(): void {
+  if (!window.confirm('放弃当前识别结果并重新选择图片？')) return
+  activeDraft = null
+  activeSettings = null
+  importName = ''
+  firstWeekMonday = ''
+  recognitionPending = false
+  createPending = false
+  requestId = ''
+  sessionStorage.setItem(reopenImportKey, 'true')
+  window.location.reload()
+}
 
 function hideTechnicalReviewEvidence(surface: HTMLElement): void {
   surface.querySelectorAll('.import-evidence-copy').forEach((element) => element.remove())
