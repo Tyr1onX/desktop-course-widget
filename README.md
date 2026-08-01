@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="website/docs/public/app-icon-v2.svg" alt="课刻图标" width="112" height="112" />
+  <img src="src-tauri/icons/icon.png" alt="课刻图标" width="112" height="112" />
 
   <h1>课刻</h1>
 
