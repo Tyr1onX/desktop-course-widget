@@ -233,6 +233,9 @@ def run_corpus_benchmark(
         )
 
     gate_passed = all(bool(record["gatePassed"]) for record in records)
+    output.mkdir(parents=True, exist_ok=True)
+    report_path = output / "corpus-benchmark.json"
+    summary_path = output / "corpus-benchmark.md"
     report = {
         "schemaVersion": SCHEMA_VERSION,
         "gatePassed": gate_passed,
@@ -244,20 +247,17 @@ def run_corpus_benchmark(
         },
         "summary": _summarize(records),
         "cases": records,
+        "outputs": {
+            "report": str(report_path),
+            "summary": str(summary_path),
+            "cases": str(case_output_root),
+        },
     }
-    output.mkdir(parents=True, exist_ok=True)
-    report_path = output / "corpus-benchmark.json"
-    summary_path = output / "corpus-benchmark.md"
     report_path.write_text(
         json.dumps(report, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
     summary_path.write_text(_markdown_summary(report), encoding="utf-8")
-    report["outputs"] = {
-        "report": str(report_path),
-        "summary": str(summary_path),
-        "cases": str(case_output_root),
-    }
     return report
 
 
@@ -277,13 +277,26 @@ def _case_record(
     strict_negative: bool,
     strict_incomplete: bool,
 ) -> dict[str, Any]:
+    incomplete_case = case.expected == "detect-incomplete-or-review"
     if error is not None:
         failure_class = classify_failure(error)
-        expected_rejection = (
-            case.role == "negative-layout" and failure_class == "no-course-records"
-        )
-        gate_passed = expected_rejection or not fail_on_error
-        outcome = "expected-rejection" if expected_rejection else "error"
+        no_course_records = failure_class == "no-course-records"
+        if no_course_records and case.role == "negative-layout":
+            outcome = "expected-rejection"
+            gate_passed = True
+            status = "rejected"
+        elif no_course_records and incomplete_case:
+            outcome = "incomplete-rejection"
+            gate_passed = True
+            status = "rejected"
+        elif no_course_records:
+            outcome = "not-recognized"
+            gate_passed = not require_positive
+            status = "rejected"
+        else:
+            outcome = "error"
+            gate_passed = not fail_on_error
+            status = "error"
         return {
             "id": case.case_id,
             "sourceId": case.sample_id,
@@ -293,7 +306,7 @@ def _case_record(
             "expected": case.expected,
             "tags": list(case.tags),
             "input": str(case.input_path),
-            "status": "rejected" if expected_rejection else "error",
+            "status": status,
             "outcome": outcome,
             "gatePassed": gate_passed,
             "failureClass": failure_class,
@@ -308,16 +321,23 @@ def _case_record(
     warnings = report.get("warnings")
     warning_count = len(warnings) if isinstance(warnings, list) else 0
     recognized = bool(report.get("success")) and course_count > 0
-    incomplete_case = case.expected == "detect-incomplete-or-review"
     reviewable = (
         status_counts["review"] > 0
         or status_counts["missing"] > 0
         or warning_count > 0
     )
 
-    if not recognized:
-        outcome = "empty-result"
-        gate_passed = not fail_on_error
+    if not recognized and case.role == "negative-layout":
+        outcome = "expected-rejection"
+        gate_passed = True
+        failure_class = "empty-result"
+    elif not recognized and incomplete_case:
+        outcome = "incomplete-rejection"
+        gate_passed = True
+        failure_class = "empty-result"
+    elif not recognized:
+        outcome = "not-recognized"
+        gate_passed = not require_positive
         failure_class = "empty-result"
     elif case.role == "negative-layout":
         outcome = "unexpected-recognition"
@@ -336,9 +356,6 @@ def _case_record(
         gate_passed = True
         failure_class = None
 
-    if case.role in {"positive-layout", "layout-only"} and require_positive and not recognized:
-        gate_passed = False
-
     timings = report.get("timings") if isinstance(report.get("timings"), dict) else {}
     total_pipeline = _finite_number(timings.get("totalPipelineSeconds"))
     return {
@@ -350,7 +367,7 @@ def _case_record(
         "expected": case.expected,
         "tags": list(case.tags),
         "input": str(case.input_path),
-        "status": "recognized" if recognized else "empty",
+        "status": "recognized" if recognized else "rejected",
         "outcome": outcome,
         "gatePassed": gate_passed,
         "failureClass": failure_class,
