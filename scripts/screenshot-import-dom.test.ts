@@ -30,6 +30,14 @@ async function run(): Promise<void> {
   const screenshotPickers = document.querySelectorAll<HTMLButtonElement>('[data-action="choose-screenshot"]')
   assert(screenshotPickers.length === 1, 'screenshot picker should be inserted exactly once')
   assert(document.querySelector('.surface-intro h3')?.textContent === '从文件创建独立课表', 'shared import title should render')
+  assert(
+    screenshotPickers[0].textContent?.includes('完整单张截图'),
+    'screenshot picker should explain that one complete image is required',
+  )
+  assert(
+    screenshotPickers[0].textContent?.includes('暂不支持多图拼接'),
+    'screenshot picker should state the current multi-image limitation',
+  )
 
   const picker = screenshotPickers[0]
   picker.click()
@@ -58,6 +66,10 @@ async function run(): Promise<void> {
   assert(!document.body.textContent?.includes('原文：'), 'screenshot review should not expose raw OCR diagnostics')
   assert(!document.body.textContent?.includes('规则解析'), 'screenshot review should not expose parser implementation details')
   assert(document.querySelectorAll<HTMLDetailsElement>('.import-course-review[open]').length === 0, 'image courses should start collapsed for quick scanning')
+
+  const resetButton = document.querySelector<HTMLButtonElement>('[data-screenshot-import-reset]')
+  assert(resetButton, 'review footer should provide a restart action without creating a schedule')
+  assert(resetButton.textContent?.includes('重新选择图片'), 'restart action should be clear to users')
 
   const createButton = document.querySelector<HTMLButtonElement>('[data-action="create-imported-schedule"]')
   assert(createButton?.disabled, 'unconfirmed OCR fields must block schedule creation')
