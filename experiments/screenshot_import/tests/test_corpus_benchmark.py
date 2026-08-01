@@ -228,6 +228,53 @@ def test_cropped_rejection_passes_strict_incomplete(tmp_path: Path) -> None:
     assert report["cases"][0]["outcome"] == "incomplete-rejection"
 
 
+def test_generic_warning_does_not_satisfy_strict_incomplete(tmp_path: Path) -> None:
+    corpus, manifest = _prepare_corpus(tmp_path)
+
+    def generic_warning(_path: Path, _output: Path) -> dict:
+        report = _recognized(review=0, missing=0)
+        report["warnings"] = ["网格辅助不可用：网格横线不足"]
+        return report
+
+    report = run_corpus_benchmark(
+        corpus,
+        tmp_path / "strict-generic-warning",
+        generic_warning,
+        manifest_path=manifest,
+        sample_ids=["positive-sample"],
+        include_originals=False,
+        strict_incomplete=True,
+    )
+    case = report["cases"][0]
+    assert report["gatePassed"] is False
+    assert case["outcome"] == "silent-incomplete-recognition"
+    assert case["warningCount"] == 1
+    assert case["incompleteWarningCount"] == 0
+
+
+def test_explicit_incomplete_warning_satisfies_strict_incomplete(tmp_path: Path) -> None:
+    corpus, manifest = _prepare_corpus(tmp_path)
+
+    def incomplete_warning(_path: Path, _output: Path) -> dict:
+        report = _recognized(review=0, missing=0)
+        report["warnings"] = ["截图底部可能被裁切，课表内容可能不完整"]
+        return report
+
+    report = run_corpus_benchmark(
+        corpus,
+        tmp_path / "strict-incomplete-warning",
+        incomplete_warning,
+        manifest_path=manifest,
+        sample_ids=["positive-sample"],
+        include_originals=False,
+        strict_incomplete=True,
+    )
+    case = report["cases"][0]
+    assert report["gatePassed"] is True
+    assert case["outcome"] == "incomplete-reviewable"
+    assert case["incompleteWarningCount"] == 1
+
+
 def test_pipeline_error_is_classified_and_fails_by_default(tmp_path: Path) -> None:
     corpus, manifest = _prepare_corpus(tmp_path)
 
