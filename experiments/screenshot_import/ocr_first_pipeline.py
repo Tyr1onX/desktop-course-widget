@@ -106,7 +106,7 @@ def recognize_ocr_first_image(
         enforce_image_parity_review(fields)
         courses.append((block, fields))
     if not any(_has_usable_course_name(fields) for _, fields in courses):
-        raise RuntimeError("整图 OCR 已完成，但识别结果中没有可用课程名称")
+        raise RuntimeError("整图 OCR 已完成，但未形成课程记录：识别结果中没有可用课程名称")
 
     warnings = [*image.warnings, *found.warnings]
     warnings.extend(grid.warnings if grid else [f"网格辅助不可用：{grid_error}"] if grid_error else [])
