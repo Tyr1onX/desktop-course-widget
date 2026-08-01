@@ -8,15 +8,15 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tauri::{AppHandle, Manager};
 
 const OCR_PYTHON_ENV: &str = "COURSE_WIDGET_OCR_PYTHON";
 const OCR_REPO_ROOT_ENV: &str = "COURSE_WIDGET_OCR_REPO_ROOT";
-const COMPONENT_RESOURCE_DIR: &str = "ocr-component";
+const OCR_RESOURCE_ROOT_ENV: &str = "COURSE_WIDGET_OCR_COMPONENT_RESOURCE_ROOT";
+const OCR_STORAGE_ROOT_ENV: &str = "COURSE_WIDGET_OCR_COMPONENT_STORAGE_ROOT";
 const COMPONENT_MANIFEST_FILE: &str = "component.json";
-const COMPONENT_STORAGE_DIR: &str = "ocr-component";
 const COMPONENT_SCHEMA_VERSION: u8 = 1;
 const SUPPORTED_PLATFORM: &str = "windows-x86_64";
+const APP_IDENTIFIER: &str = "com.coursewidget.desktop";
 
 #[derive(Debug, Clone)]
 pub struct RecognizerRuntime {
@@ -67,56 +67,65 @@ struct OcrComponentFile {
     sha256: String,
 }
 
-pub fn read_status(app: &AppHandle) -> OcrComponentStatus {
+pub fn resolve_or_prepare_runtime() -> Result<RecognizerRuntime, String> {
+    if let Some(runtime) = resolve_configured_runtime()? {
+        return Ok(runtime);
+    }
+    if cfg!(debug_assertions) {
+        return resolve_development_runtime();
+    }
+
+    let resource_root = resource_root()?;
+    let manifest = read_manifest(&resource_root.join(COMPONENT_MANIFEST_FILE))?;
+    validate_manifest(&manifest)?;
+    if !manifest.available {
+        return Err("当前安装包尚未包含离线识别组件".into());
+    }
+
+    let installed_root = installed_version_root(&manifest.component_version)?;
+    if verify_component_dir(&installed_root, &manifest).is_err() {
+        install_component(&resource_root, &installed_root, &manifest)?;
+    }
+    verify_component_dir(&installed_root, &manifest)
+        .map_err(|_| "本地识别组件准备完成后校验未通过".to_owned())?;
+    Ok(runtime_from_root(&installed_root, &manifest))
+}
+
+#[allow(dead_code)]
+pub fn read_status() -> OcrComponentStatus {
     match resolve_configured_runtime() {
-        Ok(Some(runtime)) => {
-            return ready_status("configured", None, runtime);
-        }
-        Err(error) => {
-            return OcrComponentStatus {
-                state: OcrComponentState::Corrupt,
-                component_version: None,
-                source: Some("configured".into()),
-                message: error,
-                can_prepare: false,
-            };
-        }
+        Ok(Some(_)) => return ready_status("configured", None),
+        Err(error) => return corrupt_status("configured", None, error, false),
         Ok(None) => {}
     }
-
     if cfg!(debug_assertions) {
-        match resolve_development_runtime() {
-            Ok(runtime) => return ready_status("development", None, runtime),
-            Err(error) => {
-                return OcrComponentStatus {
-                    state: OcrComponentState::Missing,
-                    component_version: None,
-                    source: Some("development".into()),
-                    message: error,
-                    can_prepare: false,
-                };
-            }
-        }
+        return match resolve_development_runtime() {
+            Ok(_) => ready_status("development", None),
+            Err(error) => OcrComponentStatus {
+                state: OcrComponentState::Missing,
+                component_version: None,
+                source: Some("development".into()),
+                message: error,
+                can_prepare: false,
+            },
+        };
     }
 
-    let resource_root = match resource_root(app) {
+    let resource_root = match resource_root() {
         Ok(path) => path,
         Err(error) => return unavailable_status(error),
     };
     let manifest = match read_manifest(&resource_root.join(COMPONENT_MANIFEST_FILE)) {
-        Ok(manifest) => manifest,
+        Ok(value) => value,
         Err(error) => return unavailable_status(error),
     };
     if let Err(error) = validate_manifest(&manifest) {
         return unavailable_status(error);
     }
     if !manifest.available {
-        return unavailable_status(
-            "当前安装包尚未包含离线识别组件，请安装后续支持截图识别的版本。".into(),
-        );
+        return unavailable_status("当前安装包尚未包含离线识别组件".into());
     }
-
-    let installed_root = match installed_version_root(app, &manifest.component_version) {
+    let installed_root = match installed_version_root(&manifest.component_version) {
         Ok(path) => path,
         Err(error) => return unavailable_status(error),
     };
@@ -125,111 +134,43 @@ pub fn read_status(app: &AppHandle) -> OcrComponentStatus {
             state: OcrComponentState::Missing,
             component_version: Some(manifest.component_version),
             source: Some("bundled".into()),
-            message: "首次使用需要准备本地识别组件，完成后可离线识别课表截图。".into(),
+            message: "首次识别时会自动准备本地识别组件。".into(),
             can_prepare: true,
         };
     }
-
     match verify_component_dir(&installed_root, &manifest) {
-        Ok(()) => ready_status(
+        Ok(()) => ready_status("installed", Some(manifest.component_version)),
+        Err(_) => corrupt_status(
             "installed",
             Some(manifest.component_version),
-            runtime_from_root(&installed_root, &manifest),
+            "本地识别组件不完整或已损坏，下一次识别时会自动修复。".into(),
+            true,
         ),
-        Err(_) => OcrComponentStatus {
-            state: OcrComponentState::Corrupt,
-            component_version: Some(manifest.component_version),
-            source: Some("installed".into()),
-            message: "本地识别组件不完整或已损坏，可以重新准备并自动修复。".into(),
-            can_prepare: true,
-        },
     }
 }
 
-pub fn prepare(app: &AppHandle) -> Result<OcrComponentStatus, String> {
-    if resolve_configured_runtime()?.is_some() {
-        return Ok(read_status(app));
-    }
-    if cfg!(debug_assertions) && resolve_development_runtime().is_ok() {
-        return Ok(read_status(app));
-    }
-
-    let resource_root = resource_root(app)?;
-    let manifest = read_manifest(&resource_root.join(COMPONENT_MANIFEST_FILE))?;
-    validate_manifest(&manifest)?;
-    if !manifest.available {
-        return Err("当前安装包尚未包含可准备的离线识别组件".into());
-    }
-    verify_component_dir(&resource_root, &manifest)
-        .map_err(|_| "安装包内的识别组件校验失败，请重新下载安装课刻".to_owned())?;
-
-    let storage_root = component_storage_root(app)?;
-    let versions_root = storage_root.join("versions");
-    fs::create_dir_all(&versions_root)
-        .map_err(|error| format!("无法创建本地识别组件目录：{error}"))?;
-    let destination = versions_root.join(&manifest.component_version);
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|error| format!("无法准备本地识别组件：{error}"))?
-        .as_nanos();
-    let staging = versions_root.join(format!(".staging-{}-{nonce}", std::process::id()));
-
-    let install_result = install_from_resource(&resource_root, &staging, &manifest);
-    if let Err(error) = install_result {
-        let _ = fs::remove_dir_all(&staging);
-        return Err(error);
-    }
-
-    if destination.exists() {
-        fs::remove_dir_all(&destination)
-            .map_err(|error| format!("无法替换损坏的本地识别组件：{error}"))?;
-    }
-    fs::rename(&staging, &destination)
-        .map_err(|error| format!("无法启用本地识别组件：{error}"))?;
-    cleanup_other_versions(&versions_root, &manifest.component_version);
-
-    let status = read_status(app);
-    if status.state != OcrComponentState::Ready {
-        return Err("本地识别组件准备完成后校验未通过".into());
-    }
-    Ok(status)
-}
-
-pub fn resolve_runtime(app: &AppHandle) -> Result<RecognizerRuntime, String> {
-    if let Some(runtime) = resolve_configured_runtime()? {
-        return Ok(runtime);
-    }
-    if cfg!(debug_assertions) {
-        return resolve_development_runtime();
-    }
-
-    let resource_root = resource_root(app)?;
-    let manifest = read_manifest(&resource_root.join(COMPONENT_MANIFEST_FILE))?;
-    validate_manifest(&manifest)?;
-    if !manifest.available {
-        return Err("当前安装包尚未包含离线识别组件".into());
-    }
-    let installed_root = installed_version_root(app, &manifest.component_version)?;
-    if !installed_root.exists() {
-        return Err("本地识别组件尚未准备，请先完成准备".into());
-    }
-    verify_component_dir(&installed_root, &manifest)
-        .map_err(|_| "本地识别组件已损坏，请先重新准备".to_owned())?;
-    Ok(runtime_from_root(&installed_root, &manifest))
-}
-
-fn ready_status(
-    source: &str,
-    component_version: Option<String>,
-    runtime: RecognizerRuntime,
-) -> OcrComponentStatus {
-    let _ = runtime;
+fn ready_status(source: &str, component_version: Option<String>) -> OcrComponentStatus {
     OcrComponentStatus {
         state: OcrComponentState::Ready,
         component_version,
         source: Some(source.into()),
         message: "本地识别组件已就绪，课表图片不会上传。".into(),
         can_prepare: false,
+    }
+}
+
+fn corrupt_status(
+    source: &str,
+    component_version: Option<String>,
+    message: String,
+    can_prepare: bool,
+) -> OcrComponentStatus {
+    OcrComponentStatus {
+        state: OcrComponentState::Corrupt,
+        component_version,
+        source: Some(source.into()),
+        message,
+        can_prepare,
     }
 }
 
@@ -306,24 +247,69 @@ fn runtime_from_root(root: &Path, manifest: &OcrComponentManifest) -> Recognizer
     }
 }
 
-fn resource_root(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(app
-        .path()
-        .resource_dir()
-        .map_err(|error| format!("无法定位安装包资源目录：{error}"))?
-        .join(COMPONENT_RESOURCE_DIR))
+fn resource_root() -> Result<PathBuf, String> {
+    if let Some(path) = env::var_os(OCR_RESOURCE_ROOT_ENV) {
+        return Ok(PathBuf::from(path));
+    }
+    let executable = env::current_exe()
+        .map_err(|error| format!("无法定位课刻安装目录：{error}"))?;
+    let parent = executable
+        .parent()
+        .ok_or_else(|| "无法定位课刻安装目录".to_owned())?;
+    let candidates = [
+        parent.join("resources/ocr-component"),
+        parent.join("ocr-component"),
+    ];
+    candidates
+        .into_iter()
+        .find(|path| path.join(COMPONENT_MANIFEST_FILE).is_file())
+        .ok_or_else(|| "当前安装包未找到离线识别组件资源".to_owned())
 }
 
-fn component_storage_root(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(app
-        .path()
-        .app_local_data_dir()
-        .map_err(|error| format!("无法定位应用数据目录：{error}"))?
-        .join(COMPONENT_STORAGE_DIR))
+fn component_storage_root() -> Result<PathBuf, String> {
+    if let Some(path) = env::var_os(OCR_STORAGE_ROOT_ENV) {
+        return Ok(PathBuf::from(path));
+    }
+    let local = env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .ok_or_else(|| "无法定位本地应用数据目录".to_owned())?;
+    Ok(local.join(APP_IDENTIFIER).join("ocr-component"))
 }
 
-fn installed_version_root(app: &AppHandle, version: &str) -> Result<PathBuf, String> {
-    Ok(component_storage_root(app)?.join("versions").join(version))
+fn installed_version_root(version: &str) -> Result<PathBuf, String> {
+    Ok(component_storage_root()?.join("versions").join(version))
+}
+
+fn install_component(
+    resource_root: &Path,
+    destination: &Path,
+    manifest: &OcrComponentManifest,
+) -> Result<(), String> {
+    verify_component_dir(resource_root, manifest)
+        .map_err(|_| "安装包内的识别组件校验失败，请重新下载安装课刻".to_owned())?;
+    let versions_root = destination
+        .parent()
+        .ok_or_else(|| "无法定位识别组件版本目录".to_owned())?;
+    fs::create_dir_all(versions_root)
+        .map_err(|error| format!("无法创建本地识别组件目录：{error}"))?;
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("无法准备本地识别组件：{error}"))?
+        .as_nanos();
+    let staging = versions_root.join(format!(".staging-{}-{nonce}", std::process::id()));
+
+    if let Err(error) = install_from_resource(resource_root, &staging, manifest) {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(error);
+    }
+    if destination.exists() {
+        fs::remove_dir_all(destination)
+            .map_err(|error| format!("无法替换损坏的本地识别组件：{error}"))?;
+    }
+    fs::rename(&staging, destination)
+        .map_err(|error| format!("无法启用本地识别组件：{error}"))?;
+    cleanup_other_versions(versions_root, &manifest.component_version);
+    Ok(())
 }
 
 fn read_manifest(path: &Path) -> Result<OcrComponentManifest, String> {
@@ -339,8 +325,7 @@ fn validate_manifest(manifest: &OcrComponentManifest) -> Result<(), String> {
     }
     if manifest.component_version.trim().is_empty()
         || manifest.component_version.contains(['/', '\\'])
-        || manifest.component_version == "."
-        || manifest.component_version == ".."
+        || matches!(manifest.component_version.as_str(), "." | "..")
     {
         return Err("本地识别组件版本号无效".into());
     }
@@ -409,8 +394,7 @@ fn verify_component_dir(root: &Path, manifest: &OcrComponentManifest) -> Result<
         if !metadata.is_file() || metadata.len() != expected.size {
             return Err(format!("本地识别组件文件大小不匹配：{}", expected.path));
         }
-        let actual = sha256_file(&path)?;
-        if actual != expected.sha256 {
+        if sha256_file(&path)? != expected.sha256 {
             return Err(format!("本地识别组件文件校验失败：{}", expected.path));
         }
     }
@@ -472,9 +456,8 @@ fn cleanup_other_versions(versions_root: &Path, active_version: &str) {
         if name == active_version || name.starts_with(".staging-") {
             continue;
         }
-        let path = entry.path();
-        if path.is_dir() {
-            let _ = fs::remove_dir_all(path);
+        if entry.path().is_dir() {
+            let _ = fs::remove_dir_all(entry.path());
         }
     }
 }
