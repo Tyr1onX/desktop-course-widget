@@ -174,7 +174,10 @@ pub fn resolve_runtime(app: &AppHandle) -> Result<RecognizerRuntime, String> {
     }
     verify_component_dir(&installed_root, &manifest)
         .map_err(|_| "本地识别组件已损坏，请先重新准备".to_owned())?;
-    Ok(runtime_from_root(&installed_root, &manifest))
+    let runtime = runtime_from_root(&installed_root, &manifest);
+    fs::create_dir_all(&runtime.model_cache)
+        .map_err(|error| format!("无法准备 OCR 模型目录：{error}"))?;
+    Ok(runtime)
 }
 
 fn ready_status(source: &str, component_version: Option<String>) -> OcrComponentStatus {
@@ -345,7 +348,7 @@ fn validate_manifest(manifest: &OcrComponentManifest) -> Result<(), String> {
         return Err("本地识别组件清单版本不受支持".into());
     }
     if manifest.component_version.trim().is_empty()
-        || manifest.component_version.contains(['/', '\\'])
+        || manifest.component_version.contains('/') || manifest.component_version.contains('\\')
         || matches!(manifest.component_version.as_str(), "." | "..")
     {
         return Err("本地识别组件版本号无效".into());
@@ -420,10 +423,7 @@ fn verify_component_dir(root: &Path, manifest: &OcrComponentManifest) -> Result<
         }
     }
     let runtime = runtime_from_root(root, manifest);
-    validate_runtime_paths(&runtime.python, &runtime.module_root)?;
-    fs::create_dir_all(&runtime.model_cache)
-        .map_err(|error| format!("无法准备 OCR 模型目录：{error}"))?;
-    Ok(())
+    validate_runtime_paths(&runtime.python, &runtime.module_root)
 }
 
 fn install_from_resource(
