@@ -1,0 +1,95 @@
+name: Apply import review copy cleanup
+
+on:
+  push:
+    branches:
+      - feat/screenshot-import-vertical-slice
+    paths:
+      - .github/workflows/apply-import-review-copy-cleanup.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/screenshot-import-vertical-slice
+          fetch-depth: 0
+
+      - name: Hide internal OCR diagnostics from the product review UI
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          controller_path = Path('src/screenshot-import-controller.ts')
+          controller = controller_path.read_text(encoding='utf-8')
+
+          old_active = """  if (activeDraft) {
+              if (surface.dataset.screenshotImportMode !== 'review') renderReviewSurface(surface)
+              return
+            }
+          """
+          new_active = """  if (activeDraft) {
+              if (surface.dataset.screenshotImportMode !== 'review') renderReviewSurface(surface)
+              hideTechnicalReviewEvidence(surface)
+              return
+            }
+          """
+          if old_active not in controller:
+              raise SystemExit('active draft enhancement block not found')
+          controller = controller.replace(old_active, new_active, 1)
+
+          warning_block = """    ${draft.warnings.length ? `
+                <section class=\"import-parser-warnings\">
+                  <strong>识别提示</strong>
+                  <ul>${draft.warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join('')}</ul>
+                </section>
+              ` : ''}
+          """
+          if warning_block not in controller:
+              raise SystemExit('image import warning block not found')
+          controller = controller.replace(warning_block, '', 1)
+
+          create_marker = "\nasync function createScreenshotSchedule(): Promise<void> {"
+          helper = """
+          function hideTechnicalReviewEvidence(surface: HTMLElement): void {
+            surface.querySelectorAll('.import-evidence-copy').forEach((element) => element.remove())
+          }
+          """
+          if create_marker not in controller:
+              raise SystemExit('create function marker not found')
+          controller = controller.replace(create_marker, f"\n{helper}\nasync function createScreenshotSchedule(): Promise<void> {{", 1)
+          controller_path.write_text(controller, encoding='utf-8')
+
+          test_path = Path('scripts/screenshot-import-dom.test.ts')
+          test = test_path.read_text(encoding='utf-8')
+          anchor = """  assert(document.body.textContent?.includes('老师：未识别'), 'collapsed summary should expose missing optional teacher before bulk confirmation')
+            assert(document.querySelectorAll<HTMLDetailsElement>('.import-course-review[open]').length === 0, 'image courses should start collapsed for quick scanning')
+          """
+          replacement = """  assert(document.body.textContent?.includes('老师：未识别'), 'collapsed summary should expose missing optional teacher before bulk confirmation')
+            assert(document.querySelector('.import-parser-warnings') === null, 'successful screenshot review should hide internal parser diagnostics')
+            await waitFor(
+              () => document.querySelectorAll('.import-evidence-copy').length === 0,
+              'screenshot review should hide confidence, raw OCR, and parser-rule evidence',
+            )
+            assert(!document.body.textContent?.includes('置信度'), 'screenshot review should not expose confidence diagnostics')
+            assert(!document.body.textContent?.includes('原文：'), 'screenshot review should not expose raw OCR diagnostics')
+            assert(!document.body.textContent?.includes('规则解析'), 'screenshot review should not expose parser implementation details')
+            assert(document.querySelectorAll<HTMLDetailsElement>('.import-course-review[open]').length === 0, 'image courses should start collapsed for quick scanning')
+          """
+          if anchor not in test:
+              raise SystemExit('screenshot DOM assertion anchor not found')
+          test_path.write_text(test.replace(anchor, replacement, 1), encoding='utf-8')
+          PY
+
+          rm .github/workflows/apply-import-review-copy-cleanup.yml
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/screenshot-import-controller.ts scripts/screenshot-import-dom.test.ts .github/workflows/apply-import-review-copy-cleanup.yml
+          git commit -m "fix: keep OCR diagnostics out of the review UI"
+          git push origin HEAD:feat/screenshot-import-vertical-slice
