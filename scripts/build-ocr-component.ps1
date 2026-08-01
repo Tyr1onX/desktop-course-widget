@@ -164,10 +164,10 @@ try {
     )
 
     if ($WarmModels) {
-      $env:PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK = '0'
+      Remove-Item Env:PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK -ErrorAction SilentlyContinue
       Invoke-Checked -FilePath $portablePython -ArgumentList @(
         '-I', $SmokeScript,
-        '--output', (Join-Path $SmokeRoot 'online')
+        '--output', (Join-Path $SmokeRoot 'online'),
         '--inference'
       )
       $beforeOffline = Get-DirectoryFingerprint -Root $ModelsRoot | ConvertTo-Json -Depth 5 -Compress
@@ -178,7 +178,7 @@ try {
       $env:PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK = '1'
       Invoke-Checked -FilePath $portablePython -ArgumentList @(
         '-I', $SmokeScript,
-        '--output', (Join-Path $SmokeRoot 'offline')
+        '--output', (Join-Path $SmokeRoot 'offline'),
         '--inference'
       )
       $afterOffline = Get-DirectoryFingerprint -Root $ModelsRoot | ConvertTo-Json -Depth 5 -Compress
@@ -226,7 +226,10 @@ try {
   $manifestPath = Join-Path $OutputRoot 'component.json'
   $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $manifestPath -Encoding utf8NoBOM
 
-  $totalBytes = ($files | Measure-Object -Property size -Sum).Sum
+  [int64]$totalBytes = 0
+  foreach ($file in $files) {
+    $totalBytes += [int64]$file['size']
+  }
   Write-Host "OCR component built at $OutputRoot"
   Write-Host "Component version: $ComponentVersion"
   Write-Host "Manifest files: $($files.Count)"
