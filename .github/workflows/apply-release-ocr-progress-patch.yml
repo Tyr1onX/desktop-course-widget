@@ -1,0 +1,36 @@
+name: Apply release OCR progress patch
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/apply-release-ocr-progress-patch.yml'
+      - 'scripts/apply-release-ocr-progress-patch.py'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-release-ocr-progress-patch
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.ref == 'feat/release-ocr-component-foundation'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/release-ocr-component-foundation
+          fetch-depth: 0
+      - name: Apply deterministic patch
+        run: python scripts/apply-release-ocr-progress-patch.py
+      - name: Commit patch
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add scripts/test-ocr-enabled-installer.ps1 src-tauri/src/lib.rs src-tauri/src/screenshot_import.rs src/screenshot-import-controller.ts src/settings.css scripts/screenshot-import-dom.test.html scripts/screenshot-import-dom.test.ts
+          git diff --cached --check
+          git commit -m "feat: show and cancel screenshot recognition progress"
+          git push origin HEAD:feat/release-ocr-component-foundation
