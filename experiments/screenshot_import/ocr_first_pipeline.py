@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import math
 import time
 from collections import Counter
 from pathlib import Path
+from statistics import median
 from typing import Any
 
 from .benchmark import assign_tokens_to_blocks, enforce_image_parity_review, evaluate_draft, load_ground_truth
@@ -18,6 +20,28 @@ from .ocr_first_output import write_ocr_first_outputs
 from .parse_fields import FieldParserConfig
 from .preprocess import PreprocessConfig, preprocess_image
 from .rust_validate import validate_with_rust
+
+
+def _optional_grid_geometry_error(grid: Any, image_width: int) -> str | None:
+    columns = getattr(grid, "weekday_columns", None)
+    if not isinstance(columns, list) or len(columns) != 7:
+        actual = len(columns) if isinstance(columns, list) else 0
+        return f"网格星期列数量异常：需要 7 列，实际为 {actual} 列"
+
+    widths = [float(getattr(column, "width", 0.0)) for column in columns]
+    if any(not math.isfinite(width) or width <= 0 for width in widths):
+        return "网格星期列包含无效宽度"
+
+    typical_width = float(median(widths))
+    minimum_allowed = max(float(image_width) * 0.01, typical_width * 0.35)
+    narrowest = min(widths)
+    if narrowest < minimum_allowed:
+        return (
+            "网格星期列宽度退化："
+            f"最窄列 {narrowest:.1f}px，典型列 {typical_width:.1f}px，"
+            f"至少需要 {minimum_allowed:.1f}px"
+        )
+    return None
 
 
 def recognize_ocr_first_image(
@@ -41,7 +65,15 @@ def recognize_ocr_first_image(
     tokens = ocr_engine.recognize(image.original_bgr, region)
     ocr_seconds = time.perf_counter() - stage
     try:
-        grid, grid_error = detect_grid(image), None
+        candidate_grid = detect_grid(image)
+        geometry_error = _optional_grid_geometry_error(
+            candidate_grid,
+            image.original_width,
+        )
+        if geometry_error:
+            grid, grid_error = None, geometry_error
+        else:
+            grid, grid_error = candidate_grid, None
     except Exception as error:
         grid, grid_error = None, str(error)
 
