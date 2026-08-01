@@ -1,0 +1,57 @@
+name: Apply OCR component safety cleanup
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/release-ocr-component-foundation
+          fetch-depth: 0
+
+      - name: Apply focused cleanup
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('src-tauri/src/ocr_component.rs')
+          text = path.read_text(encoding='utf-8')
+
+          replacements = [
+              (
+                  "manifest.component_version.contains(['/', '\\\\'])",
+                  "manifest.component_version.contains('/') || manifest.component_version.contains('\\\\')",
+              ),
+              (
+                  '''    verify_component_dir(&installed_root, &manifest)\n        .map_err(|_| "本地识别组件已损坏，请先重新准备".to_owned())?;\n    Ok(runtime_from_root(&installed_root, &manifest))''',
+                  '''    verify_component_dir(&installed_root, &manifest)\n        .map_err(|_| "本地识别组件已损坏，请先重新准备".to_owned())?;\n    let runtime = runtime_from_root(&installed_root, &manifest);\n    fs::create_dir_all(&runtime.model_cache)\n        .map_err(|error| format!("无法准备 OCR 模型目录：{error}"))?;\n    Ok(runtime)''',
+              ),
+              (
+                  '''    let runtime = runtime_from_root(root, manifest);\n    validate_runtime_paths(&runtime.python, &runtime.module_root)?;\n    fs::create_dir_all(&runtime.model_cache)\n        .map_err(|error| format!("无法准备 OCR 模型目录：{error}"))?;\n    Ok(())''',
+                  '''    let runtime = runtime_from_root(root, manifest);\n    validate_runtime_paths(&runtime.python, &runtime.module_root)''',
+              ),
+          ]
+          for old, new in replacements:
+              if old not in text:
+                  raise SystemExit(f'missing cleanup anchor: {old!r}')
+              text = text.replace(old, new, 1)
+          path.write_text(text, encoding='utf-8')
+          Path('.github/workflows/ocr-component-safety-patch.yml').unlink()
+
+      - name: Commit cleanup
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "fix: keep bundled OCR resources read-only"
+          git push origin HEAD:feat/release-ocr-component-foundation
