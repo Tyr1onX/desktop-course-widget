@@ -103,6 +103,19 @@ async function run(): Promise<void> {
   assert(document.querySelector('[data-import-v2-confirm-all]') === null, 'bulk confirmation should disappear after completion')
   assert(document.querySelectorAll('[data-import-v2-confirm-field]').length === 0, 'bulk confirmation should confirm all recognized fields')
   assert(document.querySelector('.surface-message')?.textContent?.includes('可以创建课表'), 'bulk confirmation should explain the next action')
+
+  const createCallsBeforeCancel = window.__screenshotImportCommands
+    .filter((command) => command.includes('create_schedule_from_import')).length
+  window.confirm = () => false
+  createButton.click()
+  await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
+  const createCallsAfterCancel = window.__screenshotImportCommands
+    .filter((command) => command.includes('create_schedule_from_import')).length
+  assert(
+    createCallsAfterCancel === createCallsBeforeCancel,
+    'cancelling a non-blocking warning must prevent screenshot schedule creation',
+  )
+  assert(createButton.disabled === false, 'cancelled warning confirmation should leave creation available')
 }
 
 try {
