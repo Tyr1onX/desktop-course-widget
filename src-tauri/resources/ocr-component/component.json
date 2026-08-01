@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "available": false,
+  "componentVersion": "not-bundled",
+  "platform": "windows-x86_64",
+  "pythonRelativePath": "python/python.exe",
+  "moduleRootRelativePath": "app",
+  "modelCacheRelativePath": "models",
+  "files": []
+}

@@ -2,6 +2,7 @@ mod app_settings;
 mod data_transaction;
 pub mod excel_import;
 mod import_draft;
+mod ocr_component;
 mod schedule_apply;
 mod schedule_catalog;
 mod schedule_store;
@@ -346,6 +347,20 @@ fn save_lesson_times(
 }
 
 #[tauri::command]
+fn read_screenshot_ocr_component_status(app: AppHandle) -> ocr_component::OcrComponentStatus {
+    ocr_component::read_status(&app)
+}
+
+#[tauri::command]
+async fn prepare_screenshot_ocr_component(
+    app: AppHandle,
+) -> Result<ocr_component::OcrComponentStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || ocr_component::prepare(&app))
+        .await
+        .map_err(|error| format!("本地识别组件准备任务异常结束：{error}"))?
+}
+
+#[tauri::command]
 async fn choose_and_parse_screenshot(
     app: AppHandle,
 ) -> Result<Option<import_draft::ImportDraft>, String> {
@@ -362,8 +377,9 @@ async fn choose_and_parse_screenshot(
     let path = selected
         .into_path()
         .map_err(|_| "无法读取所选课表截图路径".to_owned())?;
+    let recognition_app = app.clone();
     let draft = tauri::async_runtime::spawn_blocking(move || {
-        screenshot_import::recognize_screenshot(&path)
+        screenshot_import::recognize_screenshot(&recognition_app, &path)
     })
     .await
     .map_err(|error| format!("截图识别任务异常结束：{error}"))??;
@@ -576,6 +592,8 @@ pub fn run() {
             read_app_settings,
             save_lesson_times,
             choose_and_parse_excel,
+            read_screenshot_ocr_component_status,
+            prepare_screenshot_ocr_component,
             choose_and_parse_screenshot,
             apply_imported_schedule,
         ])

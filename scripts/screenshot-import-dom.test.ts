@@ -49,7 +49,7 @@ async function run(): Promise<void> {
     'an active Excel draft should hide the screenshot source picker',
   )
   assert(
-    window.__screenshotImportCommands.length === 0,
+    window.__screenshotImportCommands.filter((command) => command === 'choose_and_parse_screenshot').length === 0,
     'isolating an Excel draft must not start screenshot recognition',
   )
   excelDraftMarker.remove()
@@ -60,6 +60,10 @@ async function run(): Promise<void> {
 
   const picker = document.querySelector<HTMLButtonElement>('[data-action="choose-screenshot"]')
   assert(picker, 'screenshot picker should be available after the Excel draft is cleared')
+  assert(
+    window.__screenshotImportCommands.filter((command) => command === 'read_screenshot_ocr_component_status').length === 1,
+    'desktop import should check the local OCR component once',
+  )
   picker.click()
   picker.click()
   await waitFor(

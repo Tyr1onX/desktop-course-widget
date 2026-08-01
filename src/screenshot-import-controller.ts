@@ -27,6 +27,14 @@ type ActiveSchedule = {
   semesterStart: string
 }
 
+type OcrComponentStatus = {
+  state: 'ready' | 'missing' | 'corrupt' | 'unavailable'
+  componentVersion: string | null
+  source: string | null
+  message: string
+  canPrepare: boolean
+}
+
 const desktopRuntime = '__TAURI_INTERNALS__' in window
 const plugin = (command: string) => `plugin:schedule-catalog|${command}`
 const importTitle = '从文件创建独立课表'
@@ -38,6 +46,9 @@ let activeSettings: AppSettings | null = null
 let importName = ''
 let firstWeekMonday = ''
 let recognitionPending = false
+let componentPending = false
+let componentStatusRequested = false
+let ocrComponentStatus: OcrComponentStatus | null = null
 let createPending = false
 let requestId = ''
 let renderQueued = false
@@ -118,27 +129,110 @@ function enhanceImportSurface(): void {
   }
   if (screenshotPicker.dataset.screenshotImportBound !== 'true') {
     screenshotPicker.dataset.screenshotImportBound = 'true'
-    screenshotPicker.addEventListener('click', () => void chooseScreenshot())
+    screenshotPicker.addEventListener('click', () => void handleScreenshotPicker())
   }
   updatePickerState(surface)
+  ensureOcrComponentStatus(surface)
 }
 
 function updatePickerState(surface: HTMLElement): void {
   const excelPicker = surface.querySelector<HTMLButtonElement>('[data-action="choose-excel"]')
   const screenshotPicker = surface.querySelector<HTMLButtonElement>('[data-action="choose-screenshot"]')
-  if (excelPicker) excelPicker.disabled = recognitionPending
+  const checking = desktopRuntime && componentStatusRequested && !ocrComponentStatus
+  const componentState = ocrComponentStatus?.state
+  const blocked = componentState === 'unavailable'
+  if (excelPicker) excelPicker.disabled = recognitionPending || componentPending
   if (!screenshotPicker) return
 
-  const state = `${recognitionPending}:${desktopRuntime}`
-  screenshotPicker.disabled = recognitionPending
+  const state = `${recognitionPending}:${componentPending}:${checking}:${componentState ?? 'unknown'}:${desktopRuntime}`
+  screenshotPicker.disabled = recognitionPending || componentPending || checking || blocked
   if (screenshotPicker.dataset.screenshotImportState === state) return
   screenshotPicker.dataset.screenshotImportState = state
-  screenshotPicker.innerHTML = `
-    <strong>${recognitionPending ? '正在识别课表截图…' : '选择 PNG / JPG 课表截图'}</strong>
-    <span>${desktopRuntime
-      ? '请使用完整单张截图，包含星期标题、节次和全部课程；暂不支持多图拼接'
-      : '浏览器预览中不会读取本机图片'}</span>
-  `
+
+  let title = '选择 PNG / JPG 课表截图'
+  let detail = desktopRuntime
+    ? '请使用完整单张截图，包含星期标题、节次和全部课程；暂不支持多图拼接'
+    : '浏览器预览中不会读取本机图片'
+  if (recognitionPending) {
+    title = '正在识别课表截图…'
+    detail = '图片只在本机处理，请稍候'
+  } else if (componentPending) {
+    title = componentState === 'corrupt' ? '正在修复本地识别组件…' : '正在准备本地识别组件…'
+    detail = '首次准备可能需要一些时间，完成后可离线识别'
+  } else if (checking) {
+    title = '正在检查本地识别组件…'
+    detail = '图片不会上传'
+  } else if (componentState === 'missing' || componentState === 'corrupt') {
+    title = componentState === 'corrupt' ? '修复本地识别组件' : '准备本地识别组件'
+    detail = ocrComponentStatus?.message ?? '完成准备后可离线识别课表截图'
+  } else if (componentState === 'unavailable') {
+    title = '当前安装包暂不支持截图识别'
+    detail = ocrComponentStatus?.message ?? '请安装支持离线识别组件的版本'
+  }
+  screenshotPicker.innerHTML = `<strong>${title}</strong><span>${escapeHtml(detail)}</span>`
+}
+
+function ensureOcrComponentStatus(surface: HTMLElement): void {
+  if (!desktopRuntime || componentStatusRequested) return
+  componentStatusRequested = true
+  updatePickerState(surface)
+  void refreshOcrComponentStatus(surface)
+}
+
+async function refreshOcrComponentStatus(surface: HTMLElement): Promise<void> {
+  try {
+    ocrComponentStatus = await invoke<OcrComponentStatus>('read_screenshot_ocr_component_status')
+  } catch (error) {
+    ocrComponentStatus = {
+      state: 'unavailable',
+      componentVersion: null,
+      source: null,
+      message: screenshotImportErrorText(error),
+      canPrepare: false,
+    }
+  }
+  updatePickerState(surface)
+}
+
+async function handleScreenshotPicker(): Promise<void> {
+  if (recognitionPending || componentPending) return
+  const surface = document.querySelector<HTMLElement>('.import-review-surface')
+  if (!surface) return
+  if (!desktopRuntime) {
+    setMessage(surface, '浏览器预览不会读取本机图片，请在桌面应用中测试。')
+    return
+  }
+  if (!ocrComponentStatus) {
+    await refreshOcrComponentStatus(surface)
+    return
+  }
+  if (ocrComponentStatus.state !== 'ready') {
+    if (ocrComponentStatus.canPrepare) {
+      await prepareOcrComponent(surface)
+    } else {
+      setMessage(surface, ocrComponentStatus.message)
+    }
+    return
+  }
+  await chooseScreenshot()
+}
+
+async function prepareOcrComponent(surface: HTMLElement): Promise<void> {
+  componentPending = true
+  setMessage(surface, ocrComponentStatus?.state === 'corrupt'
+    ? '正在修复本地识别组件…'
+    : '正在准备本地识别组件…')
+  updatePickerState(surface)
+  try {
+    ocrComponentStatus = await invoke<OcrComponentStatus>('prepare_screenshot_ocr_component')
+    setMessage(surface, '本地识别组件已准备完成，可以选择课表截图。')
+  } catch (error) {
+    setMessage(surface, screenshotImportErrorText(error))
+    await refreshOcrComponentStatus(surface)
+  } finally {
+    componentPending = false
+    updatePickerState(surface)
+  }
 }
 
 async function chooseScreenshot(): Promise<void> {

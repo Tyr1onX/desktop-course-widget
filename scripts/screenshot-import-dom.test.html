@@ -38,6 +38,15 @@
       window.__TAURI_INTERNALS__ = {
         invoke: async (command) => {
           window.__screenshotImportCommands.push(command)
+          if (command === 'read_screenshot_ocr_component_status') {
+            return {
+              state: 'ready',
+              componentVersion: null,
+              source: 'development',
+              message: '本地识别组件已就绪，课表图片不会上传。',
+              canPrepare: false
+            }
+          }
           if (command === 'choose_and_parse_screenshot') {
             await new Promise((resolve) => setTimeout(resolve, 80))
             return {
