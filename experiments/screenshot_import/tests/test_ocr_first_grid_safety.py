@@ -4,8 +4,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from experiments.screenshot_import.grid import detect_grid
-from experiments.screenshot_import.models import PixelBox
-from experiments.screenshot_import.ocr_first_pipeline import _optional_grid_geometry_error
+from experiments.screenshot_import.models import ParsedField, PixelBox
+from experiments.screenshot_import.ocr_first_pipeline import (
+    _has_usable_course_name,
+    _optional_grid_geometry_error,
+)
 from experiments.screenshot_import.preprocess import preprocess_image
 from experiments.screenshot_import.synthetic import generate_synthetic_sample
 
@@ -42,3 +45,18 @@ def test_moderate_perspective_width_change_remains_usable() -> None:
 def test_grid_with_wrong_column_count_is_rejected() -> None:
     error = _optional_grid_geometry_error(_grid_with_widths([120.0] * 6), 900)
     assert error == "网格星期列数量异常：需要 7 列，实际为 6 列"
+
+
+def test_missing_or_placeholder_course_name_is_not_usable() -> None:
+    assert not _has_usable_course_name(
+        {"name": ParsedField("name", "未识别课程", "missing")}
+    )
+    assert not _has_usable_course_name(
+        {"name": ParsedField("name", "   ", "review")}
+    )
+
+
+def test_reviewable_recognized_course_name_is_usable() -> None:
+    assert _has_usable_course_name(
+        {"name": ParsedField("name", "通信原理", "review")}
+    )
