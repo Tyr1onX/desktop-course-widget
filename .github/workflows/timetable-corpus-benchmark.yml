@@ -39,6 +39,12 @@ jobs:
   benchmark:
     runs-on: windows-latest
     timeout-minutes: 75
+    env:
+      CORPUS_SAMPLE_ID: ${{ inputs.sample_id }}
+      CORPUS_MAX_CASES: ${{ inputs.max_cases }}
+      CORPUS_REQUIRE_POSITIVE: ${{ inputs.require_positive }}
+      CORPUS_STRICT_INCOMPLETE: ${{ inputs.strict_incomplete }}
+      CORPUS_ALLOW_NEGATIVE_RECOGNITION: ${{ inputs.allow_negative_recognition }}
 
     steps:
       - name: Checkout
@@ -75,8 +81,8 @@ jobs:
             '-m', 'experiments.screenshot_import', 'fetch-corpus',
             '--output', '.tmp/screenshot-import-corpus'
           )
-          if ('${{ inputs.sample_id }}' -ne '') {
-            $arguments += @('--id', '${{ inputs.sample_id }}')
+          if ($env:CORPUS_SAMPLE_ID -ne '') {
+            $arguments += @('--id', $env:CORPUS_SAMPLE_ID)
           }
           & python @arguments
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -88,8 +94,8 @@ jobs:
             '-m', 'experiments.screenshot_import', 'build-corpus-variants',
             '--corpus', '.tmp/screenshot-import-corpus'
           )
-          if ('${{ inputs.sample_id }}' -ne '') {
-            $arguments += @('--id', '${{ inputs.sample_id }}')
+          if ($env:CORPUS_SAMPLE_ID -ne '') {
+            $arguments += @('--id', $env:CORPUS_SAMPLE_ID)
           }
           & python @arguments
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -105,20 +111,20 @@ jobs:
             '--output', '.tmp/screenshot-import-corpus-report',
             '--repo-root', '.'
           )
-          if ('${{ inputs.sample_id }}' -ne '') {
-            $arguments += @('--id', '${{ inputs.sample_id }}')
+          if ($env:CORPUS_SAMPLE_ID -ne '') {
+            $arguments += @('--id', $env:CORPUS_SAMPLE_ID)
           }
-          $maximum = [int]'${{ inputs.max_cases }}'
+          $maximum = [int]$env:CORPUS_MAX_CASES
           if ($maximum -gt 0) {
             $arguments += @('--max-cases', $maximum.ToString())
           }
-          if ('${{ inputs.require_positive }}' -eq 'true') {
+          if ($env:CORPUS_REQUIRE_POSITIVE -eq 'true') {
             $arguments += '--require-positive'
           }
-          if ('${{ inputs.strict_incomplete }}' -eq 'true') {
+          if ($env:CORPUS_STRICT_INCOMPLETE -eq 'true') {
             $arguments += '--strict-incomplete'
           }
-          if ('${{ inputs.allow_negative_recognition }}' -eq 'true') {
+          if ($env:CORPUS_ALLOW_NEGATIVE_RECOGNITION -eq 'true') {
             $arguments += '--allow-negative-recognition'
           }
           & python @arguments 2>&1 | Tee-Object -FilePath .tmp/screenshot-import-corpus-report/benchmark-console.log
