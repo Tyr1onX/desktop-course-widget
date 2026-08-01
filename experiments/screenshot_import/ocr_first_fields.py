@@ -44,6 +44,14 @@ def _is_location_candidate(value: str) -> bool:
     )
 
 
+def _location_candidate(value: str) -> str | None:
+    candidate = re.sub(r"^(?:地点|教室)[:：]?", "", value).strip("-,:：")
+    without_schedule = _SECTION_PREFIX.sub("", candidate, count=1).strip("-,:：")
+    if without_schedule != candidate:
+        return without_schedule if _is_location_candidate(without_schedule) else None
+    return candidate if _is_location_candidate(candidate) else None
+
+
 def _location_from_line(value: str) -> str | None:
     """Extract only the location portion from a possibly combined OCR line.
 
@@ -55,12 +63,11 @@ def _location_from_line(value: str) -> str | None:
     """
 
     compact = _compact(value)
-    compact = re.sub(r"^(?:地点|教室)[:：]?", "", compact)
 
     # Prefer a complete comma-separated suffix. normalize_text has already
-    # converted common Chinese separators to commas. This must run before the
-    # broad location-hint check because the full schedule line may also contain
-    # “教学楼”.
+    # converted common Chinese separators to commas. Each segment is still
+    # stripped of a possible section prefix because OCR may preserve earlier
+    # separators while joining the final section range directly to the place.
     segments = [
         segment.strip("-,:：")
         for segment in compact.split(",")
@@ -68,19 +75,14 @@ def _location_from_line(value: str) -> str | None:
     ]
     if len(segments) > 1:
         for segment in reversed(segments):
-            if _is_location_candidate(segment):
-                return segment
+            location = _location_candidate(segment)
+            if location is not None:
+                return location
 
-    # OCR sometimes drops the separator and joins the location directly after
+    # OCR sometimes drops every separator and joins the location directly after
     # the section range. Strip the complete section prefix rather than a literal
     # word or campus-specific phrase.
-    without_schedule = _SECTION_PREFIX.sub("", compact, count=1).strip("-,:：")
-    if without_schedule != compact and _is_location_candidate(without_schedule):
-        return without_schedule
-
-    if _is_location_candidate(compact):
-        return compact
-    return None
+    return _location_candidate(compact)
 
 
 def enforce_ocr_first_text_review(fields: dict[str, ParsedField]) -> None:
