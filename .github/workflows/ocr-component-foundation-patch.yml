@@ -1,0 +1,138 @@
+name: Apply OCR component foundation integration
+
+on:
+  push:
+    branches:
+      - feat/release-ocr-component-foundation
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/release-ocr-component-foundation
+          fetch-depth: 0
+
+      - name: Patch integration files
+        shell: python
+        run: |
+          from pathlib import Path
+          import json
+
+          def replace_once(path, old, new):
+              file = Path(path)
+              text = file.read_text(encoding='utf-8')
+              if old not in text:
+                  raise SystemExit(f'missing patch anchor in {path}: {old[:100]!r}')
+              file.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          replace_once(
+              'src-tauri/src/lib.rs',
+              'mod import_draft;\nmod schedule_apply;',
+              'mod import_draft;\nmod ocr_component;\nmod schedule_apply;',
+          )
+          replace_once(
+              'src-tauri/src/lib.rs',
+              '#[tauri::command]\nasync fn choose_and_parse_screenshot(',
+              '''#[tauri::command]\nfn read_screenshot_ocr_component_status(app: AppHandle) -> ocr_component::OcrComponentStatus {\n    ocr_component::read_status(&app)\n}\n\n#[tauri::command]\nasync fn prepare_screenshot_ocr_component(\n    app: AppHandle,\n) -> Result<ocr_component::OcrComponentStatus, String> {\n    tauri::async_runtime::spawn_blocking(move || ocr_component::prepare(&app))\n        .await\n        .map_err(|error| format!("本地识别组件准备任务异常结束：{error}"))?\n}\n\n#[tauri::command]\nasync fn choose_and_parse_screenshot(''',
+          )
+          replace_once(
+              'src-tauri/src/lib.rs',
+              '''    let draft = tauri::async_runtime::spawn_blocking(move || {\n        screenshot_import::recognize_screenshot(&path)\n    })''',
+              '''    let recognition_app = app.clone();\n    let draft = tauri::async_runtime::spawn_blocking(move || {\n        screenshot_import::recognize_screenshot(&recognition_app, &path)\n    })''',
+          )
+          replace_once(
+              'src-tauri/src/lib.rs',
+              '''            choose_and_parse_excel,\n            choose_and_parse_screenshot,\n            apply_imported_schedule,''',
+              '''            choose_and_parse_excel,\n            read_screenshot_ocr_component_status,\n            prepare_screenshot_ocr_component,\n            choose_and_parse_screenshot,\n            apply_imported_schedule,''',
+          )
+
+          config_path = Path('src-tauri/tauri.conf.json')
+          config = json.loads(config_path.read_text(encoding='utf-8'))
+          config['bundle']['resources'] = ['resources/ocr-component/']
+          config_path.write_text(json.dumps(config, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+          resource = Path('src-tauri/resources/ocr-component')
+          resource.mkdir(parents=True, exist_ok=True)
+          (resource / 'component.json').write_text(json.dumps({
+              'schemaVersion': 1,
+              'available': False,
+              'componentVersion': 'not-bundled',
+              'platform': 'windows-x86_64',
+              'pythonRelativePath': 'python/python.exe',
+              'moduleRootRelativePath': 'app',
+              'modelCacheRelativePath': 'models',
+              'files': [],
+          }, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          (resource / 'README.md').write_text(
+              '# OCR component build input\n\n'
+              'The committed manifest intentionally marks the component unavailable. '
+              'Release packaging replaces this directory in the build workspace with a pinned, '
+              'hash-verified Windows OCR runtime before `tauri build`. No generated runtime binaries '
+              'or model files are committed to Git.\n',
+              encoding='utf-8',
+          )
+
+          controller = Path('src/screenshot-import-controller.ts')
+          text = controller.read_text(encoding='utf-8')
+          text = text.replace(
+              '''type ActiveSchedule = {\n  semesterStart: string\n}\n''',
+              '''type ActiveSchedule = {\n  semesterStart: string\n}\n\ntype OcrComponentStatus = {\n  state: 'ready' | 'missing' | 'corrupt' | 'unavailable'\n  componentVersion: string | null\n  source: string | null\n  message: string\n  canPrepare: boolean\n}\n''',
+              1,
+          )
+          text = text.replace(
+              '''let recognitionPending = false\nlet createPending = false''',
+              '''let recognitionPending = false\nlet componentPending = false\nlet componentStatusRequested = false\nlet ocrComponentStatus: OcrComponentStatus | null = null\nlet createPending = false''',
+              1,
+          )
+          text = text.replace(
+              '''    screenshotPicker.addEventListener('click', () => void chooseScreenshot())''',
+              '''    screenshotPicker.addEventListener('click', () => void handleScreenshotPicker())''',
+              1,
+          )
+          text = text.replace(
+              '''  updatePickerState(surface)\n}\n\nfunction updatePickerState(surface: HTMLElement): void {\n  const excelPicker = surface.querySelector<HTMLButtonElement>('[data-action="choose-excel"]')\n  const screenshotPicker = surface.querySelector<HTMLButtonElement>('[data-action="choose-screenshot"]')\n  if (excelPicker) excelPicker.disabled = recognitionPending\n  if (!screenshotPicker) return\n\n  const state = `${recognitionPending}:${desktopRuntime}`\n  screenshotPicker.disabled = recognitionPending\n  if (screenshotPicker.dataset.screenshotImportState === state) return\n  screenshotPicker.dataset.screenshotImportState = state\n  screenshotPicker.innerHTML = `\n    <strong>${recognitionPending ? '正在识别课表截图…' : '选择 PNG / JPG 课表截图'}</strong>\n    <span>${desktopRuntime\n      ? '请使用完整单张截图，包含星期标题、节次和全部课程；暂不支持多图拼接'\n      : '浏览器预览中不会读取本机图片'}</span>\n  `\n}\n''',
+              '''  updatePickerState(surface)\n  ensureOcrComponentStatus(surface)\n}\n\nfunction updatePickerState(surface: HTMLElement): void {\n  const excelPicker = surface.querySelector<HTMLButtonElement>('[data-action="choose-excel"]')\n  const screenshotPicker = surface.querySelector<HTMLButtonElement>('[data-action="choose-screenshot"]')\n  const checking = desktopRuntime && componentStatusRequested && !ocrComponentStatus\n  const componentState = ocrComponentStatus?.state\n  const blocked = componentState === 'unavailable'\n  if (excelPicker) excelPicker.disabled = recognitionPending || componentPending\n  if (!screenshotPicker) return\n\n  const state = `${recognitionPending}:${componentPending}:${checking}:${componentState ?? 'unknown'}:${desktopRuntime}`\n  screenshotPicker.disabled = recognitionPending || componentPending || checking || blocked\n  if (screenshotPicker.dataset.screenshotImportState === state) return\n  screenshotPicker.dataset.screenshotImportState = state\n\n  let title = '选择 PNG / JPG 课表截图'\n  let detail = desktopRuntime\n    ? '请使用完整单张截图，包含星期标题、节次和全部课程；暂不支持多图拼接'\n    : '浏览器预览中不会读取本机图片'\n  if (recognitionPending) {\n    title = '正在识别课表截图…'\n    detail = '图片只在本机处理，请稍候'\n  } else if (componentPending) {\n    title = componentState === 'corrupt' ? '正在修复本地识别组件…' : '正在准备本地识别组件…'\n    detail = '首次准备可能需要一些时间，完成后可离线识别'\n  } else if (checking) {\n    title = '正在检查本地识别组件…'\n    detail = '图片不会上传'\n  } else if (componentState === 'missing' || componentState === 'corrupt') {\n    title = componentState === 'corrupt' ? '修复本地识别组件' : '准备本地识别组件'\n    detail = ocrComponentStatus?.message ?? '完成准备后可离线识别课表截图'\n  } else if (componentState === 'unavailable') {\n    title = '当前安装包暂不支持截图识别'\n    detail = ocrComponentStatus?.message ?? '请安装支持离线识别组件的版本'\n  }\n  screenshotPicker.innerHTML = `<strong>${title}</strong><span>${escapeHtml(detail)}</span>`\n}\n\nfunction ensureOcrComponentStatus(surface: HTMLElement): void {\n  if (!desktopRuntime || componentStatusRequested) return\n  componentStatusRequested = true\n  updatePickerState(surface)\n  void refreshOcrComponentStatus(surface)\n}\n\nasync function refreshOcrComponentStatus(surface: HTMLElement): Promise<void> {\n  try {\n    ocrComponentStatus = await invoke<OcrComponentStatus>('read_screenshot_ocr_component_status')\n  } catch (error) {\n    ocrComponentStatus = {\n      state: 'unavailable',\n      componentVersion: null,\n      source: null,\n      message: screenshotImportErrorText(error),\n      canPrepare: false,\n    }\n  }\n  updatePickerState(surface)\n}\n\nasync function handleScreenshotPicker(): Promise<void> {\n  if (recognitionPending || componentPending) return\n  const surface = document.querySelector<HTMLElement>('.import-review-surface')\n  if (!surface) return\n  if (!desktopRuntime) {\n    setMessage(surface, '浏览器预览不会读取本机图片，请在桌面应用中测试。')\n    return\n  }\n  if (!ocrComponentStatus) {\n    await refreshOcrComponentStatus(surface)\n    return\n  }\n  if (ocrComponentStatus.state !== 'ready') {\n    if (ocrComponentStatus.canPrepare) {\n      await prepareOcrComponent(surface)\n    } else {\n      setMessage(surface, ocrComponentStatus.message)\n    }\n    return\n  }\n  await chooseScreenshot()\n}\n\nasync function prepareOcrComponent(surface: HTMLElement): Promise<void> {\n  componentPending = true\n  setMessage(surface, ocrComponentStatus?.state === 'corrupt'\n    ? '正在修复本地识别组件…'\n    : '正在准备本地识别组件…')\n  updatePickerState(surface)\n  try {\n    ocrComponentStatus = await invoke<OcrComponentStatus>('prepare_screenshot_ocr_component')\n    setMessage(surface, '本地识别组件已准备完成，可以选择课表截图。')\n  } catch (error) {\n    setMessage(surface, screenshotImportErrorText(error))\n    await refreshOcrComponentStatus(surface)\n  } finally {\n    componentPending = false\n    updatePickerState(surface)\n  }\n}\n''',
+              1,
+          )
+          controller.write_text(text, encoding='utf-8')
+
+          html = Path('scripts/screenshot-import-dom.test.html')
+          text = html.read_text(encoding='utf-8')
+          text = text.replace(
+              '''          if (command === 'choose_and_parse_screenshot') {''',
+              '''          if (command === 'read_screenshot_ocr_component_status') {\n            return {\n              state: 'ready',\n              componentVersion: null,\n              source: 'development',\n              message: '本地识别组件已就绪，课表图片不会上传。',\n              canPrepare: false\n            }\n          }\n          if (command === 'choose_and_parse_screenshot') {''',
+              1,
+          )
+          html.write_text(text, encoding='utf-8')
+
+          test = Path('scripts/screenshot-import-dom.test.ts')
+          text = test.read_text(encoding='utf-8')
+          text = text.replace(
+              '''  assert(\n    window.__screenshotImportCommands.length === 0,\n    'isolating an Excel draft must not start screenshot recognition',\n  )''',
+              '''  assert(\n    window.__screenshotImportCommands.filter((command) => command === 'choose_and_parse_screenshot').length === 0,\n    'isolating an Excel draft must not start screenshot recognition',\n  )''',
+              1,
+          )
+          text = text.replace(
+              '''  const picker = document.querySelector<HTMLButtonElement>('[data-action="choose-screenshot"]')\n  assert(picker, 'screenshot picker should be available after the Excel draft is cleared')''',
+              '''  const picker = document.querySelector<HTMLButtonElement>('[data-action="choose-screenshot"]')\n  assert(picker, 'screenshot picker should be available after the Excel draft is cleared')\n  assert(\n    window.__screenshotImportCommands.filter((command) => command === 'read_screenshot_ocr_component_status').length === 1,\n    'desktop import should check the local OCR component once',\n  )''',
+              1,
+          )
+          test.write_text(text, encoding='utf-8')
+
+          workflow = Path('.github/workflows/ocr-component-foundation-patch.yml')
+          workflow.unlink()
+
+      - name: Commit integration
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src-tauri/src/lib.rs src-tauri/tauri.conf.json src-tauri/resources/ocr-component src/screenshot-import-controller.ts scripts/screenshot-import-dom.test.html scripts/screenshot-import-dom.test.ts .github/workflows/ocr-component-foundation-patch.yml
+          git commit -m "feat: connect OCR component preparation flow"
+          git push origin HEAD:feat/release-ocr-component-foundation
