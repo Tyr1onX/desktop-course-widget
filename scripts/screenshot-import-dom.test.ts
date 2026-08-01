@@ -49,7 +49,7 @@ async function run(): Promise<void> {
   assert(document.body.textContent?.includes('通信原理'), 'recognized course should appear in the shared review list')
   assert(document.body.textContent?.includes('地点：南湖-第一教学楼-四阶'), 'collapsed summary should expose recognized location before bulk confirmation')
   assert(document.body.textContent?.includes('老师：未识别'), 'collapsed summary should expose missing optional teacher before bulk confirmation')
-  assert(document.querySelector('.import-parser-warnings') === null, 'successful screenshot review should hide internal parser diagnostics')
+  assert(document.querySelector('.import-parser-warnings') === null, 'successful screenshot review should hide internal OCR parser diagnostics')
   await waitFor(
     () => document.querySelectorAll('.import-evidence-copy').length === 0,
     'screenshot review should hide confidence, raw OCR, and parser-rule evidence',
