@@ -1,0 +1,74 @@
+name: 课表导入兼容性反馈
+description: 反馈 Excel 或课表截图无法识别、字段错位、课程缺失等问题
+title: "[兼容性] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢帮助课刻适配更多学校和教务系统。
+
+        **上传文件或截图前，请先删除或遮住姓名、学号、教师、教室以及其他个人信息。** 只保留能够复现问题的最小样例。
+
+  - type: dropdown
+    id: import-type
+    attributes:
+      label: 导入方式
+      options:
+        - Excel（.xlsx）
+        - 课表截图（.png / .jpg）
+        - 手动编辑或其他流程
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: 课刻版本
+      description: 可填写安装版版本号或 main 分支提交号
+      placeholder: 例如 v0.4.0
+    validations:
+      required: true
+
+  - type: input
+    id: source
+    attributes:
+      label: 教务系统或课表来源（可选）
+      description: 不必填写学校名称；教务系统名称、导出入口或课表类型即可
+      placeholder: 例如 正方教务 / 教务系统导出的学生课表
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际结果
+      description: 请说明哪些课程未识别、字段错位，或出现了什么报错
+      placeholder: 例如 第 3、4 节课程没有导入，地点被识别成了周次
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期结果
+      description: 描述正确导入后应该得到的课程、周次、节次或地点
+    validations:
+      required: true
+
+  - type: textarea
+    id: sample
+    attributes:
+      label: 脱敏样例或截图
+      description: 可直接拖入经过隐私处理的文件、局部截图或结构说明
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 补充信息
+      description: 可提供 Windows 版本、复现步骤、日志或其他有助于定位的信息
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 隐私确认
+      options:
+        - label: 我已检查附件和文字，不包含姓名、学号或其他不应公开的个人信息
+          required: true
