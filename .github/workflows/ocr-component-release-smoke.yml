@@ -9,6 +9,7 @@ on:
       - '.github/workflows/ocr-component-release-smoke.yml'
       - 'scripts/build-ocr-component.ps1'
       - 'scripts/ocr-component-smoke.py'
+      - 'scripts/test-ocr-enabled-installer.ps1'
       - 'experiments/screenshot_import/requirements-ocr-component.txt'
       - 'experiments/screenshot_import/**'
       - 'src-tauri/src/ocr_component.rs'
@@ -25,7 +26,7 @@ concurrency:
 jobs:
   build-release-component:
     runs-on: windows-latest
-    timeout-minutes: 90
+    timeout-minutes: 110
 
     steps:
       - name: Checkout
@@ -74,7 +75,15 @@ jobs:
       - name: Build installer with bundled OCR component
         run: npm run tauri:build
 
+      - name: Install release and run bundled OCR offline
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'OCR-enabled NSIS installer was not produced' }
+          ./scripts/test-ocr-enabled-installer.ps1 -Installer $installer.FullName
+
       - name: Upload component manifest
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ocr-component-manifest-${{ github.sha }}
@@ -83,6 +92,7 @@ jobs:
           retention-days: 14
 
       - name: Upload OCR-enabled Windows installer
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: course-widget-ocr-windows-${{ github.sha }}
