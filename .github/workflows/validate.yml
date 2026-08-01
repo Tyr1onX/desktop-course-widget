@@ -96,6 +96,39 @@ jobs:
       - name: Prebuild ImportDraft validator example
         run: cargo build --quiet --manifest-path src-tauri/Cargo.toml --example validate_import_draft
 
+      - name: Validate Chinese timetable style families with Rust
+        shell: pwsh
+        run: |
+          $root = '.tmp/chinese-timetable-corpus'
+          python -m experiments.screenshot_import generate-chinese-corpus --output $root
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          foreach ($style in @('mobile_cards_12', 'minimal_lines_10', 'dense_export_12')) {
+            $output = "$root/$style-output"
+            python -m experiments.screenshot_import recognize `
+              --input "$root/$style.png" `
+              --output $output `
+              --engine fixture `
+              --fixture "$root/$style.ocr.json" `
+              --ocr-mode ocr-first `
+              --ground-truth "$root/$style.ground-truth.json" `
+              --repo-root .
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+            $report = Get-Content "$output/report.json" -Raw | ConvertFrom-Json
+            $evaluation = $report.fieldEvaluation
+            if ($report.courseCount -ne 4 `
+                -or $evaluation.courseCountMatched -ne 4 `
+                -or $evaluation.missingCourseCount -ne 0 `
+                -or $evaluation.falsePositiveCourseCount -ne 0 `
+                -or $evaluation.valueAccuracy.wrong -ne 0 `
+                -or $evaluation.valueAccuracy.valueMissing -ne 0 `
+                -or $evaluation.autoConfirmationErrors.Count -ne 0 `
+                -or $report.rustValidation.structuralValid -ne $true) {
+              throw "Chinese timetable style validation failed for $style`: $($evaluation | ConvertTo-Json -Depth 10)"
+            }
+          }
+
       - name: Validate synthetic screenshot drafts with Rust
         shell: pwsh
         run: |

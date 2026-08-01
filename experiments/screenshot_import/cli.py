@@ -16,6 +16,10 @@ from .parse_fields import FieldParserConfig
 from .pipeline import recognize_image
 from .preprocess import PreprocessConfig
 from .synthetic import generate_synthetic_sample, scenarios
+from .synthetic_chinese_corpus import (
+    generate_chinese_timetable_corpus,
+    style_names as chinese_style_names,
+)
 
 
 def _configure_console_encoding() -> None:
@@ -52,6 +56,18 @@ def parser() -> argparse.ArgumentParser:
     synth = sub.add_parser("generate-synthetic")
     synth.add_argument("--output", required=True)
     synth.add_argument("--scenario", choices=sorted(scenarios()), action="append")
+
+    chinese = sub.add_parser(
+        "generate-chinese-corpus",
+        help="生成多种中文课表视觉样本、Fixture OCR 和课程级真值",
+    )
+    chinese.add_argument("--output", required=True)
+    chinese.add_argument(
+        "--style",
+        dest="styles",
+        choices=chinese_style_names(),
+        action="append",
+    )
 
     fetch = sub.add_parser(
         "fetch-corpus",
@@ -108,7 +124,7 @@ def parser() -> argparse.ArgumentParser:
     corpus_benchmark.add_argument(
         "--strict-incomplete",
         action="store_true",
-        help="要求裁切变体必须产生检查项、缺失项或警告",
+        help="要求裁切变体被拒绝，或产生字段复核、字段缺失或明确的不完整截图提示",
     )
     return root
 
@@ -128,6 +144,15 @@ def main(argv: list[str] | None = None) -> int:
                 if name in GROUND_TRUTHS:
                     generated["groundTruth"] = str(write_ground_truth(name, args.output))
                 payload[name] = generated
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+            return 0
+
+        if args.command == "generate-chinese-corpus":
+            generated = generate_chinese_timetable_corpus(args.output, args.styles)
+            payload = {
+                name: {key: str(value) for key, value in paths.items()}
+                for name, paths in generated.items()
+            }
             print(json.dumps(payload, ensure_ascii=False, indent=2))
             return 0
 
