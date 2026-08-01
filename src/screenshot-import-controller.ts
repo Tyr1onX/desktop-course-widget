@@ -244,8 +244,10 @@ function renderReviewSurface(surface: HTMLElement): void {
     if (createButton.dataset.screenshotImportBound !== 'true') {
       createButton.dataset.screenshotImportBound = 'true'
       createButton.addEventListener('click', (event) => {
-        if (event.defaultPrevented) return
-        void createScreenshotSchedule()
+        queueMicrotask(() => {
+          if (event.defaultPrevented) return
+          void createScreenshotSchedule()
+        })
       })
     }
   }
