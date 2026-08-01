@@ -7,6 +7,14 @@ import sys
 from pathlib import Path
 
 
+def configure_console_encoding() -> None:
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            reconfigure(encoding="utf-8", errors="replace")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Validate the portable screenshot OCR component")
     parser.add_argument("--output", required=True)
@@ -15,6 +23,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    configure_console_encoding()
     args = parse_args()
     output = Path(args.output).resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -67,11 +76,9 @@ def main() -> int:
         report["engine"] = engine.version_info()
         report["runtime"] = engine.runtime_info()
 
-    (output / "portable-ocr-smoke.json").write_text(
-        json.dumps(report, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    print(json.dumps(report, ensure_ascii=False, indent=2))
+    rendered = json.dumps(report, ensure_ascii=False, indent=2)
+    (output / "portable-ocr-smoke.json").write_text(rendered, encoding="utf-8")
+    print(rendered)
     return 0
 
 
