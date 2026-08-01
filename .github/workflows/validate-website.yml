@@ -44,19 +44,27 @@ jobs:
             exit 1
           }
 
-      - name: Build website
-        working-directory: website
-        run: |
-          npm run docs:build > /tmp/website-build.log 2>&1 || {
-            cat /tmp/website-build.log
-            exit 1
-          }
-
       - name: Install Chromium
         working-directory: website
         run: |
           npx playwright install --with-deps chromium > /tmp/playwright-install.log 2>&1 || {
             cat /tmp/playwright-install.log
+            exit 1
+          }
+
+      - name: Render social preview
+        working-directory: website
+        run: |
+          npm run docs:render:social > /tmp/social-preview.log 2>&1 || {
+            cat /tmp/social-preview.log
+            exit 1
+          }
+
+      - name: Build website
+        working-directory: website
+        run: |
+          npm run docs:build > /tmp/website-build.log 2>&1 || {
+            cat /tmp/website-build.log
             exit 1
           }
 
@@ -75,6 +83,13 @@ jobs:
           name: responsive-failure-log
           path: /tmp/responsive-test.log
           retention-days: 1
+
+      - name: Upload social preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: social-preview-png
+          path: website/docs/public/social-preview.png
+          retention-days: 3
 
       - name: Upload website preview
         uses: actions/upload-artifact@v4
