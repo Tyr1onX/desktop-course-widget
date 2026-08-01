@@ -98,6 +98,7 @@ jobs:
         id: benchmark
         shell: pwsh
         run: |
+          New-Item -ItemType Directory -Force -Path .tmp/screenshot-import-corpus-report | Out-Null
           $arguments = @(
             '-m', 'experiments.screenshot_import', 'benchmark-corpus',
             '--corpus', '.tmp/screenshot-import-corpus',
