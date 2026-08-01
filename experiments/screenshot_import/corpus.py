@@ -6,6 +6,8 @@ import os
 import re
 import shutil
 import tempfile
+import time
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +18,12 @@ from PIL import Image, ImageEnhance, ImageFilter
 
 SCHEMA_VERSION = 1
 MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024
+DOWNLOAD_ATTEMPTS = 4
+RETRYABLE_HTTP_STATUS = {429, 500, 502, 503, 504}
+CORPUS_USER_AGENT = (
+    "desktop-course-widget/0.4.0 "
+    "(https://github.com/Tyr1onX/desktop-course-widget; timetable corpus benchmark)"
+)
 ALLOWED_LICENSES = {
     "CC0-1.0",
     "CC-BY-SA-3.0",
@@ -210,40 +218,68 @@ def fetch_public_corpus(
 
 def _download_image(url: str, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
-    request = urllib.request.Request(
-        url,
-        headers={"User-Agent": "desktop-course-widget-corpus/1.0"},
-    )
-    temp_path: Path | None = None
-    try:
-        with urllib.request.urlopen(request, timeout=45) as response:
-            final_url = response.geturl()
-            _validate_https_url(final_url, allowed_hosts=ALLOWED_DOWNLOAD_HOSTS)
-            declared_length = response.headers.get("Content-Length")
-            if declared_length and int(declared_length) > MAX_DOWNLOAD_BYTES:
-                raise ValueError(f"corpus image exceeds {MAX_DOWNLOAD_BYTES} bytes")
-            content_type = response.headers.get_content_type()
-            if not content_type.startswith("image/"):
-                raise ValueError(f"corpus URL did not return an image: {content_type}")
-            with tempfile.NamedTemporaryFile(
-                prefix=f".{destination.name}.",
-                suffix=".tmp",
-                dir=destination.parent,
-                delete=False,
-            ) as temporary:
-                temp_path = Path(temporary.name)
-                total = 0
-                while chunk := response.read(64 * 1024):
-                    total += len(chunk)
-                    if total > MAX_DOWNLOAD_BYTES:
-                        raise ValueError(f"corpus image exceeds {MAX_DOWNLOAD_BYTES} bytes")
-                    temporary.write(chunk)
-        _verify_image(temp_path)
-        os.replace(temp_path, destination)
-        temp_path = None
-    finally:
-        if temp_path and temp_path.exists():
-            temp_path.unlink()
+    last_error: urllib.error.HTTPError | None = None
+    for attempt in range(1, DOWNLOAD_ATTEMPTS + 1):
+        request = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": CORPUS_USER_AGENT,
+                "Accept": "image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8,*/*;q=0.1",
+                "Referer": "https://commons.wikimedia.org/",
+            },
+        )
+        temp_path: Path | None = None
+        try:
+            with urllib.request.urlopen(request, timeout=45) as response:
+                final_url = response.geturl()
+                _validate_https_url(final_url, allowed_hosts=ALLOWED_DOWNLOAD_HOSTS)
+                declared_length = response.headers.get("Content-Length")
+                if declared_length and int(declared_length) > MAX_DOWNLOAD_BYTES:
+                    raise ValueError(f"corpus image exceeds {MAX_DOWNLOAD_BYTES} bytes")
+                content_type = response.headers.get_content_type()
+                if not content_type.startswith("image/"):
+                    raise ValueError(f"corpus URL did not return an image: {content_type}")
+                with tempfile.NamedTemporaryFile(
+                    prefix=f".{destination.name}.",
+                    suffix=".tmp",
+                    dir=destination.parent,
+                    delete=False,
+                ) as temporary:
+                    temp_path = Path(temporary.name)
+                    total = 0
+                    while chunk := response.read(64 * 1024):
+                        total += len(chunk)
+                        if total > MAX_DOWNLOAD_BYTES:
+                            raise ValueError(
+                                f"corpus image exceeds {MAX_DOWNLOAD_BYTES} bytes"
+                            )
+                        temporary.write(chunk)
+            _verify_image(temp_path)
+            os.replace(temp_path, destination)
+            temp_path = None
+            return
+        except urllib.error.HTTPError as error:
+            last_error = error
+            if error.code not in RETRYABLE_HTTP_STATUS or attempt == DOWNLOAD_ATTEMPTS:
+                raise
+            retry_after = error.headers.get("Retry-After") if error.headers else None
+            delay = _retry_delay_seconds(attempt, retry_after)
+            time.sleep(delay)
+        finally:
+            if temp_path and temp_path.exists():
+                temp_path.unlink()
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError(f"failed to download corpus image: {url}")
+
+
+def _retry_delay_seconds(attempt: int, retry_after: str | None) -> float:
+    if retry_after:
+        try:
+            return min(30.0, max(1.0, float(retry_after)))
+        except ValueError:
+            pass
+    return min(20.0, 2.0 ** attempt)
 
 
 def _verify_image(path: Path) -> tuple[int, int]:
