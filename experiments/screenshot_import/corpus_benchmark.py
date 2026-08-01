@@ -12,6 +12,20 @@ from .corpus import SCHEMA_VERSION, CorpusSample, load_corpus_manifest, select_s
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 CASE_COMPONENT_PATTERN = re.compile(r"[^a-zA-Z0-9._-]+")
+INCOMPLETE_WARNING_HINTS = (
+    "裁切",
+    "不完整",
+    "截断",
+    "图片边缘",
+    "缺少星期表头",
+    "缺少节次标签",
+    "cropped",
+    "incomplete",
+    "truncated",
+    "cut off",
+    "missing weekday header",
+    "missing section label",
+)
 RecognizeCase = Callable[[Path, Path], dict[str, Any]]
 
 
@@ -319,12 +333,20 @@ def _case_record(
     course_count = _non_negative_int(report.get("courseCount"))
     status_counts = _status_counts(report)
     warnings = report.get("warnings")
-    warning_count = len(warnings) if isinstance(warnings, list) else 0
+    warning_values = (
+        [str(warning) for warning in warnings]
+        if isinstance(warnings, list)
+        else []
+    )
+    warning_count = len(warning_values)
+    incomplete_warning_count = sum(
+        _is_incomplete_warning(warning) for warning in warning_values
+    )
     recognized = bool(report.get("success")) and course_count > 0
     reviewable = (
         status_counts["review"] > 0
         or status_counts["missing"] > 0
-        or warning_count > 0
+        or incomplete_warning_count > 0
     )
 
     if not recognized and case.role == "negative-layout":
@@ -374,11 +396,17 @@ def _case_record(
         "courseCount": course_count,
         "fieldStatusCounts": status_counts,
         "warningCount": warning_count,
+        "incompleteWarningCount": incomplete_warning_count,
         "recognitionStrategy": report.get("recognitionStrategy"),
         "optionalGridAvailable": report.get("optionalGridAvailable"),
         "pipelineSeconds": total_pipeline,
         "elapsedSeconds": round(elapsed_seconds, 6),
     }
+
+
+def _is_incomplete_warning(value: str) -> bool:
+    normalized = value.casefold()
+    return any(hint in normalized for hint in INCOMPLETE_WARNING_HINTS)
 
 
 def classify_failure(error: Exception | str) -> str:
