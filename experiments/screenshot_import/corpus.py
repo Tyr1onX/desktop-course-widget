@@ -35,6 +35,7 @@ ALLOWED_DOWNLOAD_HOSTS = {
     "upload.wikimedia.org",
 }
 SAMPLE_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{2,79}$")
+SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 ROLES = {"positive-layout", "negative-layout", "layout-only"}
 
 
@@ -45,6 +46,7 @@ class CorpusSample:
     filename: str
     source_page: str
     download_url: str
+    sha256: str
     license_id: str
     license_url: str
     author: str
@@ -114,6 +116,10 @@ def _parse_sample(raw: dict[str, Any], index: int) -> CorpusSample:
     _validate_https_url(download_url, allowed_hosts=ALLOWED_DOWNLOAD_HOSTS)
     _validate_https_url(license_url)
 
+    sha256 = required_string("sha256").lower()
+    if not SHA256_PATTERN.fullmatch(sha256):
+        raise ValueError(f"sample {sample_id} sha256 must be 64 lowercase hex characters")
+
     license_id = required_string("license")
     if license_id not in ALLOWED_LICENSES:
         raise ValueError(f"unsupported corpus license: {license_id}")
@@ -136,6 +142,7 @@ def _parse_sample(raw: dict[str, Any], index: int) -> CorpusSample:
         filename=filename,
         source_page=source_page,
         download_url=download_url,
+        sha256=sha256,
         license_id=license_id,
         license_url=license_url,
         author=required_string("author"),
@@ -188,11 +195,18 @@ def fetch_public_corpus(
         if force or not destination.is_file():
             _download_image(sample.download_url, destination)
         width, height = _verify_image(destination)
+        actual_sha256 = _sha256(destination)
+        if actual_sha256 != sample.sha256:
+            destination.unlink(missing_ok=True)
+            raise ValueError(
+                f"corpus image hash mismatch for {sample.sample_id}: "
+                f"expected {sample.sha256}, got {actual_sha256}"
+            )
         records.append(
             {
                 "id": sample.sample_id,
                 "filename": sample.filename,
-                "sha256": _sha256(destination),
+                "sha256": actual_sha256,
                 "bytes": destination.stat().st_size,
                 "width": width,
                 "height": height,
@@ -319,6 +333,7 @@ def _write_attribution(path: Path, samples: Iterable[CorpusSample]) -> None:
                 f"- Author: {sample.author}",
                 f"- License: [{sample.license_id}]({sample.license_url})",
                 f"- Source: {sample.source_page}",
+                f"- SHA-256: `{sample.sha256}`",
                 f"- Attribution: {sample.attribution}",
                 "",
             ]
@@ -347,6 +362,12 @@ def build_corpus_variants(
         if not source.is_file():
             raise FileNotFoundError(
                 f"missing corpus image {source}; run fetch-corpus first"
+            )
+        actual_sha256 = _sha256(source)
+        if actual_sha256 != sample.sha256:
+            raise ValueError(
+                f"corpus image hash mismatch for {sample.sample_id}: "
+                f"expected {sample.sha256}, got {actual_sha256}"
             )
         with Image.open(source) as opened:
             image = opened.convert("RGB")
