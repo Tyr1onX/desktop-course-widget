@@ -3,7 +3,7 @@ import { defineConfig } from 'vitepress'
 
 const siteBase = '/desktop-course-widget/'
 const siteUrl = `https://tyr1onx.github.io${siteBase}`
-const socialImageUrl = `${siteUrl}social-preview.svg`
+const socialImageUrl = `${siteUrl}social-preview.png`
 
 function pageUrl(page: string): string {
   const route = page.replace(/(^|\/)index\.md$/, '$1').replace(/\.md$/, '')
@@ -22,7 +22,7 @@ export default defineConfig({
     hostname: siteUrl,
   },
   head: [
-    ['meta', { name: 'theme-color', content: '#f6f7fb' }],
+    ['meta', { name: 'theme-color', content: '#f5f5f7' }],
     ['meta', { name: 'application-name', content: '课刻' }],
     [
       'meta',
@@ -56,9 +56,10 @@ export default defineConfig({
       ['meta', { property: 'og:description', content: description }],
       ['meta', { property: 'og:url', content: canonicalUrl }],
       ['meta', { property: 'og:image', content: socialImageUrl }],
+      ['meta', { property: 'og:image:type', content: 'image/png' }],
       ['meta', { property: 'og:image:width', content: '1280' }],
       ['meta', { property: 'og:image:height', content: '640' }],
-      ['meta', { property: 'og:image:alt', content: '课刻 Windows 桌面课表产品概览' }],
+      ['meta', { property: 'og:image:alt', content: '课刻 Windows 桌面课表' }],
       ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
       ['meta', { name: 'twitter:title', content: title }],
       ['meta', { name: 'twitter:description', content: description }],
