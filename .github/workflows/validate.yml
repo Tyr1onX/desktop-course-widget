@@ -42,8 +42,14 @@ jobs:
       - name: Check import review helpers
         run: npm run check:import-review
 
+      - name: Check screenshot import policy
+        run: npm run check:screenshot-import
+
       - name: Check import review DOM lifecycle
         run: npm run check:import-review-dom
+
+      - name: Check screenshot import DOM lifecycle
+        run: npm run check:screenshot-import-dom
 
       - name: Check presentation clock
         run: npm run check:presentation-clock

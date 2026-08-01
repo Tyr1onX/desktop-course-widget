@@ -82,11 +82,14 @@ installImportReviewRuntime({
   weeksText: weeksToText,
 })
 
-async function settle(): Promise<void> {
-  await Promise.resolve()
-  await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
-  await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
-  await Promise.resolve()
+async function waitFor(condition: () => boolean, message: string, timeout = 3_000): Promise<void> {
+  const deadline = Date.now() + timeout
+  while (Date.now() < deadline) {
+    await Promise.resolve()
+    if (condition()) return
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 20))
+  }
+  throw new Error(message)
 }
 
 function assertSingletonStructures(stage: string): void {
@@ -112,44 +115,57 @@ function assertConfiguredLessonSections(stage: string): void {
 async function run(): Promise<void> {
   window.confirm = () => true
   rememberImportDraft(draft)
-  await settle()
+  await waitFor(
+    () => document.querySelectorAll('.import-review-toolbar').length === 1,
+    'initial import review enhancement should render',
+  )
 
   assertSingletonStructures('initial enhancement')
   assert(document.querySelectorAll('.import-structured-warnings').length === 1, 'conflict warning should render')
   assertConfiguredLessonSections('initial enhancement')
 
   document.querySelector<HTMLButtonElement>('[data-import-v2-filter="pending"]')?.click()
-  await settle()
+  await waitFor(
+    () => document.querySelector<HTMLButtonElement>('[data-import-v2-filter="pending"]')?.classList.contains('is-active') === true,
+    'pending filter should become active',
+  )
   assertSingletonStructures('filter enhancement')
 
   const beforeAdd = draft.courses.length
   const addButton = document.querySelector<HTMLButtonElement>('[data-import-v2-add]')
   assert(addButton, 'add course button should exist')
   addButton.click()
-  await settle()
+  await waitFor(() => draft.courses.length === beforeAdd + 1, 'one add click should update the draft')
   assert(draft.courses.length === beforeAdd + 1, 'one add click must add exactly one course')
   assertSingletonStructures('add enhancement')
 
   const addedIndex = draft.courses.length - 1
+  await waitFor(
+    () => Boolean(document.querySelector(`[data-import-v2-course="${addedIndex}"][data-import-v2-field="name"]`)),
+    'new course controls should render',
+  )
   const nameInput = document.querySelector<HTMLInputElement>(
     `[data-import-v2-course="${addedIndex}"][data-import-v2-field="name"]`,
   )
   assert(nameInput, 'new course name input should exist')
   nameInput.value = '数字信号处理'
   nameInput.dispatchEvent(new Event('change', { bubbles: true }))
-  await settle()
+  await waitFor(() => draft.courses[addedIndex]?.name === '数字信号处理', 'course edit should update the draft')
   assertSingletonStructures('edit enhancement')
 
   const confirmFieldButton = document.querySelector<HTMLButtonElement>('[data-import-v2-confirm-field="0:name"]')
   assert(confirmFieldButton, 'field confirmation button should exist')
   confirmFieldButton.click()
-  await settle()
+  await waitFor(
+    () => document.querySelector('[data-import-v2-confirm-field="0:name"]') === null,
+    'confirmed field control should disappear',
+  )
   assertSingletonStructures('confirm enhancement')
 
   const deleteButton = document.querySelector<HTMLButtonElement>(`[data-import-v2-delete="${addedIndex}"]`)
   assert(deleteButton, 'delete course button should exist')
   deleteButton.click()
-  await settle()
+  await waitFor(() => draft.courses.length === beforeAdd, 'delete should update the draft')
   assert(draft.courses.length === beforeAdd, 'delete should remove only the selected draft course')
   assertSingletonStructures('delete enhancement')
   assertConfiguredLessonSections('repeated enhancements')

@@ -5,6 +5,7 @@ mod import_draft;
 mod schedule_apply;
 mod schedule_catalog;
 mod schedule_store;
+mod screenshot_import;
 
 use std::{
     sync::atomic::{AtomicBool, Ordering},
@@ -212,7 +213,7 @@ fn toggle_autostart<R: tauri::Runtime>(app: &AppHandle<R>, menu_item: &CheckMenu
         Err(error) => {
             eprintln!("[widget] could not update autostart state: {error}");
             if let Err(menu_error) = menu_item.set_checked(autostart_enabled(app)) {
-                eprintln!("[widget] could not restore autostart menu state: {menu_error}");
+                eprintln!("[widget] could not restore autostart state: {menu_error}");
             }
         }
     }
@@ -342,6 +343,31 @@ fn save_lesson_times(
     request: SaveLessonTimesRequest,
 ) -> Result<app_settings::AppSettings, String> {
     app_settings::save_lesson_times(&app, request.times, request.equal_duration, false)
+}
+
+#[tauri::command]
+async fn choose_and_parse_screenshot(
+    app: AppHandle,
+) -> Result<Option<import_draft::ImportDraft>, String> {
+    let selected = app
+        .dialog()
+        .file()
+        .add_filter("课表截图", &["png", "jpg", "jpeg"])
+        .blocking_pick_file();
+
+    let Some(selected) = selected else {
+        return Ok(None);
+    };
+
+    let path = selected
+        .into_path()
+        .map_err(|_| "无法读取所选课表截图路径".to_owned())?;
+    let draft = tauri::async_runtime::spawn_blocking(move || {
+        screenshot_import::recognize_screenshot(&path)
+    })
+    .await
+    .map_err(|error| format!("截图识别任务异常结束：{error}"))??;
+    Ok(Some(draft))
 }
 
 #[tauri::command]
@@ -550,6 +576,7 @@ pub fn run() {
             read_app_settings,
             save_lesson_times,
             choose_and_parse_excel,
+            choose_and_parse_screenshot,
             apply_imported_schedule,
         ])
         .run(tauri::generate_context!())
