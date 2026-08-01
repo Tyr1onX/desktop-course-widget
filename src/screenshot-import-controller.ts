@@ -94,12 +94,21 @@ function enhanceImportSurface(): void {
   const excelPicker = surface.querySelector<HTMLButtonElement>('[data-action="choose-excel"]')
   if (!excelPicker) return
 
+  const existingExcelReview = Boolean(
+    surface.querySelector('[data-import-course-details], .import-course-review'),
+  )
+  const existingScreenshotPicker = surface.querySelector<HTMLButtonElement>('[data-action="choose-screenshot"]')
+  if (existingExcelReview) {
+    existingScreenshotPicker?.remove()
+    return
+  }
+
   const introTitle = surface.querySelector<HTMLElement>('.surface-intro h3')
   const introCopy = surface.querySelector<HTMLElement>('.surface-intro p')
   if (introTitle && introTitle.textContent !== importTitle) introTitle.textContent = importTitle
   if (introCopy && introCopy.textContent !== importDescription) introCopy.textContent = importDescription
 
-  let screenshotPicker = surface.querySelector<HTMLButtonElement>('[data-action="choose-screenshot"]')
+  let screenshotPicker = existingScreenshotPicker
   if (!screenshotPicker) {
     screenshotPicker = document.createElement('button')
     screenshotPicker.className = 'import-picker'
