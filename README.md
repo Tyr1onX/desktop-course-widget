@@ -1,28 +1,23 @@
 <div align="center">
-  <img src="website/docs/public/social-preview.svg" alt="课刻：Windows 桌面课表产品概览" width="100%" />
+  <img src="website/docs/public/app-icon-v2.svg" alt="课刻图标" width="112" height="112" />
 
   <h1>课刻</h1>
 
-  <p><strong>把学校教务系统里的课表，放回 Windows 桌面。</strong></p>
-  <p>正在上的课、下一节和完整周课表，抬眼就能看见。无需账号，课表数据只保存在本机。</p>
-  <p><sub>A local-first Windows timetable and course schedule desktop widget built with Tauri, Rust and TypeScript.</sub></p>
-
-  <p>
-    <a href="https://github.com/Tyr1onX/desktop-course-widget/releases/latest"><img alt="最新版本" src="https://img.shields.io/github/v/release/Tyr1onX/desktop-course-widget?display_name=tag&sort=semver&style=flat-square" /></a>
-    <a href="https://github.com/Tyr1onX/desktop-course-widget/releases"><img alt="累计下载" src="https://img.shields.io/github/downloads/Tyr1onX/desktop-course-widget/total?style=flat-square" /></a>
-    <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/github/license/Tyr1onX/desktop-course-widget?style=flat-square" /></a>
-    <img alt="Windows 10 / 11" src="https://img.shields.io/badge/Windows-10%20%2F%2011-4f6bed?style=flat-square&logo=windows11&logoColor=white" />
-  </p>
+  <p><strong>让一天在桌面上缓慢流动。</strong></p>
+  <p>从学校教务系统导入课表，在 Windows 桌面查看当前课程、下一节与完整周课表。</p>
+  <p><sub>Windows 10 / 11 · 免费开源 · 无需账号 · 数据只保存在本机</sub></p>
 
   <p>
     <a href="https://github.com/Tyr1onX/desktop-course-widget/releases/latest"><strong>下载 Windows 版</strong></a>
-    · <a href="https://tyr1onx.github.io/desktop-course-widget/">产品官网</a>
+    · <a href="https://tyr1onx.github.io/desktop-course-widget/experience/">产品体验</a>
     · <a href="https://tyr1onx.github.io/desktop-course-widget/guide/getting-started">使用指南</a>
     · <a href="https://github.com/Tyr1onX/desktop-course-widget/issues">反馈问题</a>
   </p>
 </div>
 
-## 为什么使用课刻
+---
+
+## 课刻在做什么
 
 <table>
   <tr>
@@ -40,6 +35,8 @@
     </td>
   </tr>
 </table>
+
+官网的 [产品体验页](https://tyr1onx.github.io/desktop-course-widget/experience/) 直接运行课刻组件的真实显示逻辑，可以查看一天中不同时间状态下的界面变化。
 
 ## 快速开始
 
@@ -93,7 +90,7 @@
 ## 当前限制
 
 - 目前仅支持 Windows 10 和 Windows 11。
-- 最新正式安装版以 `.xlsx` 导入为稳定入口；截图导入目前位于开发分支。
+- 最新正式安装版以 `.xlsx` 导入为稳定入口；截图导入目前位于开发版。
 - 不同教务系统格式可能需要单独适配。
 - 暂不支持课程通知、云同步和应用内自动更新。
 - 安装包暂未进行商业代码签名。
