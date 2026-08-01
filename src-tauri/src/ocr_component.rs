@@ -348,7 +348,8 @@ fn validate_manifest(manifest: &OcrComponentManifest) -> Result<(), String> {
         return Err("本地识别组件清单版本不受支持".into());
     }
     if manifest.component_version.trim().is_empty()
-        || manifest.component_version.contains('/') || manifest.component_version.contains('\\')
+        || manifest.component_version.contains('/')
+        || manifest.component_version.contains('\\')
         || matches!(manifest.component_version.as_str(), "." | "..")
     {
         return Err("本地识别组件版本号无效".into());
@@ -393,6 +394,12 @@ fn validate_manifest(manifest: &OcrComponentManifest) -> Result<(), String> {
 fn validate_relative_path(value: &str) -> Result<(), String> {
     if value.trim().is_empty() {
         return Err("本地识别组件清单包含空路径".into());
+    }
+    if value
+        .split(['/', '\\'])
+        .any(|segment| segment.is_empty() || matches!(segment, "." | ".."))
+    {
+        return Err(format!("本地识别组件路径不安全：{value}"));
     }
     let path = Path::new(value);
     if path.is_absolute() {
@@ -514,6 +521,10 @@ mod tests {
         assert!(validate_relative_path("../python.exe").is_err());
         assert!(validate_relative_path("C:\\python.exe").is_err());
         assert!(validate_relative_path("python/./python.exe").is_err());
+        assert!(validate_relative_path("python//python.exe").is_err());
+        assert!(validate_relative_path("python\\..\\python.exe").is_err());
+        assert!(validate_relative_path(".").is_err());
+        assert!(validate_relative_path("..").is_err());
     }
 
     #[test]
