@@ -44,10 +44,15 @@ def _is_location_candidate(value: str) -> bool:
     )
 
 
+def _strip_location_label(value: str) -> str:
+    return re.sub(r"^(?:地点|教室)[:：]?", "", value).strip("-,:：")
+
+
 def _location_candidate(value: str) -> str | None:
-    candidate = re.sub(r"^(?:地点|教室)[:：]?", "", value).strip("-,:：")
+    candidate = _strip_location_label(value)
     without_schedule = _SECTION_PREFIX.sub("", candidate, count=1).strip("-,:：")
     if without_schedule != candidate:
+        without_schedule = _strip_location_label(without_schedule)
         return without_schedule if _is_location_candidate(without_schedule) else None
     return candidate if _is_location_candidate(candidate) else None
 
