@@ -1,18 +1,20 @@
 name: Apply screenshot reset flow
 
 on:
-  push:
+  pull_request:
+    types: [synchronize]
     branches:
-      - feat/screenshot-import-vertical-slice
+      - main
     paths:
       - .github/screenshot-reset-flow-trigger
+      - .github/workflows/apply-screenshot-reset-flow.yml
 
 permissions:
   contents: write
 
 jobs:
   patch:
-    if: github.repository == 'Tyr1onX/desktop-course-widget'
+    if: github.repository == 'Tyr1onX/desktop-course-widget' && github.head_ref == 'feat/screenshot-import-vertical-slice'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
