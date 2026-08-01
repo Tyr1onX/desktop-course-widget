@@ -51,6 +51,65 @@ Each source image receives deterministic variants for:
 
 The cropped variant is not expected to be recognized successfully. It exists to verify that the product detects an incomplete screenshot or leaves the result clearly reviewable instead of silently creating a wrong timetable.
 
+## Run the OCR-first corpus benchmark
+
+The benchmark command uses the same PaddleOCR-first pipeline as the product-facing screenshot import:
+
+```powershell
+python -m experiments.screenshot_import benchmark-corpus `
+  --corpus .tmp/screenshot-import-corpus `
+  --output .tmp/screenshot-import-corpus-report `
+  --repo-root .
+```
+
+It writes:
+
+- `corpus-benchmark.json` — machine-readable policy, per-case result, timing, warning, and failure classification;
+- `corpus-benchmark.md` — a compact review table;
+- `cases/` — the normal per-image OCR debug outputs.
+
+The default gate is intentionally conservative during the first baseline:
+
+- a pipeline crash is a failure;
+- recognizing a declared negative sample as a weekly timetable is a failure;
+- positive-layout misses are measured but do not yet block;
+- cropped images that are accepted without any warning are measured but do not yet block.
+
+After a baseline is recorded, stricter policies can be enabled explicitly:
+
+```powershell
+python -m experiments.screenshot_import benchmark-corpus `
+  --corpus .tmp/screenshot-import-corpus `
+  --output .tmp/screenshot-import-corpus-report `
+  --repo-root . `
+  --require-positive `
+  --strict-incomplete
+```
+
+Useful development filters include:
+
+```powershell
+# Fast smoke test
+python -m experiments.screenshot_import benchmark-corpus `
+  --corpus .tmp/screenshot-import-corpus `
+  --output .tmp/screenshot-import-corpus-smoke `
+  --max-cases 4
+
+# Only originals
+python -m experiments.screenshot_import benchmark-corpus `
+  --corpus .tmp/screenshot-import-corpus `
+  --output .tmp/screenshot-import-corpus-originals `
+  --originals-only
+
+# One sample and all its variants
+python -m experiments.screenshot_import benchmark-corpus `
+  --corpus .tmp/screenshot-import-corpus `
+  --output .tmp/screenshot-import-corpus-photo `
+  --id commons-lukujarjestys-photo
+```
+
+The normal repository `Validate` workflow remains offline and does not download these images or install PaddleOCR models. It tests the manifest, transformations, case enumeration, failure classification, policy gates, and report generation with deterministic fake recognizer results.
+
 ## What these samples can and cannot measure
 
 The public set is useful for:
