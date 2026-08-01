@@ -60,6 +60,7 @@ function enhanceImportSurface(): void {
 
   if (activeDraft) {
     if (surface.dataset.screenshotImportMode !== 'review') renderReviewSurface(surface)
+    hideTechnicalReviewEvidence(surface)
     return
   }
 
@@ -169,12 +170,6 @@ function renderReviewSurface(surface: HTMLElement): void {
       <label class="field field--full"><span>课表名称</span><input id="screenshot-import-name" value="${escapeHtml(importName)}" /></label>
       <label class="field field--full"><span>第一周星期一</span><input id="screenshot-import-first-week" type="date" value="${escapeHtml(firstWeekMonday)}" /></label>
     </div>
-    ${draft.warnings.length ? `
-      <section class="import-parser-warnings">
-        <strong>识别提示</strong>
-        <ul>${draft.warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join('')}</ul>
-      </section>
-    ` : ''}
     <div class="import-review-heading">
       <div><h3>逐项检查</h3><p>课程名、老师、地点、周次和单双周来自 OCR，必须人工确认。</p></div>
       <span>${draft.courses.length} 项</span>
@@ -213,6 +208,11 @@ function renderReviewSurface(surface: HTMLElement): void {
 
   rememberImportDraft(draft)
   refreshImportDraftSummary(draft)
+}
+
+
+function hideTechnicalReviewEvidence(surface: HTMLElement): void {
+  surface.querySelectorAll('.import-evidence-copy').forEach((element) => element.remove())
 }
 
 async function createScreenshotSchedule(): Promise<void> {

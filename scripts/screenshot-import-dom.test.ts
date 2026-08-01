@@ -49,6 +49,14 @@ async function run(): Promise<void> {
   assert(document.body.textContent?.includes('通信原理'), 'recognized course should appear in the shared review list')
   assert(document.body.textContent?.includes('地点：南湖-第一教学楼-四阶'), 'collapsed summary should expose recognized location before bulk confirmation')
   assert(document.body.textContent?.includes('老师：未识别'), 'collapsed summary should expose missing optional teacher before bulk confirmation')
+  assert(document.querySelector('.import-parser-warnings') === null, 'successful screenshot review should hide internal parser diagnostics')
+  await waitFor(
+    () => document.querySelectorAll('.import-evidence-copy').length === 0,
+    'screenshot review should hide confidence, raw OCR, and parser-rule evidence',
+  )
+  assert(!document.body.textContent?.includes('置信度'), 'screenshot review should not expose confidence diagnostics')
+  assert(!document.body.textContent?.includes('原文：'), 'screenshot review should not expose raw OCR diagnostics')
+  assert(!document.body.textContent?.includes('规则解析'), 'screenshot review should not expose parser implementation details')
   assert(document.querySelectorAll<HTMLDetailsElement>('.import-course-review[open]').length === 0, 'image courses should start collapsed for quick scanning')
 
   const createButton = document.querySelector<HTMLButtonElement>('[data-action="create-imported-schedule"]')
