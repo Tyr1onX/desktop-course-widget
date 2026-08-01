@@ -60,6 +60,21 @@ def test_generation_is_deterministic_and_tokens_stay_inside_image(tmp_path: Path
             assert box["y"] + box["height"] <= height
 
 
+def test_selected_generation_only_writes_requested_styles(tmp_path: Path) -> None:
+    generated = generate_chinese_timetable_corpus(
+        tmp_path,
+        ["minimal_lines_10"],
+    )
+    assert list(generated) == ["minimal_lines_10"]
+    assert {path.name for path in generated["minimal_lines_10"].values()} == {
+        "minimal_lines_10.png",
+        "minimal_lines_10.ocr.json",
+        "minimal_lines_10.ground-truth.json",
+    }
+    assert not (tmp_path / "mobile_cards_12.png").exists()
+    assert not (tmp_path / "dense_export_12.png").exists()
+
+
 def test_each_style_round_trips_through_ocr_first_with_exact_fields(tmp_path: Path) -> None:
     for style_name in style_names():
         generated = generate_chinese_timetable_sample(tmp_path / "samples", style_name)
