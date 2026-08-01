@@ -1,0 +1,121 @@
+{
+  "schemaVersion": 1,
+  "description": "Open-license timetable images used for layout robustness and safe-rejection checks. Images are downloaded on demand and are not committed.",
+  "samples": [
+    {
+      "id": "commons-school-timetable-2014",
+      "title": "School timetable",
+      "filename": "school-timetable-2014.jpg",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:School_timetable.jpg",
+      "downloadUrl": "https://commons.wikimedia.org/wiki/Special:Redirect/file/School%20timetable.jpg",
+      "license": "CC-BY-SA-3.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by-sa/3.0/",
+      "author": "Supercarwaar",
+      "attribution": "School timetable by Supercarwaar, licensed CC BY-SA 3.0.",
+      "role": "positive-layout",
+      "expectedBehavior": "Recognize a weekly timetable layout or return a reviewable result without crashing.",
+      "tags": [
+        "weekly-grid",
+        "color",
+        "dense-text",
+        "digital"
+      ]
+    },
+    {
+      "id": "commons-school-timetable-matrix",
+      "title": "School Timetable Matrix",
+      "filename": "school-timetable-matrix.jpg",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:School_Timetable_Matrix.jpg",
+      "downloadUrl": "https://commons.wikimedia.org/wiki/Special:Redirect/file/School%20Timetable%20Matrix.jpg",
+      "license": "CC-BY-SA-3.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by-sa/3.0/",
+      "author": "DavidKRoosters",
+      "attribution": "School Timetable Matrix by DavidKRoosters, licensed CC BY-SA 3.0.",
+      "role": "layout-only",
+      "expectedBehavior": "Exercise dense matrix and small-cell handling; exact course semantics are not scored.",
+      "tags": [
+        "matrix",
+        "small-cells",
+        "dense",
+        "digital"
+      ]
+    },
+    {
+      "id": "commons-stundenplan",
+      "title": "Stundenplan",
+      "filename": "stundenplan.png",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Stundenplan.PNG",
+      "downloadUrl": "https://commons.wikimedia.org/wiki/Special:Redirect/file/Stundenplan.PNG",
+      "license": "Public-Domain",
+      "licenseUrl": "https://commons.wikimedia.org/wiki/File:Stundenplan.PNG#Licensing",
+      "author": "Fabian Kuntz",
+      "attribution": "Stundenplan by Fabian Kuntz, released into the public domain.",
+      "role": "positive-layout",
+      "expectedBehavior": "Recognize a simple five-day weekly grid or return a reviewable result without crashing.",
+      "tags": [
+        "weekly-grid",
+        "simple",
+        "five-days",
+        "digital"
+      ]
+    },
+    {
+      "id": "commons-lukujarjestys-photo",
+      "title": "Lukujärjestys 20180812",
+      "filename": "lukujarjestys-photo.jpg",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Lukuj%C3%A4rjestys_20180812.jpg",
+      "downloadUrl": "https://commons.wikimedia.org/wiki/Special:Redirect/file/Lukuj%C3%A4rjestys%2020180812.jpg",
+      "license": "CC-BY-SA-4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+      "author": "Santeri Viinamäki",
+      "attribution": "Lukujärjestys 20180812 by Santeri Viinamäki, licensed CC BY-SA 4.0.",
+      "role": "positive-layout",
+      "expectedBehavior": "Exercise photographed-paper, perspective, lighting, and background handling.",
+      "tags": [
+        "weekly-grid",
+        "photo",
+        "paper",
+        "perspective",
+        "high-resolution"
+      ]
+    },
+    {
+      "id": "commons-gladman-1886",
+      "title": "Gladman Small Timetable",
+      "filename": "gladman-small-timetable.jpg",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Gladman_Small_Timetable.jpg",
+      "downloadUrl": "https://commons.wikimedia.org/wiki/Special:Redirect/file/Gladman%20Small%20Timetable.jpg",
+      "license": "Public-Domain",
+      "licenseUrl": "https://commons.wikimedia.org/wiki/File:Gladman_Small_Timetable.jpg#Licensing",
+      "author": "J. F. Gladman",
+      "attribution": "Gladman Small Timetable by J. F. Gladman (1886), public domain.",
+      "role": "layout-only",
+      "expectedBehavior": "Exercise faded historical scans and unusual typography without requiring semantic accuracy.",
+      "tags": [
+        "historical",
+        "scan",
+        "low-contrast",
+        "unusual-layout"
+      ]
+    },
+    {
+      "id": "commons-roscoe-daily-schedule",
+      "title": "Roscoe Middle School Schedule",
+      "filename": "roscoe-daily-schedule.jpg",
+      "sourcePage": "https://commons.wikimedia.org/wiki/File:Roscoe_Middle_School_Schedule.jpg",
+      "downloadUrl": "https://commons.wikimedia.org/wiki/Special:Redirect/file/Roscoe%20Middle%20School%20Schedule.jpg",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "author": "Mase268",
+      "attribution": "Roscoe Middle School Schedule by Mase268, dedicated to the public domain under CC0 1.0.",
+      "role": "negative-layout",
+      "expectedBehavior": "Reject or clearly mark a daily bell schedule that is not a weekly course timetable.",
+      "tags": [
+        "negative",
+        "photo",
+        "daily-schedule",
+        "not-weekly-grid"
+      ]
+    }
+  ]
+}
