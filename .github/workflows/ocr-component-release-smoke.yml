@@ -62,7 +62,8 @@ jobs:
           if ($manifest.files.Count -lt 100) { throw "Generated OCR component contains too few files: $($manifest.files.Count)" }
           if (-not (Test-Path 'src-tauri/resources/ocr-component/python/python.exe')) { throw 'Portable Python is missing' }
           if (-not (Test-Path 'src-tauri/resources/ocr-component/models')) { throw 'Bundled model cache is missing' }
-          $bytes = ($manifest.files | Measure-Object -Property size -Sum).Sum
+          [int64]$bytes = 0
+          foreach ($file in $manifest.files) { $bytes += [int64]$file.size }
           "component_version=$($manifest.componentVersion)" >> $env:GITHUB_STEP_SUMMARY
           "component_files=$($manifest.files.Count)" >> $env:GITHUB_STEP_SUMMARY
           "component_bytes=$bytes" >> $env:GITHUB_STEP_SUMMARY
