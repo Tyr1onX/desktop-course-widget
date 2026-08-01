@@ -3,6 +3,7 @@ use std::{
     env, fs,
     io::Read,
     path::{Component, Path, PathBuf},
+    sync::{Mutex, OnceLock},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -19,6 +20,7 @@ const COMPONENT_STORAGE_DIR: &str = "ocr-component";
 const COMPONENT_MANIFEST_FILE: &str = "component.json";
 const COMPONENT_SCHEMA_VERSION: u8 = 1;
 const SUPPORTED_PLATFORM: &str = "windows-x86_64";
+static VERIFIED_BUNDLED_COMPONENTS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 
 #[derive(Debug, Clone)]
 pub struct RecognizerRuntime {
@@ -110,22 +112,22 @@ pub fn read_status(app: &AppHandle) -> OcrComponentStatus {
         Ok(path) => path,
         Err(error) => return unavailable_status(error),
     };
-    if !installed_root.exists() {
-        return OcrComponentStatus {
-            state: OcrComponentState::Missing,
-            component_version: Some(manifest.component_version),
-            source: Some("bundled".into()),
-            message: "首次使用需要准备本地识别组件，完成后可离线识别课表截图。".into(),
-            can_prepare: true,
+    if installed_root.exists() {
+        return match verify_component_dir(&installed_root, &manifest) {
+            Ok(()) => ready_status("installed", Some(manifest.component_version)),
+            Err(_) => corrupt_status(
+                "installed",
+                Some(manifest.component_version),
+                "本地识别组件不完整或已损坏，可以重新准备并自动修复。".into(),
+                true,
+            ),
         };
     }
-    match verify_component_dir(&installed_root, &manifest) {
-        Ok(()) => ready_status("installed", Some(manifest.component_version)),
-        Err(_) => corrupt_status(
-            "installed",
-            Some(manifest.component_version),
-            "本地识别组件不完整或已损坏，可以重新准备并自动修复。".into(),
-            true,
+
+    match verify_bundled_component(&resource_root, &manifest) {
+        Ok(()) => ready_status("bundled", Some(manifest.component_version)),
+        Err(_) => unavailable_status(
+            "安装包内的离线识别组件校验失败，请重新下载安装课刻。".into(),
         ),
     }
 }
@@ -169,15 +171,15 @@ pub fn resolve_runtime(app: &AppHandle) -> Result<RecognizerRuntime, String> {
         return Err("当前安装包尚未包含离线识别组件".into());
     }
     let installed_root = installed_version_root(app, &manifest.component_version)?;
-    if !installed_root.exists() {
-        return Err("本地识别组件尚未准备，请先完成准备".into());
+    if installed_root.exists() {
+        verify_component_dir(&installed_root, &manifest)
+            .map_err(|_| "本地识别组件已损坏，请先重新准备".to_owned())?;
+        return Ok(runtime_from_root(&installed_root, &manifest));
     }
-    verify_component_dir(&installed_root, &manifest)
-        .map_err(|_| "本地识别组件已损坏，请先重新准备".to_owned())?;
-    let runtime = runtime_from_root(&installed_root, &manifest);
-    fs::create_dir_all(&runtime.model_cache)
-        .map_err(|error| format!("无法准备 OCR 模型目录：{error}"))?;
-    Ok(runtime)
+
+    verify_bundled_component(&resource_root, &manifest)
+        .map_err(|_| "安装包内的离线识别组件校验失败，请重新下载安装课刻".to_owned())?;
+    Ok(runtime_from_root(&resource_root, &manifest))
 }
 
 fn ready_status(source: &str, component_version: Option<String>) -> OcrComponentStatus {
@@ -410,6 +412,29 @@ fn validate_relative_path(value: &str) -> Result<(), String> {
             return Err(format!("本地识别组件路径不安全：{value}"));
         }
     }
+    Ok(())
+}
+
+fn verify_bundled_component(
+    root: &Path,
+    manifest: &OcrComponentManifest,
+) -> Result<(), String> {
+    let key = format!("{}|{}", root.to_string_lossy(), manifest.component_version);
+    let verified = VERIFIED_BUNDLED_COMPONENTS.get_or_init(|| Mutex::new(HashSet::new()));
+    {
+        let cache = verified
+            .lock()
+            .map_err(|_| "无法读取离线识别组件校验缓存".to_owned())?;
+        if cache.contains(&key) {
+            return Ok(());
+        }
+    }
+
+    verify_component_dir(root, manifest)?;
+    verified
+        .lock()
+        .map_err(|_| "无法更新离线识别组件校验缓存".to_owned())?
+        .insert(key);
     Ok(())
 }
 
