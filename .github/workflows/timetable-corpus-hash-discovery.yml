@@ -1,9 +1,9 @@
 name: Timetable Corpus Hash Discovery
 
 on:
-  push:
+  pull_request:
     branches:
-      - feat/timetable-corpus-benchmark
+      - main
 
 permissions:
   contents: read
