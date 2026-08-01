@@ -1,22 +1,22 @@
 name: Patch corpus incomplete evidence
 
 on:
-  pull_request:
+  push:
     branches:
-      - main
+      - feat/timetable-corpus-benchmark
 
 permissions:
   contents: write
 
 jobs:
   patch:
-    if: github.event.pull_request.head.ref == 'feat/timetable-corpus-benchmark'
+    if: github.ref_name == 'feat/timetable-corpus-benchmark'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout PR branch
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
+          ref: feat/timetable-corpus-benchmark
           fetch-depth: 0
 
       - name: Tighten incomplete evidence gate
@@ -159,4 +159,4 @@ def test_explicit_incomplete_warning_satisfies_strict_incomplete(tmp_path: Path)
           git add experiments/screenshot_import/tests/test_corpus_benchmark.py
           git add .github/workflows/patch-corpus-incomplete-evidence.yml
           git commit -m "test: require actionable incomplete screenshot evidence"
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          git push origin HEAD:feat/timetable-corpus-benchmark
