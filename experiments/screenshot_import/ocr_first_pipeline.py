@@ -44,6 +44,16 @@ def _optional_grid_geometry_error(grid: Any, image_width: int) -> str | None:
     return None
 
 
+def _has_usable_course_name(fields: dict[str, Any]) -> bool:
+    name = fields.get("name")
+    value = getattr(name, "value", None)
+    status = getattr(name, "status", None)
+    if status == "missing" or not isinstance(value, str):
+        return False
+    normalized = value.strip()
+    return bool(normalized and normalized != "未识别课程")
+
+
 def recognize_ocr_first_image(
     *, input_path: str | Path, output_dir: str | Path, ocr_engine: OcrEngine,
     preprocess_config: PreprocessConfig | None = None,
@@ -95,6 +105,8 @@ def recognize_ocr_first_image(
         enforce_ocr_first_text_review(fields)
         enforce_image_parity_review(fields)
         courses.append((block, fields))
+    if not any(_has_usable_course_name(fields) for _, fields in courses):
+        raise RuntimeError("整图 OCR 已完成，但识别结果中没有可用课程名称")
 
     warnings = [*image.warnings, *found.warnings]
     warnings.extend(grid.warnings if grid else [f"网格辅助不可用：{grid_error}"] if grid_error else [])
