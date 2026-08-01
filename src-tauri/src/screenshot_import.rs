@@ -1,3 +1,6 @@
+#[path = "ocr_component.rs"]
+mod ocr_component;
+
 use std::{
     env, fs,
     fs::File,
@@ -7,14 +10,9 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use tauri::AppHandle;
-
-use crate::{
-    import_draft::{
-        ImportCourseReview, ImportDraft, ImportFieldEvidence, ImportFieldKey, ImportReviewStatus,
-        ImportSource,
-    },
-    ocr_component,
+use crate::import_draft::{
+    ImportCourseReview, ImportDraft, ImportFieldEvidence, ImportFieldKey, ImportReviewStatus,
+    ImportSource,
 };
 
 const OCR_TIMEOUT: Duration = Duration::from_secs(10 * 60);
@@ -47,9 +45,9 @@ impl Drop for TempOutput {
     }
 }
 
-pub fn recognize_screenshot(app: &AppHandle, image_path: &Path) -> Result<ImportDraft, String> {
+pub fn recognize_screenshot(image_path: &Path) -> Result<ImportDraft, String> {
     validate_image_path(image_path)?;
-    let runtime = ocr_component::resolve_runtime(app)?;
+    let runtime = ocr_component::resolve_or_prepare_runtime()?;
     let paddleocr_cache = runtime.model_cache.join("paddleocr");
     let paddlex_cache = runtime.model_cache.join("paddlex");
     fs::create_dir_all(&paddleocr_cache)
