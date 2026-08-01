@@ -97,6 +97,9 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "resources": [
+      "resources/ocr-component/"
+    ],
     "windows": {
       "nsis": {
         "installMode": "currentUser",
@@ -107,9 +110,6 @@
     },
     "android": {
       "debugApplicationIdSuffix": ".debug"
-    },
-    "resources": [
-      "resources/ocr-component/"
-    ]
+    }
   }
 }
