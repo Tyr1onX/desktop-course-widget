@@ -1,28 +1,26 @@
 use std::{
     env, fs,
     fs::File,
-    path::{Path, PathBuf},
+    path::Path,
     process::{Child, Command, ExitStatus, Stdio},
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use crate::import_draft::{
-    ImportCourseReview, ImportDraft, ImportFieldEvidence, ImportFieldKey, ImportReviewStatus,
-    ImportSource,
+use tauri::AppHandle;
+
+use crate::{
+    import_draft::{
+        ImportCourseReview, ImportDraft, ImportFieldEvidence, ImportFieldKey, ImportReviewStatus,
+        ImportSource,
+    },
+    ocr_component,
 };
 
-const OCR_PYTHON_ENV: &str = "COURSE_WIDGET_OCR_PYTHON";
-const OCR_REPO_ROOT_ENV: &str = "COURSE_WIDGET_OCR_REPO_ROOT";
 const OCR_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
-struct RecognizerRuntime {
-    python: PathBuf,
-    repo_root: PathBuf,
-}
-
 struct TempOutput {
-    path: PathBuf,
+    path: std::path::PathBuf,
 }
 
 impl TempOutput {
@@ -49,9 +47,16 @@ impl Drop for TempOutput {
     }
 }
 
-pub fn recognize_screenshot(image_path: &Path) -> Result<ImportDraft, String> {
+pub fn recognize_screenshot(app: &AppHandle, image_path: &Path) -> Result<ImportDraft, String> {
     validate_image_path(image_path)?;
-    let runtime = resolve_runtime()?;
+    let runtime = ocr_component::resolve_runtime(app)?;
+    let paddleocr_cache = runtime.model_cache.join("paddleocr");
+    let paddlex_cache = runtime.model_cache.join("paddlex");
+    fs::create_dir_all(&paddleocr_cache)
+        .map_err(|error| format!("无法准备 OCR 模型目录：{error}"))?;
+    fs::create_dir_all(&paddlex_cache)
+        .map_err(|error| format!("无法准备 OCR 模型目录：{error}"))?;
+
     let output = TempOutput::create()?;
     let stdout_path = output.path.join("recognizer.stdout.log");
     let stderr_path = output.path.join("recognizer.stderr.log");
@@ -61,7 +66,12 @@ pub fn recognize_screenshot(image_path: &Path) -> Result<ImportDraft, String> {
         .map_err(|error| format!("无法创建截图识别错误日志：{error}"))?;
 
     let mut process = Command::new(&runtime.python)
-        .current_dir(&runtime.repo_root)
+        .current_dir(&runtime.module_root)
+        .env("PYTHONNOUSERSITE", "1")
+        .env("PYTHONUTF8", "1")
+        .env("PYTHONIOENCODING", "utf-8")
+        .env("PADDLE_OCR_BASE_DIR", &paddleocr_cache)
+        .env("PADDLE_PDX_CACHE_HOME", &paddlex_cache)
         .arg("-m")
         .arg("experiments.screenshot_import")
         .arg("recognize")
@@ -72,7 +82,7 @@ pub fn recognize_screenshot(image_path: &Path) -> Result<ImportDraft, String> {
         .arg("--engine")
         .arg("paddle")
         .arg("--repo-root")
-        .arg(&runtime.repo_root)
+        .arg(&runtime.module_root)
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr))
         .spawn()
@@ -146,58 +156,6 @@ fn validate_image_path(path: &Path) -> Result<(), String> {
         return Err("仅支持 PNG、JPG、JPEG 课表截图".into());
     }
     Ok(())
-}
-
-fn resolve_runtime() -> Result<RecognizerRuntime, String> {
-    let configured_python = env::var_os(OCR_PYTHON_ENV).map(PathBuf::from);
-    let configured_root = env::var_os(OCR_REPO_ROOT_ENV).map(PathBuf::from);
-    match (configured_python, configured_root) {
-        (Some(python), Some(repo_root)) => {
-            if !python.is_file() {
-                return Err(format!(
-                    "环境变量 {OCR_PYTHON_ENV} 指向的 OCR Python 不存在"
-                ));
-            }
-            if !repo_root.join("experiments/screenshot_import").is_dir() {
-                return Err(format!(
-                    "环境变量 {OCR_REPO_ROOT_ENV} 未指向有效的开发仓库"
-                ));
-            }
-            return Ok(RecognizerRuntime { python, repo_root });
-        }
-        (Some(_), None) | (None, Some(_)) => {
-            return Err(format!(
-                "开发态截图识别需要同时设置 {OCR_PYTHON_ENV} 与 {OCR_REPO_ROOT_ENV}"
-            ));
-        }
-        (None, None) => {}
-    }
-
-    if !cfg!(debug_assertions) {
-        return Err(
-            "当前安装包尚未包含离线 OCR 运行时；截图导入目前仅支持仓库开发环境"
-                .into(),
-        );
-    }
-
-    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .ok_or_else(|| "无法定位截图识别开发仓库".to_owned())?
-        .to_path_buf();
-    let candidates = [
-        repo_root.join(".tmp/screenshot-ocr-venv/Scripts/python.exe"),
-        repo_root.join(".tmp/screenshot-ocr-venv/bin/python"),
-        repo_root.join(".venv/Scripts/python.exe"),
-        repo_root.join(".venv/bin/python"),
-    ];
-    let python = candidates
-        .into_iter()
-        .find(|candidate| candidate.is_file())
-        .ok_or_else(|| {
-            "未找到仓库内 OCR 开发运行时。请先准备 .tmp/screenshot-ocr-venv，不能依赖系统 Python。"
-                .to_owned()
-        })?;
-    Ok(RecognizerRuntime { python, repo_root })
 }
 
 fn enforce_manual_review(draft: &mut ImportDraft) {
