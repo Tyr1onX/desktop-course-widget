@@ -3,9 +3,11 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from .benchmark import validate_confidence_thresholds, validate_overlap_threshold
 from .corpus import build_corpus_variants, fetch_public_corpus
+from .corpus_benchmark import run_corpus_benchmark
 from .ground_truth import GROUND_TRUTHS, write_ground_truth
 from .ocr import FixtureOcrEngine
 from .ocr_first_pipeline import recognize_ocr_first_image
@@ -67,6 +69,47 @@ def parser() -> argparse.ArgumentParser:
     variants.add_argument("--corpus", required=True)
     variants.add_argument("--manifest")
     variants.add_argument("--id", dest="sample_ids", action="append")
+
+    corpus_benchmark = sub.add_parser(
+        "benchmark-corpus",
+        help="批量运行公开样本及其变体并生成稳定性报告",
+    )
+    corpus_benchmark.add_argument("--corpus", required=True)
+    corpus_benchmark.add_argument("--output", required=True)
+    corpus_benchmark.add_argument("--manifest")
+    corpus_benchmark.add_argument("--id", dest="sample_ids", action="append")
+    input_group = corpus_benchmark.add_mutually_exclusive_group()
+    input_group.add_argument("--originals-only", action="store_true")
+    input_group.add_argument("--variants-only", action="store_true")
+    corpus_benchmark.add_argument("--max-cases", type=int)
+    corpus_benchmark.add_argument("--scale", type=float, default=1.0)
+    corpus_benchmark.add_argument("--no-deskew", action="store_true")
+    corpus_benchmark.add_argument("--high-confidence", type=float, default=0.90)
+    corpus_benchmark.add_argument("--review-confidence", type=float, default=0.55)
+    corpus_benchmark.add_argument(
+        "--assignment-overlap-threshold", type=float, default=0.35
+    )
+    corpus_benchmark.add_argument("--repo-root")
+    corpus_benchmark.add_argument(
+        "--allow-errors",
+        action="store_true",
+        help="仅记录运行异常，不把异常作为基准失败",
+    )
+    corpus_benchmark.add_argument(
+        "--require-positive",
+        action="store_true",
+        help="要求所有正样本和布局样本都形成课程记录",
+    )
+    corpus_benchmark.add_argument(
+        "--allow-negative-recognition",
+        action="store_true",
+        help="暂时允许负样本被识别为课程表，仅记录不阻塞",
+    )
+    corpus_benchmark.add_argument(
+        "--strict-incomplete",
+        action="store_true",
+        help="要求裁切变体必须产生检查项、缺失项或警告",
+    )
     return root
 
 
@@ -106,6 +149,49 @@ def main(argv: list[str] | None = None) -> int:
             )
             print(json.dumps(report, ensure_ascii=False, indent=2))
             return 0
+
+        if args.command == "benchmark-corpus":
+            validate_confidence_thresholds(
+                args.review_confidence, args.high_confidence
+            )
+            validate_overlap_threshold(args.assignment_overlap_threshold)
+            engine = WindowsCpuPaddleOcrEngine()
+            preprocess_config = PreprocessConfig(
+                scale=args.scale,
+                deskew=not args.no_deskew,
+            )
+            parser_config = FieldParserConfig(
+                high_confidence=args.high_confidence,
+                review_confidence=args.review_confidence,
+            )
+
+            def recognize_case(input_path: Path, case_output: Path) -> dict:
+                return recognize_ocr_first_image(
+                    input_path=input_path,
+                    output_dir=case_output,
+                    ocr_engine=engine,
+                    preprocess_config=preprocess_config,
+                    parser_config=parser_config,
+                    repo_root=args.repo_root,
+                    assignment_overlap_threshold=args.assignment_overlap_threshold,
+                )
+
+            report = run_corpus_benchmark(
+                args.corpus,
+                args.output,
+                recognize_case,
+                manifest_path=args.manifest,
+                sample_ids=args.sample_ids,
+                include_originals=not args.variants_only,
+                include_variants=not args.originals_only,
+                max_cases=args.max_cases,
+                fail_on_error=not args.allow_errors,
+                require_positive=args.require_positive,
+                strict_negative=not args.allow_negative_recognition,
+                strict_incomplete=args.strict_incomplete,
+            )
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+            return 0 if report["gatePassed"] else 2
 
         validate_confidence_thresholds(args.review_confidence, args.high_confidence)
         validate_overlap_threshold(args.assignment_overlap_threshold)
