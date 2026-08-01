@@ -60,15 +60,18 @@ def test_location_excludes_section_tail_from_combined_ocr_lines():
     block = CourseBlock(1, 3, 4, PixelBox(0, 0, 220, 80), PixelBox(0, 0, 220, 80), 0.94)
     variants = [
         "3-10周,星期1,第3节-第4节,南湖-第一教学楼-四阶",
+        "3-10周,星期1,第3节-第4节南湖-第一教学楼-四阶",
+        "3-10周,星期1,第3节-第4节,地点：南湖-第一教学楼-四阶",
         "节,南湖-第一教学楼-四阶",
         "第3节-第4节南湖-第一教学楼-四阶",
+        "第3节-第4节地点：南湖-第一教学楼-四阶",
     ]
 
     for raw_text in variants:
         fields = parse_ocr_first_course_fields(
             [
                 token("信息论[04]", 10, 10, 100),
-                token(raw_text, 10, 40, 260),
+                token(raw_text, 10, 40, 300),
             ],
             block,
         )
