@@ -361,6 +361,11 @@ async fn prepare_screenshot_ocr_component(
 }
 
 #[tauri::command]
+fn cancel_screenshot_recognition() -> bool {
+    screenshot_import::cancel_recognition()
+}
+
+#[tauri::command]
 async fn choose_and_parse_screenshot(
     app: AppHandle,
 ) -> Result<Option<import_draft::ImportDraft>, String> {
@@ -377,6 +382,7 @@ async fn choose_and_parse_screenshot(
     let path = selected
         .into_path()
         .map_err(|_| "无法读取所选课表截图路径".to_owned())?;
+    let _recognition_guard = screenshot_import::begin_recognition()?;
     let recognition_app = app.clone();
     let draft = tauri::async_runtime::spawn_blocking(move || {
         screenshot_import::recognize_screenshot(&recognition_app, &path)
@@ -594,6 +600,7 @@ pub fn run() {
             choose_and_parse_excel,
             read_screenshot_ocr_component_status,
             prepare_screenshot_ocr_component,
+            cancel_screenshot_recognition,
             choose_and_parse_screenshot,
             apply_imported_schedule,
         ])

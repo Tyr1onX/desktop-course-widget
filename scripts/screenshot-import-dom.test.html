@@ -35,6 +35,8 @@
     <pre id="result" data-status="pending">PENDING</pre>
     <script>
       window.__screenshotImportCommands = []
+      window.__screenshotRecognitionAttempt = 0
+      window.__rejectScreenshotRecognition = null
       window.__TAURI_INTERNALS__ = {
         invoke: async (command) => {
           window.__screenshotImportCommands.push(command)
@@ -47,7 +49,19 @@
               canPrepare: false
             }
           }
+          if (command === 'cancel_screenshot_recognition') {
+            const reject = window.__rejectScreenshotRecognition
+            window.__rejectScreenshotRecognition = null
+            if (reject) reject(new Error('已取消截图识别'))
+            return true
+          }
           if (command === 'choose_and_parse_screenshot') {
+            window.__screenshotRecognitionAttempt += 1
+            if (window.__screenshotRecognitionAttempt === 1) {
+              return await new Promise((_, reject) => {
+                window.__rejectScreenshotRecognition = reject
+              })
+            }
             await new Promise((resolve) => setTimeout(resolve, 80))
             return {
               schemaVersion: 1,

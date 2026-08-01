@@ -497,3 +497,56 @@ button { color: inherit; }
 .import-course-review-grid input,
 .import-course-review-grid select { width: 100%; min-width: 0; }
 .import-course-issues { margin: -2px 13px 13px; padding: 9px 10px 9px 26px; border-radius: 8px; background: #fff3e2; color: #855917; }
+
+.screenshot-import-progress {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+}
+.screenshot-import-progress__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.screenshot-import-progress__heading strong { font-size: 12px; font-weight: 650; }
+.screenshot-import-progress__cancel {
+  flex: none;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 11px;
+  cursor: pointer;
+}
+.screenshot-import-progress__cancel:hover:not(:disabled) { background: rgba(31, 35, 40, 0.06); color: #1f2328; }
+.screenshot-import-progress__cancel:disabled { cursor: default; opacity: 0.55; }
+.screenshot-import-progress__track {
+  position: relative;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(23, 105, 224, 0.13);
+}
+.screenshot-import-progress__track span {
+  position: absolute;
+  inset: 0 auto 0 -38%;
+  width: 38%;
+  border-radius: inherit;
+  background: var(--blue);
+  animation: screenshot-import-progress-slide 1.25s ease-in-out infinite;
+}
+.screenshot-import-progress p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+@keyframes screenshot-import-progress-slide {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(365%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .screenshot-import-progress__track span { left: 0; width: 100%; animation: screenshot-import-progress-pulse 1.4s ease-in-out infinite; }
+  @keyframes screenshot-import-progress-pulse { 50% { opacity: 0.35; } }
+}

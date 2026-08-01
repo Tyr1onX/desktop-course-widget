@@ -3,6 +3,7 @@ use std::{
     fs::File,
     path::Path,
     process::{Child, Command, ExitStatus, Stdio},
+    sync::atomic::{AtomicBool, Ordering},
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -18,6 +19,40 @@ use crate::{
 };
 
 const OCR_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+static RECOGNITION_RUNNING: AtomicBool = AtomicBool::new(false);
+static CANCELLATION_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+pub(crate) struct RecognitionGuard;
+
+pub(crate) fn begin_recognition() -> Result<RecognitionGuard, String> {
+    if RECOGNITION_RUNNING
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return Err("已有课表截图正在识别，请稍候或先取消当前识别".into());
+    }
+    CANCELLATION_REQUESTED.store(false, Ordering::SeqCst);
+    Ok(RecognitionGuard)
+}
+
+pub(crate) fn cancel_recognition() -> bool {
+    if !RECOGNITION_RUNNING.load(Ordering::SeqCst) {
+        return false;
+    }
+    CANCELLATION_REQUESTED.store(true, Ordering::SeqCst);
+    true
+}
+
+fn cancellation_requested() -> bool {
+    CANCELLATION_REQUESTED.load(Ordering::SeqCst)
+}
+
+impl Drop for RecognitionGuard {
+    fn drop(&mut self) {
+        CANCELLATION_REQUESTED.store(false, Ordering::SeqCst);
+        RECOGNITION_RUNNING.store(false, Ordering::SeqCst);
+    }
+}
 
 struct TempOutput {
     path: std::path::PathBuf,
@@ -128,6 +163,11 @@ pub fn recognize_screenshot(app: &AppHandle, image_path: &Path) -> Result<Import
 fn wait_for_process(process: &mut Child, timeout: Duration) -> Result<ExitStatus, String> {
     let deadline = Instant::now() + timeout;
     loop {
+        if cancellation_requested() {
+            let _ = process.kill();
+            let _ = process.wait();
+            return Err("已取消截图识别".into());
+        }
         if let Some(status) = process
             .try_wait()
             .map_err(|error| format!("无法读取截图识别器状态：{error}"))?
@@ -304,6 +344,18 @@ mod tests {
     fn failure_output_is_bounded_and_prefers_stderr() {
         let detail = compact_failure(b"first\nsecond\nthird\nfourth\nfifth\n", b"ignored");
         assert_eq!(detail, "second · third · fourth · fifth");
+    }
+
+    #[test]
+    fn recognition_guard_blocks_parallel_runs_and_supports_cancel() {
+        let guard = begin_recognition().unwrap();
+        assert!(begin_recognition().is_err());
+        assert!(cancel_recognition());
+        assert!(cancellation_requested());
+        drop(guard);
+        assert!(!cancel_recognition());
+        assert!(!cancellation_requested());
+        drop(begin_recognition().unwrap());
     }
 
     #[test]

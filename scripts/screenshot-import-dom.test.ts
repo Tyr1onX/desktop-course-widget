@@ -65,6 +65,28 @@ async function run(): Promise<void> {
     'desktop import should check the local OCR component once',
   )
   picker.click()
+  await waitFor(
+    () => document.querySelector('[data-screenshot-import-progress]') !== null,
+    'recognition should show an indeterminate progress panel',
+  )
+  assert(document.querySelector('.screenshot-import-progress__track'), 'recognition should show a moving progress track')
+  const cancelButton = document.querySelector<HTMLButtonElement>('[data-screenshot-import-cancel]')
+  assert(cancelButton, 'recognition progress should provide a cancel action')
+  cancelButton.click()
+  await waitFor(
+    () => document.querySelector('.surface-message')?.textContent?.includes('已取消识别') === true,
+    'cancelled recognition should show a concise result',
+  )
+  assert(document.querySelector('[data-screenshot-import-progress]') === null, 'cancelled recognition should remove progress UI')
+  assert(
+    window.__screenshotImportCommands.filter((command) => command === 'cancel_screenshot_recognition').length === 1,
+    'cancel action should reach the desktop command once',
+  )
+  await waitFor(() => picker.disabled === false, 'picker should become available again after cancellation')
+
+  const recognizeCallsBeforeSuccess = window.__screenshotImportCommands
+    .filter((command) => command === 'choose_and_parse_screenshot').length
+  picker.click()
   picker.click()
   await waitFor(
     () => document.querySelector<HTMLElement>('.import-review-surface')?.dataset.screenshotImportMode === 'review',
@@ -76,7 +98,11 @@ async function run(): Promise<void> {
   )
 
   const recognizeCalls = window.__screenshotImportCommands.filter((command) => command === 'choose_and_parse_screenshot')
-  assert(recognizeCalls.length === 1, 'rapid duplicate clicks must start only one recognizer')
+  assert(
+    recognizeCalls.length === recognizeCallsBeforeSuccess + 1,
+    'rapid duplicate clicks must start only one additional recognizer',
+  )
+  assert(document.querySelector('[data-screenshot-import-progress]') === null, 'successful recognition should remove progress UI')
   assert(document.querySelectorAll('.import-review-toolbar').length === 1, 'shared review toolbar should remain singular')
   assert(document.body.textContent?.includes('通信原理'), 'recognized course should appear in the shared review list')
   assert(document.body.textContent?.includes('地点：南湖-第一教学楼-四阶'), 'collapsed summary should expose recognized location before bulk confirmation')

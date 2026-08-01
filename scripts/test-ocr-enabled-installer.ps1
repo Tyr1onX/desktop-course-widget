@@ -12,9 +12,19 @@ function Invoke-Checked {
     [Parameter(Mandatory = $true)][string]$FilePath,
     [Parameter(Mandatory = $true)][string[]]$ArgumentList
   )
-  & $FilePath @ArgumentList
-  if ($LASTEXITCODE -ne 0) {
-    throw "Command failed with exit code $LASTEXITCODE`: $FilePath $($ArgumentList -join ' ')"
+  $startInfo = [Diagnostics.ProcessStartInfo]::new()
+  $startInfo.FileName = $FilePath
+  $startInfo.UseShellExecute = $false
+  foreach ($argument in $ArgumentList) {
+    [void]$startInfo.ArgumentList.Add($argument)
+  }
+  $process = [Diagnostics.Process]::Start($startInfo)
+  if (-not $process) {
+    throw "Could not start command: $FilePath"
+  }
+  $process.WaitForExit()
+  if ($process.ExitCode -ne 0) {
+    throw "Command failed with exit code $($process.ExitCode)`: $FilePath $($ArgumentList -join ' ')"
   }
 }
 

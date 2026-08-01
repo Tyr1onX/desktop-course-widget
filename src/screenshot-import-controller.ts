@@ -46,6 +46,8 @@ let activeSettings: AppSettings | null = null
 let importName = ''
 let firstWeekMonday = ''
 let recognitionPending = false
+let recognitionCancelPending = false
+let recognitionStageTimers: number[] = []
 let componentPending = false
 let componentStatusRequested = false
 let ocrComponentStatus: OcrComponentStatus | null = null
@@ -235,6 +237,83 @@ async function prepareOcrComponent(surface: HTMLElement): Promise<void> {
   }
 }
 
+
+function showRecognitionProgress(surface: HTMLElement): void {
+  let panel = surface.querySelector<HTMLElement>('[data-screenshot-import-progress]')
+  if (!panel) {
+    panel = document.createElement('section')
+    panel.className = 'screenshot-import-progress'
+    panel.dataset.screenshotImportProgress = 'true'
+    panel.setAttribute('aria-live', 'polite')
+    panel.innerHTML = `
+      <div class="screenshot-import-progress__heading">
+        <strong data-screenshot-import-progress-title>正在加载本地识别模型…</strong>
+        <button class="screenshot-import-progress__cancel" type="button" data-screenshot-import-cancel>取消识别</button>
+      </div>
+      <div class="screenshot-import-progress__track" aria-hidden="true"><span></span></div>
+      <p data-screenshot-import-progress-detail>图片只在本机处理，不会上传。</p>
+    `
+    const message = surface.querySelector('.surface-message')
+    if (message) message.before(panel)
+    else surface.append(panel)
+    panel.querySelector<HTMLButtonElement>('[data-screenshot-import-cancel]')
+      ?.addEventListener('click', () => void cancelScreenshotRecognition())
+  }
+  updateRecognitionProgress('正在加载本地识别模型…', '图片只在本机处理，不会上传。')
+  recognitionStageTimers.forEach((timer) => window.clearTimeout(timer))
+  recognitionStageTimers = [
+    window.setTimeout(() => {
+      if (recognitionPending && !recognitionCancelPending) {
+        updateRecognitionProgress('正在读取课表文字…', '正在分析星期、节次和课程内容。')
+      }
+    }, 1_800),
+    window.setTimeout(() => {
+      if (recognitionPending && !recognitionCancelPending) {
+        updateRecognitionProgress('仍在本机识别…', '较大的图片可能需要更长时间，请保持课刻开启。')
+      }
+    }, 15_000),
+  ]
+}
+
+function updateRecognitionProgress(title: string, detail: string): void {
+  const panel = document.querySelector<HTMLElement>('[data-screenshot-import-progress]')
+  const titleTarget = panel?.querySelector<HTMLElement>('[data-screenshot-import-progress-title]')
+  const detailTarget = panel?.querySelector<HTMLElement>('[data-screenshot-import-progress-detail]')
+  if (titleTarget) titleTarget.textContent = title
+  if (detailTarget) detailTarget.textContent = detail
+}
+
+function hideRecognitionProgress(): void {
+  recognitionStageTimers.forEach((timer) => window.clearTimeout(timer))
+  recognitionStageTimers = []
+  document.querySelector('[data-screenshot-import-progress]')?.remove()
+}
+
+async function cancelScreenshotRecognition(): Promise<void> {
+  if (!recognitionPending || recognitionCancelPending) return
+  recognitionCancelPending = true
+  updateRecognitionProgress('正在停止识别…', '正在安全结束本地识别任务并清理临时文件。')
+  const button = document.querySelector<HTMLButtonElement>('[data-screenshot-import-cancel]')
+  if (button) {
+    button.disabled = true
+    button.textContent = '正在取消…'
+  }
+  try {
+    const accepted = await invoke<boolean>('cancel_screenshot_recognition')
+    if (!accepted && recognitionPending) {
+      updateRecognitionProgress('识别即将完成…', '请稍候，正在生成复核结果。')
+    }
+  } catch (error) {
+    recognitionCancelPending = false
+    if (button) {
+      button.disabled = false
+      button.textContent = '取消识别'
+    }
+    const surface = document.querySelector<HTMLElement>('.import-review-surface')
+    if (surface) setMessage(surface, screenshotImportErrorText(error))
+  }
+}
+
 async function chooseScreenshot(): Promise<void> {
   if (recognitionPending) return
   const surface = document.querySelector<HTMLElement>('.import-review-surface')
@@ -245,7 +324,9 @@ async function chooseScreenshot(): Promise<void> {
   }
 
   recognitionPending = true
-  setMessage(surface, '正在本机识别课表截图，首次准备 OCR 模型可能需要较长时间…')
+  recognitionCancelPending = false
+  setMessage(surface, '')
+  showRecognitionProgress(surface)
   updatePickerState(surface)
 
   try {
@@ -255,10 +336,12 @@ async function chooseScreenshot(): Promise<void> {
       return
     }
 
+    updateRecognitionProgress('正在整理课程信息…', '正在组合课程名、周次、节次、地点和教师。')
     const [settings, schedule] = await Promise.all([
       invoke<AppSettings>('read_app_settings'),
       invoke<ActiveSchedule>('read_schedule'),
     ])
+    updateRecognitionProgress('正在生成复核结果…', '即将打开课程检查页面。')
     activeSettings = settings
     activeDraft = draft
     importName = draft.suggestedName
@@ -267,9 +350,12 @@ async function chooseScreenshot(): Promise<void> {
     refreshImportDraftSummary(draft)
     renderReviewSurface(surface)
   } catch (error) {
-    setMessage(surface, screenshotImportErrorText(error))
+    const message = screenshotImportErrorText(error)
+    setMessage(surface, message.includes('已取消截图识别') ? '已取消识别。' : message)
   } finally {
     recognitionPending = false
+    recognitionCancelPending = false
+    hideRecognitionProgress()
     const currentSurface = document.querySelector<HTMLElement>('.import-review-surface')
     if (currentSurface && !activeDraft) updatePickerState(currentSurface)
   }
