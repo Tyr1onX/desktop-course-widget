@@ -5,6 +5,7 @@ import json
 import sys
 
 from .benchmark import validate_confidence_thresholds, validate_overlap_threshold
+from .corpus import build_corpus_variants, fetch_public_corpus
 from .ground_truth import GROUND_TRUTHS, write_ground_truth
 from .ocr import FixtureOcrEngine
 from .ocr_first_pipeline import recognize_ocr_first_image
@@ -45,9 +46,27 @@ def parser() -> argparse.ArgumentParser:
     recognize.add_argument("--assignment-overlap-threshold", type=float, default=0.35)
     recognize.add_argument("--ground-truth")
     recognize.add_argument("--repo-root")
+
     synth = sub.add_parser("generate-synthetic")
     synth.add_argument("--output", required=True)
     synth.add_argument("--scenario", choices=sorted(scenarios()), action="append")
+
+    fetch = sub.add_parser(
+        "fetch-corpus",
+        help="按公开许可清单下载课表图片到本地临时目录",
+    )
+    fetch.add_argument("--output", required=True)
+    fetch.add_argument("--manifest")
+    fetch.add_argument("--id", dest="sample_ids", action="append")
+    fetch.add_argument("--force", action="store_true")
+
+    variants = sub.add_parser(
+        "build-corpus-variants",
+        help="为本地公开样本生成压缩、模糊、低对比度和裁切变体",
+    )
+    variants.add_argument("--corpus", required=True)
+    variants.add_argument("--manifest")
+    variants.add_argument("--id", dest="sample_ids", action="append")
     return root
 
 
@@ -67,6 +86,25 @@ def main(argv: list[str] | None = None) -> int:
                     generated["groundTruth"] = str(write_ground_truth(name, args.output))
                 payload[name] = generated
             print(json.dumps(payload, ensure_ascii=False, indent=2))
+            return 0
+
+        if args.command == "fetch-corpus":
+            report = fetch_public_corpus(
+                args.output,
+                manifest_path=args.manifest,
+                sample_ids=args.sample_ids,
+                force=args.force,
+            )
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+            return 0
+
+        if args.command == "build-corpus-variants":
+            report = build_corpus_variants(
+                args.corpus,
+                manifest_path=args.manifest,
+                sample_ids=args.sample_ids,
+            )
+            print(json.dumps(report, ensure_ascii=False, indent=2))
             return 0
 
         validate_confidence_thresholds(args.review_confidence, args.high_confidence)
