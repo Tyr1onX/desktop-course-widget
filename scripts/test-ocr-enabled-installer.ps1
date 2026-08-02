@@ -40,6 +40,16 @@ function Get-DirectoryFingerprint {
   )
 }
 
+function Set-ResourceFilesReadOnly {
+  param(
+    [Parameter(Mandatory = $true)][string]$Root,
+    [Parameter(Mandatory = $true)][bool]$ReadOnly
+  )
+  Get-ChildItem -LiteralPath $Root -Recurse -File | ForEach-Object {
+    $_.IsReadOnly = $ReadOnly
+  }
+}
+
 if (-not $IsWindows) {
   throw 'The OCR-enabled installer smoke test requires Windows.'
 }
@@ -50,9 +60,8 @@ if (-not (Test-Path -LiteralPath $InstallerPath -PathType Leaf)) {
 
 $InstallRoot = Join-Path $WorkingRoot 'install'
 $SmokeRoot = Join-Path $WorkingRoot 'smoke'
-$Icacls = Join-Path $env:SystemRoot 'System32/icacls.exe'
 [string]$ResourceRoot = ''
-$ResourceAclLocked = $false
+$ResourcesReadOnly = $false
 $OriginalEnvironment = @{
   PATH = $env:PATH
   PYTHONHOME = $env:PYTHONHOME
@@ -98,6 +107,8 @@ try {
   $portablePython = Join-Path $ResourceRoot $manifest.pythonRelativePath
   $moduleRoot = Join-Path $ResourceRoot $manifest.moduleRootRelativePath
   $modelsRoot = Join-Path $ResourceRoot $manifest.modelCacheRelativePath
+  $noticeFile = Join-Path $ResourceRoot 'THIRD_PARTY_NOTICES.txt'
+  $inventoryFile = Join-Path $ResourceRoot 'third-party-packages.json'
   if (-not (Test-Path -LiteralPath $portablePython -PathType Leaf)) {
     throw "Installed portable Python is missing: $portablePython"
   }
@@ -107,21 +118,24 @@ try {
   if (-not (Test-Path -LiteralPath $modelsRoot -PathType Container)) {
     throw "Installed OCR model cache is missing: $modelsRoot"
   }
+  if (-not (Test-Path -LiteralPath $noticeFile -PathType Leaf)) {
+    throw "Installed third-party notices are missing: $noticeFile"
+  }
+  if (-not (Test-Path -LiteralPath $inventoryFile -PathType Leaf)) {
+    throw "Installed third-party package inventory is missing: $inventoryFile"
+  }
 
-  $before = Get-DirectoryFingerprint -Root $modelsRoot
+  $inventory = Get-Content -LiteralPath $inventoryFile -Raw | ConvertFrom-Json
+  if ($inventory.packageCount -lt 60) {
+    throw "Installed OCR package inventory is unexpectedly small: $($inventory.packageCount)"
+  }
 
-  # Match a normal installed application: bundled runtime and models are readable and executable,
-  # but recognition must not rely on writing bytecode, logs, or refreshed model files beside them.
-  $currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-  Invoke-Checked -FilePath $Icacls -ArgumentList @(
-    $ResourceRoot,
-    '/inheritance:r',
-    '/grant:r',
-    "*${currentSid}:(OI)(CI)RX",
-    '/T',
-    '/C'
-  )
-  $ResourceAclLocked = $true
+  # File attributes are portable across current-user and Program Files-style installs. Combined with
+  # PYTHONDONTWRITEBYTECODE and a full tree fingerprint, this catches any attempt to mutate or add
+  # runtime/model files without relying on runner-specific ACL privileges.
+  $before = Get-DirectoryFingerprint -Root $ResourceRoot
+  Set-ResourceFilesReadOnly -Root $ResourceRoot -ReadOnly $true
+  $ResourcesReadOnly = $true
 
   $pythonRoot = Split-Path -Parent $portablePython
   $env:PATH = $pythonRoot
@@ -146,9 +160,9 @@ try {
     '--inference'
   )
 
-  $after = Get-DirectoryFingerprint -Root $modelsRoot
+  $after = Get-DirectoryFingerprint -Root $ResourceRoot
   if (Compare-Object -ReferenceObject $before -DifferenceObject $after) {
-    throw 'Installed OCR model cache changed during the blocked-network smoke run.'
+    throw 'Installed OCR resource tree changed during the blocked-network, read-only smoke run.'
   }
 
   $report = Get-Content -LiteralPath (Join-Path $SmokeRoot 'portable-ocr-smoke.json') -Raw | ConvertFrom-Json
@@ -159,10 +173,8 @@ try {
     throw "Smoke test used a Python outside the installed application: $($report.executable)"
   }
 
-  # Restore inherited permissions before asking the generated uninstaller to remove the files.
-  Invoke-Checked -FilePath $Icacls -ArgumentList @($ResourceRoot, '/inheritance:e', '/T', '/C')
-  Invoke-Checked -FilePath $Icacls -ArgumentList @($ResourceRoot, '/reset', '/T', '/C')
-  $ResourceAclLocked = $false
+  Set-ResourceFilesReadOnly -Root $ResourceRoot -ReadOnly $false
+  $ResourcesReadOnly = $false
 
   $uninstaller = Get-ChildItem -LiteralPath $InstallRoot -Recurse -File |
     Where-Object { $_.Name -match '^(uninstall|unins.*)\.exe$' } |
@@ -186,13 +198,13 @@ try {
   Write-Host "Installed OCR resource root: $ResourceRoot"
   Write-Host "Installed component version: $($manifest.componentVersion)"
   Write-Host "Installed component files: $($manifest.files.Count)"
+  Write-Host "Installed third-party packages: $($inventory.packageCount)"
   Write-Host "Offline OCR token count: $($report.tokenCount)"
-  Write-Host 'Installed OCR resources remained usable with read/execute-only permissions.'
+  Write-Host 'Installed OCR resources remained byte-for-byte unchanged while every resource file was read-only.'
   Write-Host 'The generated uninstaller removed the bundled OCR runtime and manifest.'
 } finally {
-  if ($ResourceAclLocked -and $ResourceRoot -and (Test-Path -LiteralPath $ResourceRoot)) {
-    & $Icacls $ResourceRoot '/inheritance:e' '/T' '/C' | Out-Null
-    & $Icacls $ResourceRoot '/reset' '/T' '/C' | Out-Null
+  if ($ResourcesReadOnly -and $ResourceRoot -and (Test-Path -LiteralPath $ResourceRoot)) {
+    Set-ResourceFilesReadOnly -Root $ResourceRoot -ReadOnly $false
   }
   foreach ($name in $OriginalEnvironment.Keys) {
     $value = $OriginalEnvironment[$name]
