@@ -9,7 +9,10 @@ The generated component must follow these rules:
 - include the Python executable in `files`;
 - record the exact byte size and lowercase SHA-256 of every immutable file;
 - place the importable `experiments/screenshot_import` package below `moduleRootRelativePath`;
-- reserve `modelCacheRelativePath` for app-local writable model state;
-- avoid any dependency on `PATH`, a system Python installation, or user site packages.
+- include the prewarmed model tree below `modelCacheRelativePath`;
+- run successfully when the installed component tree is read/execute-only;
+- avoid any dependency on `PATH`, a system Python installation, user site packages, or a network connection.
 
-The application copies only manifest-listed files into its versioned app-local component directory, verifies the copy, and exposes missing/corrupt states to the import UI. A release build must replace the unavailable placeholder; otherwise screenshot import remains explicitly disabled rather than silently falling back to the host system.
+A normal OCR-enabled release verifies and uses the bundled component in place, so first use does not create a second full copy in app-local storage. The versioned app-local component directory exists only for repair or migration scenarios. Repair copies only manifest-listed files through a staging directory, verifies the result, and then atomically enables it.
+
+A release build must replace the unavailable placeholder. Otherwise screenshot import remains explicitly disabled rather than silently falling back to the host system.
