@@ -110,7 +110,7 @@ try {
 
   $before = Get-DirectoryFingerprint -Root $modelsRoot
 
-  # Match a normal per-machine installation: bundled runtime and models are readable and executable,
+  # Match a normal installed application: bundled runtime and models are readable and executable,
   # but recognition must not rely on writing bytecode, logs, or refreshed model files beside them.
   $currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
   Invoke-Checked -FilePath $Icacls -ArgumentList @(
@@ -167,8 +167,20 @@ try {
   $uninstaller = Get-ChildItem -LiteralPath $InstallRoot -Recurse -File |
     Where-Object { $_.Name -match '^(uninstall|unins.*)\.exe$' } |
     Select-Object -First 1
-  if ($uninstaller) {
-    Invoke-Checked -FilePath $uninstaller.FullName -ArgumentList @('/S')
+  if (-not $uninstaller) {
+    throw "Installed application did not provide an uninstaller below $InstallRoot"
+  }
+  Invoke-Checked -FilePath $uninstaller.FullName -ArgumentList @('/S')
+
+  $uninstallDeadline = [DateTime]::UtcNow.AddSeconds(30)
+  while ((Test-Path -LiteralPath $portablePython -PathType Leaf) -and [DateTime]::UtcNow -lt $uninstallDeadline) {
+    Start-Sleep -Milliseconds 500
+  }
+  if (Test-Path -LiteralPath $portablePython -PathType Leaf) {
+    throw "Uninstaller left the bundled OCR runtime behind: $portablePython"
+  }
+  if (Test-Path -LiteralPath $manifestFile.FullName -PathType Leaf) {
+    throw "Uninstaller left the OCR component manifest behind: $($manifestFile.FullName)"
   }
 
   Write-Host "Installed OCR resource root: $ResourceRoot"
@@ -176,6 +188,7 @@ try {
   Write-Host "Installed component files: $($manifest.files.Count)"
   Write-Host "Offline OCR token count: $($report.tokenCount)"
   Write-Host 'Installed OCR resources remained usable with read/execute-only permissions.'
+  Write-Host 'The generated uninstaller removed the bundled OCR runtime and manifest.'
 } finally {
   if ($ResourceAclLocked -and $ResourceRoot -and (Test-Path -LiteralPath $ResourceRoot)) {
     & $Icacls $ResourceRoot '/inheritance:e' '/T' '/C' | Out-Null
