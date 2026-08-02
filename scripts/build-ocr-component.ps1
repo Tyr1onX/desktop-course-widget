@@ -19,6 +19,8 @@ $OutputRoot = if ([IO.Path]::IsPathRooted($Output)) {
   [IO.Path]::GetFullPath((Join-Path $RepoRoot $Output))
 }
 $Requirements = Join-Path $RepoRoot 'experiments/screenshot_import/requirements-ocr-component.txt'
+$LockVerifier = Join-Path $RepoRoot 'scripts/verify-ocr-component-lock.py'
+$NoticeWriter = Join-Path $RepoRoot 'scripts/write-ocr-third-party-notices.py'
 $SmokeScript = Join-Path $RepoRoot 'scripts/ocr-component-smoke.py'
 $BuildTemp = Join-Path ([IO.Path]::GetTempPath()) "course-widget-ocr-component-$PID-$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())"
 $PythonRoot = Join-Path $OutputRoot 'python'
@@ -67,11 +69,10 @@ function Get-DirectoryFingerprint {
 if (-not $IsWindows) {
   throw 'The OCR component can only be built on Windows.'
 }
-if (-not (Test-Path -LiteralPath $Requirements -PathType Leaf)) {
-  throw "Missing OCR component requirements: $Requirements"
-}
-if (-not (Test-Path -LiteralPath $SmokeScript -PathType Leaf)) {
-  throw "Missing OCR component smoke script: $SmokeScript"
+foreach ($requiredFile in @($Requirements, $LockVerifier, $NoticeWriter, $SmokeScript)) {
+  if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
+    throw "Missing OCR component build input: $requiredFile"
+  }
 }
 if ($OutputRoot -eq $RepoRoot) {
   throw 'Refusing to replace the repository root.'
@@ -118,10 +119,17 @@ try {
     '-m', 'pip', 'install',
     '--disable-pip-version-check',
     '--no-compile',
+    '--no-deps',
     '--only-binary=:all:',
     '--target', $SitePackages,
     '--report', $pipReport,
     '-r', $Requirements
+  )
+  Invoke-Checked -FilePath $BuildPython -ArgumentList @(
+    $LockVerifier,
+    '--lock', $Requirements,
+    '--report', $pipReport,
+    '--site-packages', $SitePackages
   )
 
   $experimentsTarget = Join-Path $AppRoot 'experiments'
@@ -133,6 +141,13 @@ try {
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
   Get-ChildItem -LiteralPath $AppRoot -Recurse -File -Include '*.pyc', '*.pyo' |
     Remove-Item -Force -ErrorAction SilentlyContinue
+
+  Invoke-Checked -FilePath $BuildPython -ArgumentList @(
+    $NoticeWriter,
+    '--component-root', $OutputRoot,
+    '--site-packages', $SitePackages,
+    '--python-root', $PythonRoot
+  )
 
   $portablePython = Join-Path $PythonRoot 'python.exe'
   if (-not (Test-Path -LiteralPath $portablePython -PathType Leaf)) {
