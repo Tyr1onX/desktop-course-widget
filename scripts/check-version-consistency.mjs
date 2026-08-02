@@ -13,7 +13,8 @@ function readJson(relativePath) {
 }
 
 const packageVersion = readJson("package.json").version;
-const tauriVersion = readJson("src-tauri/tauri.conf.json").version;
+const tauriConfig = readJson("src-tauri/tauri.conf.json");
+const tauriVersion = tauriConfig.version;
 const cargoToml = readText("src-tauri/Cargo.toml");
 const cargoMatch = cargoToml.match(/^version\s*=\s*"([^"]+)"/m);
 
@@ -38,4 +39,21 @@ if (uniqueVersions.size !== 1) {
   process.exit(1);
 }
 
+const ocrResources = tauriConfig.bundle?.resources;
+const expectedOcrSource = "resources/ocr-component/";
+const expectedOcrTarget = "ocr-component/";
+if (
+  !ocrResources ||
+  Array.isArray(ocrResources) ||
+  ocrResources[expectedOcrSource] !== expectedOcrTarget
+) {
+  console.error(
+    `OCR resources must map ${expectedOcrSource} to $RESOURCE/${expectedOcrTarget}`,
+  );
+  process.exit(1);
+}
+
 console.log(`Application version is consistent: ${packageVersion}`);
+console.log(
+  `OCR resource mapping is consistent: ${expectedOcrSource} -> ${expectedOcrTarget}`,
+);
