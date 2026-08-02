@@ -97,9 +97,9 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": [
-      "resources/ocr-component/"
-    ],
+    "resources": {
+      "resources/ocr-component/": "ocr-component/"
+    },
     "windows": {
       "nsis": {
         "installMode": "currentUser",
