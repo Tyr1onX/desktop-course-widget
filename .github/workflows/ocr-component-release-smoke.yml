@@ -12,6 +12,8 @@ on:
       - 'scripts/screenshot-import-dom.test.html'
       - 'scripts/screenshot-import-dom.test.ts'
       - 'scripts/test-ocr-enabled-installer.ps1'
+      - 'scripts/verify-ocr-component-lock.py'
+      - 'scripts/write-ocr-third-party-notices.py'
       - 'experiments/screenshot_import/requirements-ocr-component.txt'
       - 'experiments/screenshot_import/**'
       - 'src/screenshot-import-controller.ts'
@@ -61,18 +63,34 @@ jobs:
       - name: Inspect generated component
         shell: pwsh
         run: |
-          $manifestPath = 'src-tauri/resources/ocr-component/component.json'
+          $root = 'src-tauri/resources/ocr-component'
+          $manifestPath = Join-Path $root 'component.json'
+          $noticePath = Join-Path $root 'THIRD_PARTY_NOTICES.txt'
+          $inventoryPath = Join-Path $root 'third-party-packages.json'
           $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
           if ($manifest.available -ne $true) { throw 'Generated OCR component is not available' }
           if ($manifest.platform -ne 'windows-x86_64') { throw 'Generated OCR component platform is incorrect' }
           if ($manifest.files.Count -lt 100) { throw "Generated OCR component contains too few files: $($manifest.files.Count)" }
-          if (-not (Test-Path 'src-tauri/resources/ocr-component/python/python.exe')) { throw 'Portable Python is missing' }
-          if (-not (Test-Path 'src-tauri/resources/ocr-component/models')) { throw 'Bundled model cache is missing' }
+          if (-not (Test-Path (Join-Path $root 'python/python.exe'))) { throw 'Portable Python is missing' }
+          if (-not (Test-Path (Join-Path $root 'models'))) { throw 'Bundled model cache is missing' }
+          if (-not (Test-Path $noticePath -PathType Leaf)) { throw 'Third-party notices are missing' }
+          if (-not (Test-Path $inventoryPath -PathType Leaf)) { throw 'Third-party package inventory is missing' }
+
+          $inventory = Get-Content $inventoryPath -Raw | ConvertFrom-Json
+          if ($inventory.packageCount -ne 66) {
+            throw "Expected 66 exactly locked packages, got $($inventory.packageCount)"
+          }
+          $packageNames = @($inventory.packages | ForEach-Object { $_.normalizedName })
+          foreach ($required in @('numpy', 'opencv-contrib-python', 'paddleocr', 'paddlepaddle')) {
+            if ($required -notin $packageNames) { throw "Third-party inventory is missing $required" }
+          }
+
           [int64]$bytes = 0
           foreach ($file in $manifest.files) { $bytes += [int64]$file.size }
           "component_version=$($manifest.componentVersion)" >> $env:GITHUB_STEP_SUMMARY
           "component_files=$($manifest.files.Count)" >> $env:GITHUB_STEP_SUMMARY
           "component_bytes=$bytes" >> $env:GITHUB_STEP_SUMMARY
+          "third_party_packages=$($inventory.packageCount)" >> $env:GITHUB_STEP_SUMMARY
 
       - name: Run Rust component tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --lib ocr_component
@@ -87,12 +105,15 @@ jobs:
           if (-not $installer) { throw 'OCR-enabled NSIS installer was not produced' }
           ./scripts/test-ocr-enabled-installer.ps1 -Installer $installer.FullName
 
-      - name: Upload component manifest
+      - name: Upload component metadata
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ocr-component-manifest-${{ github.sha }}
-          path: src-tauri/resources/ocr-component/component.json
+          name: ocr-component-metadata-${{ github.sha }}
+          path: |
+            src-tauri/resources/ocr-component/component.json
+            src-tauri/resources/ocr-component/THIRD_PARTY_NOTICES.txt
+            src-tauri/resources/ocr-component/third-party-packages.json
           if-no-files-found: error
           retention-days: 14
 
