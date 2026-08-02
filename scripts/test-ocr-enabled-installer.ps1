@@ -50,11 +50,15 @@ if (-not (Test-Path -LiteralPath $InstallerPath -PathType Leaf)) {
 
 $InstallRoot = Join-Path $WorkingRoot 'install'
 $SmokeRoot = Join-Path $WorkingRoot 'smoke'
+$Icacls = Join-Path $env:SystemRoot 'System32/icacls.exe'
+[string]$ResourceRoot = ''
+$ResourceAclLocked = $false
 $OriginalEnvironment = @{
   PATH = $env:PATH
   PYTHONHOME = $env:PYTHONHOME
   PYTHONPATH = $env:PYTHONPATH
   PYTHONNOUSERSITE = $env:PYTHONNOUSERSITE
+  PYTHONDONTWRITEBYTECODE = $env:PYTHONDONTWRITEBYTECODE
   PYTHONIOENCODING = $env:PYTHONIOENCODING
   HTTP_PROXY = $env:HTTP_PROXY
   HTTPS_PROXY = $env:HTTPS_PROXY
@@ -79,7 +83,7 @@ try {
   if (-not $manifestFile) {
     throw "Installed OCR component manifest was not found below $InstallRoot"
   }
-  $resourceRoot = $manifestFile.Directory.FullName
+  $ResourceRoot = $manifestFile.Directory.FullName
   $manifest = Get-Content -LiteralPath $manifestFile.FullName -Raw | ConvertFrom-Json
   if ($manifest.available -ne $true) {
     throw 'Installed OCR component manifest is not available.'
@@ -91,9 +95,9 @@ try {
     throw "Installed OCR component contains too few files: $($manifest.files.Count)"
   }
 
-  $portablePython = Join-Path $resourceRoot $manifest.pythonRelativePath
-  $moduleRoot = Join-Path $resourceRoot $manifest.moduleRootRelativePath
-  $modelsRoot = Join-Path $resourceRoot $manifest.modelCacheRelativePath
+  $portablePython = Join-Path $ResourceRoot $manifest.pythonRelativePath
+  $moduleRoot = Join-Path $ResourceRoot $manifest.moduleRootRelativePath
+  $modelsRoot = Join-Path $ResourceRoot $manifest.modelCacheRelativePath
   if (-not (Test-Path -LiteralPath $portablePython -PathType Leaf)) {
     throw "Installed portable Python is missing: $portablePython"
   }
@@ -106,11 +110,25 @@ try {
 
   $before = Get-DirectoryFingerprint -Root $modelsRoot
 
+  # Match a normal per-machine installation: bundled runtime and models are readable and executable,
+  # but recognition must not rely on writing bytecode, logs, or refreshed model files beside them.
+  $currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+  Invoke-Checked -FilePath $Icacls -ArgumentList @(
+    $ResourceRoot,
+    '/inheritance:r',
+    '/grant:r',
+    "*${currentSid}:(OI)(CI)RX",
+    '/T',
+    '/C'
+  )
+  $ResourceAclLocked = $true
+
   $pythonRoot = Split-Path -Parent $portablePython
   $env:PATH = $pythonRoot
   Remove-Item Env:PYTHONHOME -ErrorAction SilentlyContinue
   Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
   $env:PYTHONNOUSERSITE = '1'
+  $env:PYTHONDONTWRITEBYTECODE = '1'
   $env:PYTHONIOENCODING = 'utf-8'
   $env:HTTP_PROXY = 'http://127.0.0.1:9'
   $env:HTTPS_PROXY = 'http://127.0.0.1:9'
@@ -141,6 +159,11 @@ try {
     throw "Smoke test used a Python outside the installed application: $($report.executable)"
   }
 
+  # Restore inherited permissions before asking the generated uninstaller to remove the files.
+  Invoke-Checked -FilePath $Icacls -ArgumentList @($ResourceRoot, '/inheritance:e', '/T', '/C')
+  Invoke-Checked -FilePath $Icacls -ArgumentList @($ResourceRoot, '/reset', '/T', '/C')
+  $ResourceAclLocked = $false
+
   $uninstaller = Get-ChildItem -LiteralPath $InstallRoot -Recurse -File |
     Where-Object { $_.Name -match '^(uninstall|unins.*)\.exe$' } |
     Select-Object -First 1
@@ -148,11 +171,16 @@ try {
     Invoke-Checked -FilePath $uninstaller.FullName -ArgumentList @('/S')
   }
 
-  Write-Host "Installed OCR resource root: $resourceRoot"
+  Write-Host "Installed OCR resource root: $ResourceRoot"
   Write-Host "Installed component version: $($manifest.componentVersion)"
   Write-Host "Installed component files: $($manifest.files.Count)"
   Write-Host "Offline OCR token count: $($report.tokenCount)"
+  Write-Host 'Installed OCR resources remained usable with read/execute-only permissions.'
 } finally {
+  if ($ResourceAclLocked -and $ResourceRoot -and (Test-Path -LiteralPath $ResourceRoot)) {
+    & $Icacls $ResourceRoot '/inheritance:e' '/T' '/C' | Out-Null
+    & $Icacls $ResourceRoot '/reset' '/T' '/C' | Out-Null
+  }
   foreach ($name in $OriginalEnvironment.Keys) {
     $value = $OriginalEnvironment[$name]
     if ($null -eq $value) {
