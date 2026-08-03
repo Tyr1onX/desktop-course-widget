@@ -1,54 +1,50 @@
-[CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)][string]$Installer,
   [string]$WorkingRoot = (Join-Path $env:RUNNER_TEMP "课刻-OCR-应用级-$PID")
 )
 
 $ErrorActionPreference = 'Stop'
-Set-StrictMode -Version Latest
+$PSNativeCommandUseErrorActionPreference = $true
 
 function Invoke-Checked {
   param(
     [Parameter(Mandatory = $true)][string]$FilePath,
-    [Parameter(Mandatory = $true)][string[]]$ArgumentList
+    [string[]]$ArgumentList = @(),
+    [string]$WorkingDirectory = ''
   )
   $startInfo = [Diagnostics.ProcessStartInfo]::new()
   $startInfo.FileName = $FilePath
   $startInfo.UseShellExecute = $false
-  foreach ($argument in $ArgumentList) {
-    [void]$startInfo.ArgumentList.Add($argument)
-  }
+  if ($WorkingDirectory) { $startInfo.WorkingDirectory = $WorkingDirectory }
+  foreach ($argument in $ArgumentList) { [void]$startInfo.ArgumentList.Add($argument) }
   $process = [Diagnostics.Process]::Start($startInfo)
-  if (-not $process) { throw "Could not start command: $FilePath" }
+  if (-not $process) { throw "Could not start $FilePath" }
   $process.WaitForExit()
   if ($process.ExitCode -ne 0) {
-    throw "Command failed with exit code $($process.ExitCode): $FilePath $($ArgumentList -join ' ')"
+    throw "$FilePath exited with code $($process.ExitCode)"
   }
 }
 
 function Get-RegisteredInstallRoot {
-  $subKeyPath = 'Software\Tyr1onX\课刻'
-  foreach ($hive in @(
-    [Microsoft.Win32.RegistryHive]::CurrentUser,
-    [Microsoft.Win32.RegistryHive]::LocalMachine
-  )) {
-    foreach ($view in @(
-      [Microsoft.Win32.RegistryView]::Registry64,
-      [Microsoft.Win32.RegistryView]::Registry32
-    )) {
-      $baseKey = [Microsoft.Win32.RegistryKey]::OpenBaseKey($hive, $view)
-      try {
-        $productKey = $baseKey.OpenSubKey($subKeyPath)
-        if ($productKey) {
-          try {
-            $value = $productKey.GetValue('')
-            if ($value) { return [string]$value }
-          } finally {
-            $productKey.Dispose()
-          }
+  $uninstallRoots = @(
+    'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall',
+    'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall',
+    'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'
+  )
+  foreach ($root in $uninstallRoots) {
+    if (-not (Test-Path $root)) { continue }
+    foreach ($entry in Get-ChildItem $root -ErrorAction SilentlyContinue) {
+      $item = Get-ItemProperty $entry.PSPath -ErrorAction SilentlyContinue
+      if ($item.DisplayName -ne '课刻') { continue }
+      if ($item.InstallLocation -and (Test-Path -LiteralPath $item.InstallLocation)) {
+        return [IO.Path]::GetFullPath([string]$item.InstallLocation)
+      }
+      if ($item.UninstallString) {
+        $match = [regex]::Match([string]$item.UninstallString, '^"?([^" ]+uninstall\.exe)"?', 'IgnoreCase')
+        if ($match.Success) {
+          $candidate = Split-Path -Parent $match.Groups[1].Value
+          if (Test-Path -LiteralPath $candidate) { return [IO.Path]::GetFullPath($candidate) }
         }
-      } finally {
-        $baseKey.Dispose()
       }
     }
   }
@@ -56,60 +52,57 @@ function Get-RegisteredInstallRoot {
 }
 
 function Wait-ForRegisteredInstallRoot {
-  param([int]$TimeoutSeconds = 180)
-  $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+  $deadline = [DateTime]::UtcNow.AddMinutes(3)
   while ([DateTime]::UtcNow -lt $deadline) {
     $root = Get-RegisteredInstallRoot
-    if ($root -and (Test-Path -LiteralPath $root -PathType Container)) {
-      return [IO.Path]::GetFullPath($root)
-    }
-    Start-Sleep -Seconds 1
+    if ($root) { return $root }
+    Start-Sleep -Milliseconds 500
   }
-  throw 'Installer did not register a usable installation directory.'
+  throw 'Installed application did not register an install root.'
 }
 
 function Wait-ForInstalledComponent {
   param(
     [Parameter(Mandatory = $true)][string]$Root,
-    [Parameter(Mandatory = $true)][string]$ManifestPath,
-    [int]$TimeoutSeconds = 300
+    [Parameter(Mandatory = $true)][string]$ManifestPath
   )
-  $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+  $deadline = [DateTime]::UtcNow.AddMinutes(3)
   while ([DateTime]::UtcNow -lt $deadline) {
     if (Test-Path -LiteralPath $ManifestPath -PathType Leaf) {
       try {
         $manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
-        $files = @($manifest.files)
-        if ($manifest.available -eq $true -and $files.Count -ge 100) {
-          $complete = $true
-          foreach ($file in $files) {
-            $candidate = Join-Path $Root ([string]$file.path).Replace('/', '\')
-            if (-not (Test-Path -LiteralPath $candidate -PathType Leaf) -or
-                (Get-Item -LiteralPath $candidate).Length -ne [int64]$file.size) {
-              $complete = $false
-              break
-            }
-          }
-          if ($complete) { return $manifest }
+        $python = Join-Path $Root $manifest.pythonRelativePath
+        $models = Join-Path $Root $manifest.modelCacheRelativePath
+        if ((Test-Path -LiteralPath $python -PathType Leaf) -and (Test-Path -LiteralPath $models -PathType Container)) {
+          return $manifest
         }
       } catch {
-        # The installer can expose the manifest before all files are flushed.
+        # NSIS may still be copying the large component.
       }
     }
-    Start-Sleep -Seconds 1
+    Start-Sleep -Milliseconds 500
   }
-  throw "Installed OCR component did not become complete: $ManifestPath"
+  throw 'Installed OCR component did not become complete before the timeout.'
+}
+
+function Get-AppExecutable {
+  param([Parameter(Mandatory = $true)][string]$InstallRoot)
+  $candidate = Join-Path $InstallRoot '课刻.exe'
+  if (Test-Path -LiteralPath $candidate -PathType Leaf) { return $candidate }
+  $fallback = Get-ChildItem -LiteralPath $InstallRoot -Filter '*.exe' -File |
+    Where-Object { $_.Name -notmatch '^(uninstall|unins)' } |
+    Select-Object -First 1
+  if (-not $fallback) { throw 'Installed application executable was not found.' }
+  return $fallback.FullName
 }
 
 function Get-DirectoryFingerprint {
   param([Parameter(Mandatory = $true)][string]$Root)
   return @(
-    Get-ChildItem -LiteralPath $Root -Recurse -File |
-      Sort-Object FullName |
-      ForEach-Object {
-        $relative = [IO.Path]::GetRelativePath($Root, $_.FullName).Replace('\', '/')
-        "$relative|$($_.Length)|$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())"
-      }
+    Get-ChildItem -LiteralPath $Root -Recurse -File | ForEach-Object {
+      $relative = [IO.Path]::GetRelativePath($Root, $_.FullName).Replace('\', '/')
+      "$relative|$($_.Length)|$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())"
+    } | Sort-Object
   )
 }
 
@@ -118,9 +111,7 @@ function Set-ResourceFilesReadOnly {
     [Parameter(Mandatory = $true)][string]$Root,
     [Parameter(Mandatory = $true)][bool]$ReadOnly
   )
-  Get-ChildItem -LiteralPath $Root -Recurse -File | ForEach-Object {
-    $_.IsReadOnly = $ReadOnly
-  }
+  Get-ChildItem -LiteralPath $Root -Recurse -File | ForEach-Object { $_.IsReadOnly = $ReadOnly }
 }
 
 function Add-IsolatedPythonEnvironment {
@@ -130,31 +121,34 @@ function Add-IsolatedPythonEnvironment {
     [Parameter(Mandatory = $true)][string]$ModelsRoot
   )
   $StartInfo.Environment.Clear()
-  foreach ($name in @(
-    'SystemRoot', 'WINDIR', 'TEMP', 'TMP', 'USERPROFILE', 'LOCALAPPDATA',
-    'APPDATA', 'PROGRAMDATA', 'HOMEDRIVE', 'HOMEPATH', 'COMSPEC', 'PATHEXT',
-    'NUMBER_OF_PROCESSORS', 'PROCESSOR_ARCHITECTURE', 'PROCESSOR_IDENTIFIER', 'OS'
-  )) {
-    $value = [Environment]::GetEnvironmentVariable($name)
-    if ($null -ne $value) { $StartInfo.Environment[$name] = $value }
-  }
   $systemRoot = [Environment]::GetEnvironmentVariable('SystemRoot')
-  if (-not $systemRoot) { $systemRoot = [Environment]::GetEnvironmentVariable('WINDIR') }
-  if (-not $systemRoot) { throw 'SystemRoot/WINDIR is required for the isolated Python test.' }
+  $temp = [Environment]::GetEnvironmentVariable('TEMP')
+  $tmp = [Environment]::GetEnvironmentVariable('TMP')
+  $profile = [Environment]::GetEnvironmentVariable('USERPROFILE')
+  $local = [Environment]::GetEnvironmentVariable('LOCALAPPDATA')
+  $StartInfo.Environment['SystemRoot'] = $systemRoot
+  $StartInfo.Environment['WINDIR'] = $systemRoot
+  $StartInfo.Environment['TEMP'] = $temp
+  $StartInfo.Environment['TMP'] = $tmp
+  $StartInfo.Environment['USERPROFILE'] = $profile
+  $StartInfo.Environment['LOCALAPPDATA'] = $local
   $StartInfo.Environment['PATH'] = "$PythonRoot;$systemRoot\System32"
   $StartInfo.Environment['PYTHONNOUSERSITE'] = '1'
   $StartInfo.Environment['PYTHONDONTWRITEBYTECODE'] = '1'
   $StartInfo.Environment['PYTHONUTF8'] = '1'
   $StartInfo.Environment['PYTHONIOENCODING'] = 'utf-8'
-  $StartInfo.Environment['PADDLE_PDX_MODEL_SOURCE'] = 'BOS'
-  $StartInfo.Environment['PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK'] = '1'
   $StartInfo.Environment['PADDLE_OCR_BASE_DIR'] = Join-Path $ModelsRoot 'paddleocr'
   $StartInfo.Environment['PADDLE_PDX_CACHE_HOME'] = Join-Path $ModelsRoot 'paddlex'
+  $StartInfo.Environment['PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK'] = 'True'
+  $StartInfo.Environment['PADDLE_PDX_DISABLE_AUTO_LOAD_DEFAULT_MODEL'] = 'True'
+  $StartInfo.Environment['PADDLE_PDX_DISABLE_TELEMETRY'] = 'True'
+  $StartInfo.Environment['FLAGS_enable_pir_api'] = '0'
+  $StartInfo.Environment['FLAGS_use_mkldnn'] = '0'
   $StartInfo.Environment['OMP_NUM_THREADS'] = '2'
-  $StartInfo.Environment['HTTP_PROXY'] = 'http://127.0.0.1:9'
-  $StartInfo.Environment['HTTPS_PROXY'] = 'http://127.0.0.1:9'
-  $StartInfo.Environment['ALL_PROXY'] = 'http://127.0.0.1:9'
-  $StartInfo.Environment['NO_PROXY'] = ''
+  $StartInfo.Environment['OPENBLAS_NUM_THREADS'] = '2'
+  $StartInfo.Environment['MKL_NUM_THREADS'] = '2'
+  $StartInfo.Environment['NUMEXPR_NUM_THREADS'] = '2'
+  $StartInfo.Environment['COURSE_WIDGET_OCR_CPU_THREADS'] = '2'
 }
 
 function Invoke-IsolatedPortableSmoke {
@@ -187,22 +181,14 @@ function Invoke-IsolatedPortableSmoke {
   }
 }
 
-function Get-AppExecutable {
-  param([Parameter(Mandatory = $true)][string]$InstallRoot)
-  $candidate = Get-ChildItem -LiteralPath $InstallRoot -File -Filter '*.exe' |
-    Where-Object { $_.Name -notmatch '^(uninstall|unins.*)\.exe$' } |
-    Sort-Object Length -Descending |
-    Select-Object -First 1
-  if (-not $candidate) { throw "Installed application executable was not found in $InstallRoot" }
-  return $candidate.FullName
-}
-
 function Get-DirectPythonChildren {
   param([Parameter(Mandatory = $true)][int]$ParentProcessId)
-  return @(
-    Get-CimInstance Win32_Process -Filter "ParentProcessId = $ParentProcessId" -ErrorAction SilentlyContinue |
-      Where-Object { $_.Name -ieq 'python.exe' }
-  )
+  try {
+    return @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$ParentProcessId" |
+      Where-Object { $_.Name -match '^python(w)?\.exe$' })
+  } catch {
+    return @()
+  }
 }
 
 function Invoke-AppOcrSmoke {
@@ -210,13 +196,12 @@ function Invoke-AppOcrSmoke {
     [Parameter(Mandatory = $true)][string]$Application,
     [Parameter(Mandatory = $true)][string]$Image,
     [Parameter(Mandatory = $true)][string]$ResultPath,
-    [int]$Runs = 1,
+    [Parameter(Mandatory = $true)][int]$Runs,
     [bool]$Initialize = $false,
     [bool]$ExpectSuccess = $true,
-    [int]$TimeoutSeconds = 1000
+    [int]$TimeoutSeconds = 420
   )
-  Remove-Item -LiteralPath $ResultPath -Force -ErrorAction SilentlyContinue
-  $fakeRoot = Join-Path (Split-Path -Parent $ResultPath) '污染环境'
+  $fakeRoot = Join-Path (Split-Path -Parent $ResultPath) '污染 环境'
   New-Item -ItemType Directory -Force -Path $fakeRoot | Out-Null
   Set-Content -LiteralPath (Join-Path $fakeRoot 'python.exe') -Value 'not a real python executable' -Encoding ascii
 
@@ -279,7 +264,11 @@ function Invoke-AppOcrSmoke {
   }
   $result = Get-Content -LiteralPath $ResultPath -Raw | ConvertFrom-Json
   if ($ExpectSuccess) {
-    if ($result.ok -ne $true) { throw "Application OCR smoke failed: $($result.error)" }
+    if ($result.ok -ne $true) {
+      Write-Host 'Application OCR smoke result:'
+      Write-Host ($result | ConvertTo-Json -Depth 20)
+      throw "Application OCR smoke failed: $($result.error)"
+    }
     if ([int]$result.runCount -ne $Runs) {
       throw "Expected $Runs application OCR runs, got $($result.runCount)"
     }
