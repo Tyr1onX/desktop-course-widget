@@ -385,9 +385,6 @@ fn validate_manifest(manifest: &OcrComponentManifest) -> Result<(), String> {
     let mut seen = HashSet::new();
     for file in &manifest.files {
         validate_relative_path(&file.path)?;
-        if file.size == 0 {
-            return Err(format!("本地识别组件文件大小无效：{}", file.path));
-        }
         if file.sha256.len() != 64
             || !file
                 .sha256
@@ -572,6 +569,25 @@ mod tests {
     }
 
     #[test]
+    fn manifest_accepts_empty_files() {
+        let result = validate_manifest(&manifest(vec![
+            file_record("python/python.exe", b"python"),
+            file_record("app/experiments/__init__.py", b""),
+        ]));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn bundled_manifest_matches_runtime_validation() {
+        let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("resources")
+            .join(COMPONENT_RESOURCE_DIR)
+            .join(COMPONENT_MANIFEST_FILE);
+        let bundled_manifest = read_manifest(&manifest_path).unwrap();
+        validate_manifest(&bundled_manifest).unwrap();
+    }
+
+    #[test]
     fn install_copies_only_manifest_files_and_detects_tampering() {
         let root = env::temp_dir().join(format!(
             "course-widget-ocr-component-test-{}",
@@ -585,7 +601,7 @@ mod tests {
         fs::write(source.join("python/python.exe"), b"python").unwrap();
         fs::write(
             source.join("app/experiments/screenshot_import/__init__.py"),
-            b"module",
+            b"",
         )
         .unwrap();
         fs::write(source.join("unlisted.txt"), b"ignore").unwrap();
@@ -593,7 +609,7 @@ mod tests {
             file_record("python/python.exe", b"python"),
             file_record(
                 "app/experiments/screenshot_import/__init__.py",
-                b"module",
+                b"",
             ),
         ]);
 
@@ -628,5 +644,4 @@ mod tests {
         assert!(resolve_resource_root_from_base(&root).is_err());
         let _ = fs::remove_dir_all(root);
     }
-
 }
