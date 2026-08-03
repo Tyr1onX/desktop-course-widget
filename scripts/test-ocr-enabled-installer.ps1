@@ -213,5 +213,24 @@ try {
       Set-Item "Env:$name" $value
     }
   }
-  Remove-Item -LiteralPath $WorkingRoot -Recurse -Force -ErrorAction SilentlyContinue
+
+  # NSIS may finish deleting its temporary install tree after uninstall.exe exits. Retry only while
+  # the working root still exists so a disappearing child is not reported as a failed smoke test.
+  for ($cleanupAttempt = 0; $cleanupAttempt -lt 60; $cleanupAttempt++) {
+    if (-not (Test-Path -LiteralPath $WorkingRoot)) {
+      break
+    }
+    try {
+      Remove-Item -LiteralPath $WorkingRoot -Recurse -Force -ErrorAction Stop
+      break
+    } catch {
+      if (-not (Test-Path -LiteralPath $WorkingRoot)) {
+        break
+      }
+      if ($cleanupAttempt -eq 59) {
+        throw
+      }
+      Start-Sleep -Milliseconds 500
+    }
+  }
 }
