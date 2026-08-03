@@ -44,7 +44,7 @@ test('maps noisy OCR no-course output to a concise user message', () => {
 test('maps common runtime failures without exposing implementation details', () => {
   assert.equal(
     screenshotImportErrorText('PaddleOCR is not installed'),
-    '本地截图识别组件尚未准备好，请重新启动应用后重试。',
+    '本地截图识别器启动失败，请稍后重试；无需重新安装或重启应用。',
   )
   assert.equal(
     screenshotImportErrorText({ detail: 'operation timed out while invoking python.exe' }),
