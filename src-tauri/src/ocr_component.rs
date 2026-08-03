@@ -284,11 +284,24 @@ fn resource_root(app: &AppHandle) -> Result<PathBuf, String> {
     if let Some(path) = env::var_os(OCR_RESOURCE_ROOT_ENV) {
         return Ok(PathBuf::from(path));
     }
-    Ok(app
+    let base = app
         .path()
         .resource_dir()
-        .map_err(|error| format!("无法定位安装包资源目录：{error}"))?
-        .join(COMPONENT_RESOURCE_DIR))
+        .map_err(|error| format!("无法定位安装包资源目录：{error}"))?;
+    resolve_resource_root_from_base(&base)
+}
+
+fn resolve_resource_root_from_base(base: &Path) -> Result<PathBuf, String> {
+    let candidates = [
+        base.join(COMPONENT_RESOURCE_DIR),
+        base.join("resources").join(COMPONENT_RESOURCE_DIR),
+    ];
+    candidates
+        .into_iter()
+        .find(|candidate| candidate.join(COMPONENT_MANIFEST_FILE).is_file())
+        .ok_or_else(|| {
+            "当前安装包中未找到本地识别组件清单，请重新下载安装课刻。".to_owned()
+        })
 }
 
 fn component_storage_root(app: &AppHandle) -> Result<PathBuf, String> {
@@ -591,4 +604,29 @@ mod tests {
         assert!(verify_component_dir(&destination, &manifest).is_err());
         let _ = fs::remove_dir_all(root);
     }
+
+    #[test]
+    fn resolves_both_tauri_resource_layouts() {
+        let root = env::temp_dir().join(format!(
+            "course-widget-ocr-resource-layout-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+
+        let direct = root.join(COMPONENT_RESOURCE_DIR);
+        fs::create_dir_all(&direct).unwrap();
+        fs::write(direct.join(COMPONENT_MANIFEST_FILE), b"{}").unwrap();
+        assert_eq!(resolve_resource_root_from_base(&root).unwrap(), direct);
+
+        fs::remove_dir_all(root.join(COMPONENT_RESOURCE_DIR)).unwrap();
+        let nested = root.join("resources").join(COMPONENT_RESOURCE_DIR);
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(nested.join(COMPONENT_MANIFEST_FILE), b"{}").unwrap();
+        assert_eq!(resolve_resource_root_from_base(&root).unwrap(), nested);
+
+        fs::remove_dir_all(&nested).unwrap();
+        assert!(resolve_resource_root_from_base(&root).is_err());
+        let _ = fs::remove_dir_all(root);
+    }
+
 }

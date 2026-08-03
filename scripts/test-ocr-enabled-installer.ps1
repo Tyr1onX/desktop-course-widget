@@ -86,13 +86,12 @@ try {
   # NSIS requires /D to be the final argument and does not accept quotes around its value.
   Invoke-Checked -FilePath $InstallerPath -ArgumentList @('/S', "/D=$InstallRoot")
 
-  $manifestFile = Get-ChildItem -LiteralPath $InstallRoot -Recurse -File -Filter 'component.json' |
-    Where-Object { $_.Directory.Name -eq 'ocr-component' } |
-    Select-Object -First 1
-  if (-not $manifestFile) {
-    throw "Installed OCR component manifest was not found below $InstallRoot"
+  $ResourceRoot = Join-Path $InstallRoot 'resources/ocr-component'
+  $manifestPath = Join-Path $ResourceRoot 'component.json'
+  if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+    throw "Installed OCR component manifest was not found at the application resource path: $manifestPath"
   }
-  $ResourceRoot = $manifestFile.Directory.FullName
+  $manifestFile = Get-Item -LiteralPath $manifestPath
   $manifest = Get-Content -LiteralPath $manifestFile.FullName -Raw | ConvertFrom-Json
   if ($manifest.available -ne $true) {
     throw 'Installed OCR component manifest is not available.'
