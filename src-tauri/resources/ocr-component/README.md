@@ -17,6 +17,8 @@ The generated component must follow these rules:
 
 A normal release verifies and uses the bundled component in place, so first use does not copy the complete runtime into app-local storage. The application retains a versioned app-local installation path for repair or migration scenarios, copies only manifest-listed files through a staging directory, and verifies the result before use.
 
+Tauri may expose the packaged resource directory either directly or below an additional `resources` segment, depending on the installed layout. The runtime resolver supports both layouts, while the Windows installer smoke test requires the actual NSIS layout at `resources/ocr-component` so a recursive search cannot hide a path mismatch.
+
 Release smoke tests install the NSIS candidate into an empty directory, block network access, disable Python bytecode writes, mark every OCR resource file read-only, run real Chinese OCR, and require the complete resource-tree fingerprint to remain unchanged. The generated uninstaller must then remove the bundled Python runtime and component manifest.
 
 A release build must replace the unavailable placeholder; otherwise screenshot import remains explicitly disabled rather than silently falling back to the host system.
