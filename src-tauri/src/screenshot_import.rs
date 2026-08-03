@@ -8,6 +8,9 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 use tauri::AppHandle;
 
 use crate::{
@@ -19,6 +22,8 @@ use crate::{
 };
 
 const OCR_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 static RECOGNITION_RUNNING: AtomicBool = AtomicBool::new(false);
 static CANCELLATION_REQUESTED: AtomicBool = AtomicBool::new(false);
 
@@ -100,15 +105,18 @@ pub fn recognize_screenshot(app: &AppHandle, image_path: &Path) -> Result<Import
     let stderr = File::create(&stderr_path)
         .map_err(|error| format!("无法创建截图识别错误日志：{error}"))?;
 
-    let mut process = Command::new(&runtime.python)
+    let mut command = Command::new(&runtime.python);
+    command
         .current_dir(&runtime.module_root)
         .env("PYTHONNOUSERSITE", "1")
         .env("PYTHONDONTWRITEBYTECODE", "1")
         .env("PYTHONUTF8", "1")
         .env("PYTHONIOENCODING", "utf-8")
+        .env("PADDLE_PDX_MODEL_SOURCE", "BOS")
         .env("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "1")
         .env("PADDLE_OCR_BASE_DIR", &paddleocr_cache)
         .env("PADDLE_PDX_CACHE_HOME", &paddlex_cache)
+        .arg("-I")
         .arg("-m")
         .arg("experiments.screenshot_import")
         .arg("recognize")
@@ -121,7 +129,11 @@ pub fn recognize_screenshot(app: &AppHandle, image_path: &Path) -> Result<Import
         .arg("--repo-root")
         .arg(&runtime.module_root)
         .stdout(Stdio::from(stdout))
-        .stderr(Stdio::from(stderr))
+        .stderr(Stdio::from(stderr));
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+
+    let mut process = command
         .spawn()
         .map_err(|error| format!("无法启动本地截图识别器：{error}"))?;
 
