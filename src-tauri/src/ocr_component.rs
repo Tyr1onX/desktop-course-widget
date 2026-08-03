@@ -12,7 +12,10 @@ use std::{
 };
 
 #[cfg(windows)]
-use std::os::windows::process::CommandExt;
+use std::os::windows::{
+    ffi::{OsStrExt, OsStringExt},
+    process::CommandExt,
+};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -35,11 +38,27 @@ const PYTHON_BOOTSTRAP: &str =
     "import runpy,sys;root=sys.argv.pop(1);module=sys.argv.pop(1);sys.path.insert(0,root);runpy.run_module(module,run_name='__main__')";
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+#[cfg(windows)]
+const ASCII_MODEL_CACHE_DIR: &str = "CourseWidgetOcrRuntime";
+
+#[cfg(windows)]
+#[link(name = "kernel32")]
+extern "system" {
+    fn GetShortPathNameW(long_path: *const u16, short_path: *mut u16, buffer_length: u32) -> u32;
+}
 
 static VERIFIED_BUNDLED_COMPONENTS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+static VERIFIED_ASCII_MODEL_CACHES: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 static QUICK_PROBE_SUCCESSES: OnceLock<Mutex<HashMap<String, OcrProbeReport>>> = OnceLock::new();
 static INITIALIZATION_PROBE_SUCCESSES: OnceLock<Mutex<HashMap<String, OcrProbeReport>>> =
     OnceLock::new();
+
+#[derive(Debug, Clone)]
+struct RuntimeModelFile {
+    relative_path: PathBuf,
+    size: u64,
+    sha256: String,
+}
 
 #[derive(Debug, Clone)]
 pub struct RecognizerRuntime {
@@ -48,6 +67,8 @@ pub struct RecognizerRuntime {
     pub model_cache: PathBuf,
     pub component_version: Option<String>,
     pub source: String,
+    model_files: Vec<RuntimeModelFile>,
+    model_fingerprint: Option<String>,
 }
 
 impl RecognizerRuntime {
@@ -68,10 +89,13 @@ impl RecognizerRuntime {
 
     fn cache_key(&self, probe_level: &str) -> String {
         format!(
-            "{probe_level}|{}|{}|{}",
+            "{probe_level}|{}|{}|{}|{}",
             self.component_version.as_deref().unwrap_or("development"),
             self.source,
-            self.python.to_string_lossy()
+            self.python.to_string_lossy(),
+            self.model_fingerprint
+                .as_deref()
+                .unwrap_or("unfingerprinted")
         )
     }
 }
@@ -247,13 +271,26 @@ pub fn isolated_python_command(
     runtime: &RecognizerRuntime,
     module: &str,
 ) -> Result<Command, String> {
+    isolated_python_command_with_model_access(runtime, module, true)
+}
+
+fn isolated_python_command_with_model_access(
+    runtime: &RecognizerRuntime,
+    module: &str,
+    require_ascii_models: bool,
+) -> Result<Command, String> {
     fs::create_dir_all(runtime.model_cache.join("paddleocr"))
         .map_err(|error| format!("无法准备 PaddleOCR 模型目录：{error}"))?;
     fs::create_dir_all(runtime.model_cache.join("paddlex"))
         .map_err(|error| format!("无法准备 PaddleX 模型目录：{error}"))?;
 
     let inherited = env::vars_os().collect::<BTreeMap<_, _>>();
-    let environment = build_isolated_environment(runtime, &inherited)?;
+    let effective_model_cache = if require_ascii_models {
+        prepare_paddle_model_cache(runtime, &inherited)?
+    } else {
+        runtime.model_cache.clone()
+    };
+    let environment = build_isolated_environment(runtime, &effective_model_cache, &inherited)?;
     let mut command = Command::new(&runtime.python);
     command
         .current_dir(&runtime.module_root)
@@ -326,18 +363,19 @@ fn resolve_runtime_for_status(
         ));
     }
 
-    let installed_root = installed_version_root(app, &manifest.component_version).map_err(|error| {
-        status_component_failure(
-            app,
-            None,
-            OcrComponentState::Unavailable,
-            "installed",
-            Some(manifest.component_version.clone()),
-            false,
-            "无法定位本地识别组件。",
-            error,
-        )
-    })?;
+    let installed_root =
+        installed_version_root(app, &manifest.component_version).map_err(|error| {
+            status_component_failure(
+                app,
+                None,
+                OcrComponentState::Unavailable,
+                "installed",
+                Some(manifest.component_version.clone()),
+                false,
+                "无法定位本地识别组件。",
+                error,
+            )
+        })?;
     if installed_root.exists() {
         let runtime = runtime_from_root(&installed_root, &manifest, "installed");
         return inspect_component_dir(&installed_root, &manifest)
@@ -414,13 +452,7 @@ fn ensure_quick_probe(
             return Ok(report.clone());
         }
     }
-    let report = run_probe(
-        app,
-        runtime,
-        "quick-probe",
-        &["quick"],
-        QUICK_PROBE_TIMEOUT,
-    )?;
+    let report = run_probe(app, runtime, "quick-probe", &["quick"], QUICK_PROBE_TIMEOUT)?;
     if let Ok(mut cache) = QUICK_PROBE_SUCCESSES
         .get_or_init(|| Mutex::new(HashMap::new()))
         .lock()
@@ -472,9 +504,15 @@ fn run_probe(
         )
     })?;
 
-    let mut command =
-        isolated_python_command(runtime, "experiments.screenshot_import.runtime_probe")
-            .map_err(|message| probe_setup_failure(app, runtime, stage, message))?;
+    let requires_models = args
+        .iter()
+        .any(|argument| matches!(*argument, "initialize" | "--inference"));
+    let mut command = isolated_python_command_with_model_access(
+        runtime,
+        "experiments.screenshot_import.runtime_probe",
+        requires_models,
+    )
+    .map_err(|message| probe_setup_failure(app, runtime, stage, message))?;
     command
         .args(args)
         .stdout(Stdio::from(stdout_file))
@@ -482,9 +520,8 @@ fn run_probe(
     let mut child = command.spawn().map_err(|error| {
         probe_setup_failure(app, runtime, stage, format!("spawn failed: {error}"))
     })?;
-    let (exit_code, timed_out) = wait_for_probe(&mut child, timeout).map_err(|message| {
-        probe_setup_failure(app, runtime, stage, message)
-    })?;
+    let (exit_code, timed_out) = wait_for_probe(&mut child, timeout)
+        .map_err(|message| probe_setup_failure(app, runtime, stage, message))?;
     let outcome = ProcessOutcome {
         exit_code,
         stdout: fs::read(&stdout_path).unwrap_or_default(),
@@ -538,11 +575,7 @@ fn component_resolution_failure(app: &AppHandle, stage: &str, message: String) -
             ..DiagnosticEvidence::default()
         },
     );
-    ocr_diagnostics::user_error(
-        &diagnostic_id,
-        "本地截图识别组件检查失败。",
-        &message,
-    )
+    ocr_diagnostics::user_error(&diagnostic_id, "本地截图识别组件检查失败。", &message)
 }
 
 fn probe_setup_failure(
@@ -622,6 +655,7 @@ fn wait_for_probe(
 
 fn build_isolated_environment(
     runtime: &RecognizerRuntime,
+    effective_model_cache: &Path,
     inherited: &BTreeMap<OsString, OsString>,
 ) -> Result<BTreeMap<OsString, OsString>, String> {
     let python_root = runtime
@@ -658,23 +692,25 @@ fn build_isolated_environment(
         let system_root = lookup_env(inherited, "SystemRoot")
             .or_else(|| lookup_env(inherited, "WINDIR"))
             .ok_or_else(|| "Windows OCR 子进程缺少 SystemRoot/WINDIR".to_owned())?;
-        vec![python_root.to_path_buf(), PathBuf::from(system_root).join("System32")]
+        vec![
+            python_root.to_path_buf(),
+            PathBuf::from(system_root).join("System32"),
+        ]
     };
     #[cfg(not(windows))]
     let path_entries = vec![python_root.to_path_buf(), PathBuf::from("/usr/bin")];
 
     values.insert(
         OsString::from("PATH"),
-        env::join_paths(path_entries)
-            .map_err(|error| format!("无法构建隔离 OCR PATH：{error}"))?,
+        env::join_paths(path_entries).map_err(|error| format!("无法构建隔离 OCR PATH：{error}"))?,
     );
     values.insert(OsString::from("PYTHONNOUSERSITE"), OsString::from("1"));
-    values.insert(OsString::from("PYTHONDONTWRITEBYTECODE"), OsString::from("1"));
-    values.insert(OsString::from("PYTHONUTF8"), OsString::from("1"));
     values.insert(
-        OsString::from("PYTHONIOENCODING"),
-        OsString::from("utf-8"),
+        OsString::from("PYTHONDONTWRITEBYTECODE"),
+        OsString::from("1"),
     );
+    values.insert(OsString::from("PYTHONUTF8"), OsString::from("1"));
+    values.insert(OsString::from("PYTHONIOENCODING"), OsString::from("utf-8"));
     values.insert(
         OsString::from("PADDLE_PDX_MODEL_SOURCE"),
         OsString::from("BOS"),
@@ -685,11 +721,11 @@ fn build_isolated_environment(
     );
     values.insert(
         OsString::from("PADDLE_OCR_BASE_DIR"),
-        runtime.model_cache.join("paddleocr").into_os_string(),
+        effective_model_cache.join("paddleocr").into_os_string(),
     );
     values.insert(
         OsString::from("PADDLE_PDX_CACHE_HOME"),
-        runtime.model_cache.join("paddlex").into_os_string(),
+        effective_model_cache.join("paddlex").into_os_string(),
     );
     values.insert(OsString::from("OMP_NUM_THREADS"), OsString::from("2"));
     values.insert(
@@ -708,10 +744,299 @@ fn build_isolated_environment(
     Ok(values)
 }
 
-fn lookup_env<'a>(
-    values: &'a BTreeMap<OsString, OsString>,
-    name: &str,
-) -> Option<&'a OsStr> {
+fn runtime_model_files(manifest: &OcrComponentManifest) -> Vec<RuntimeModelFile> {
+    let normalized_root = manifest.model_cache_relative_path.replace('\\', "/");
+    let prefix = format!("{}/", normalized_root.trim_end_matches('/'));
+    manifest
+        .files
+        .iter()
+        .filter_map(|file| {
+            let normalized = file.path.replace('\\', "/");
+            let relative = normalized.strip_prefix(&prefix)?;
+            if relative.is_empty() {
+                return None;
+            }
+            Some(RuntimeModelFile {
+                relative_path: PathBuf::from(relative),
+                size: file.size,
+                sha256: file.sha256.clone(),
+            })
+        })
+        .collect()
+}
+
+fn runtime_model_fingerprint(files: &[RuntimeModelFile]) -> Option<String> {
+    if files.is_empty() {
+        return None;
+    }
+    let mut ordered = files.to_vec();
+    ordered.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+    let mut hasher = Sha256::new();
+    for file in ordered {
+        hasher.update(file.relative_path.to_string_lossy().as_bytes());
+        hasher.update([0]);
+        hasher.update(file.size.to_le_bytes());
+        hasher.update(file.sha256.as_bytes());
+        hasher.update([0]);
+    }
+    Some(format!("{:x}", hasher.finalize()))
+}
+
+fn path_is_ascii(path: &Path) -> bool {
+    path.as_os_str().to_string_lossy().is_ascii()
+}
+
+#[cfg(not(windows))]
+fn prepare_paddle_model_cache(
+    runtime: &RecognizerRuntime,
+    _inherited: &BTreeMap<OsString, OsString>,
+) -> Result<PathBuf, String> {
+    Ok(runtime.model_cache.clone())
+}
+
+#[cfg(windows)]
+fn prepare_paddle_model_cache(
+    runtime: &RecognizerRuntime,
+    inherited: &BTreeMap<OsString, OsString>,
+) -> Result<PathBuf, String> {
+    if path_is_ascii(&runtime.model_cache) {
+        return Ok(runtime.model_cache.clone());
+    }
+    if let Ok(short_path) = windows_short_path(&runtime.model_cache) {
+        if path_is_ascii(&short_path) {
+            return Ok(short_path);
+        }
+    }
+
+    let fingerprint = runtime.model_fingerprint.as_deref().ok_or_else(|| {
+        "Paddle 模型路径包含非 ASCII 字符，且当前运行时缺少可验证的模型清单".to_owned()
+    })?;
+    let base = writable_ascii_model_cache_base(inherited)?;
+    let version = ascii_component_slug(
+        runtime
+            .component_version
+            .as_deref()
+            .unwrap_or("development"),
+    );
+    let mut owner_hasher = Sha256::new();
+    if let Some(profile) = lookup_env(inherited, "USERPROFILE") {
+        owner_hasher.update(profile.to_string_lossy().as_bytes());
+    }
+    owner_hasher.update(runtime.model_cache.to_string_lossy().as_bytes());
+    let owner_hash = format!("{:x}", owner_hasher.finalize());
+    let target = base.join(format!(
+        "{}-{}-{}",
+        version,
+        &fingerprint[..16],
+        &owner_hash[..12]
+    ));
+    let cache_key = target.to_string_lossy().to_string();
+    if VERIFIED_ASCII_MODEL_CACHES
+        .get_or_init(|| Mutex::new(HashSet::new()))
+        .lock()
+        .map_err(|_| "无法读取 ASCII 模型缓存状态".to_owned())?
+        .contains(&cache_key)
+    {
+        return Ok(target);
+    }
+
+    if verify_runtime_model_cache(&target, &runtime.model_files).is_err() {
+        populate_ascii_model_cache(runtime, &target)?;
+    }
+    verify_runtime_model_cache(&target, &runtime.model_files)?;
+    VERIFIED_ASCII_MODEL_CACHES
+        .get_or_init(|| Mutex::new(HashSet::new()))
+        .lock()
+        .map_err(|_| "无法更新 ASCII 模型缓存状态".to_owned())?
+        .insert(cache_key);
+    Ok(target)
+}
+
+#[cfg(windows)]
+fn windows_short_path(path: &Path) -> Result<PathBuf, String> {
+    if !path.exists() {
+        return Err("无法为不存在的 Paddle 模型目录创建短路径".into());
+    }
+    let wide = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let required = unsafe { GetShortPathNameW(wide.as_ptr(), std::ptr::null_mut(), 0) };
+    if required == 0 {
+        return Err(format!(
+            "Windows 无法解析 Paddle 模型短路径：{}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    let mut buffer = vec![0_u16; required as usize + 1];
+    let written =
+        unsafe { GetShortPathNameW(wide.as_ptr(), buffer.as_mut_ptr(), buffer.len() as u32) };
+    if written == 0 || written as usize >= buffer.len() {
+        return Err(format!(
+            "Windows 无法读取 Paddle 模型短路径：{}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    Ok(PathBuf::from(OsString::from_wide(
+        &buffer[..written as usize],
+    )))
+}
+
+#[cfg(windows)]
+fn writable_ascii_model_cache_base(
+    inherited: &BTreeMap<OsString, OsString>,
+) -> Result<PathBuf, String> {
+    let mut candidates = Vec::new();
+    for name in ["LOCALAPPDATA", "TEMP", "TMP"] {
+        let Some(value) = lookup_env(inherited, name) else {
+            continue;
+        };
+        let original = PathBuf::from(value);
+        let base = if path_is_ascii(&original) {
+            Some(original)
+        } else {
+            windows_short_path(&original)
+                .ok()
+                .filter(|path| path_is_ascii(path))
+        };
+        if let Some(base) = base {
+            candidates.push(base.join(ASCII_MODEL_CACHE_DIR));
+        }
+    }
+    if let Some(system_root) =
+        lookup_env(inherited, "SystemRoot").or_else(|| lookup_env(inherited, "WINDIR"))
+    {
+        candidates.push(
+            PathBuf::from(system_root)
+                .join("Temp")
+                .join(ASCII_MODEL_CACHE_DIR),
+        );
+    }
+
+    for candidate in candidates {
+        if !path_is_ascii(&candidate) || fs::create_dir_all(&candidate).is_err() {
+            continue;
+        }
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let probe = candidate.join(format!(".write-probe-{}-{nonce}", std::process::id()));
+        if fs::write(&probe, b"ok").is_ok() {
+            let _ = fs::remove_file(probe);
+            return Ok(candidate);
+        }
+    }
+    Err("无法创建可写且仅含 ASCII 字符的 Paddle 模型运行目录".into())
+}
+
+#[cfg(windows)]
+fn ascii_component_slug(value: &str) -> String {
+    let mut slug = value
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.') {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    if slug.is_empty() {
+        slug.push_str("component");
+    }
+    slug
+}
+
+#[cfg(windows)]
+fn verify_runtime_model_cache(root: &Path, files: &[RuntimeModelFile]) -> Result<(), String> {
+    if files.is_empty() {
+        return Err("ASCII 模型缓存缺少可验证的文件清单".into());
+    }
+    for expected in files {
+        let path = root.join(&expected.relative_path);
+        let metadata = fs::metadata(&path).map_err(|error| {
+            format!(
+                "ASCII 模型缓存文件缺失：{}：{error}",
+                expected.relative_path.display()
+            )
+        })?;
+        if !metadata.is_file() || metadata.len() != expected.size {
+            return Err(format!(
+                "ASCII 模型缓存文件大小不匹配：{}",
+                expected.relative_path.display()
+            ));
+        }
+        if sha256_file(&path)? != expected.sha256 {
+            return Err(format!(
+                "ASCII 模型缓存文件校验失败：{}",
+                expected.relative_path.display()
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn populate_ascii_model_cache(runtime: &RecognizerRuntime, target: &Path) -> Result<(), String> {
+    let parent = target
+        .parent()
+        .ok_or_else(|| "无法定位 ASCII 模型缓存父目录".to_owned())?;
+    fs::create_dir_all(parent).map_err(|error| format!("无法创建 ASCII 模型缓存目录：{error}"))?;
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let staging = parent.join(format!(".staging-{}-{nonce}", std::process::id()));
+    let _ = fs::remove_dir_all(&staging);
+    fs::create_dir_all(&staging)
+        .map_err(|error| format!("无法创建 ASCII 模型缓存暂存目录：{error}"))?;
+
+    let copy_result = (|| {
+        for expected in &runtime.model_files {
+            let source = runtime.model_cache.join(&expected.relative_path);
+            let destination = staging.join(&expected.relative_path);
+            if let Some(parent) = destination.parent() {
+                fs::create_dir_all(parent)
+                    .map_err(|error| format!("无法创建 ASCII 模型缓存子目录：{error}"))?;
+            }
+            fs::copy(&source, &destination).map_err(|error| {
+                format!(
+                    "无法复制 Paddle 模型文件 {}：{error}",
+                    expected.relative_path.display()
+                )
+            })?;
+        }
+        verify_runtime_model_cache(&staging, &runtime.model_files)
+    })();
+    if let Err(error) = copy_result {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(error);
+    }
+
+    if target.exists() {
+        if verify_runtime_model_cache(target, &runtime.model_files).is_ok() {
+            let _ = fs::remove_dir_all(&staging);
+            return Ok(());
+        }
+        fs::remove_dir_all(target)
+            .map_err(|error| format!("无法替换损坏的 ASCII 模型缓存：{error}"))?;
+    }
+    match fs::rename(&staging, target) {
+        Ok(()) => Ok(()),
+        Err(error) if verify_runtime_model_cache(target, &runtime.model_files).is_ok() => {
+            let _ = fs::remove_dir_all(&staging);
+            Ok(())
+        }
+        Err(error) => {
+            let _ = fs::remove_dir_all(&staging);
+            Err(format!("无法启用 ASCII 模型缓存：{error}"))
+        }
+    }
+}
+
+fn lookup_env<'a>(values: &'a BTreeMap<OsString, OsString>, name: &str) -> Option<&'a OsStr> {
     values
         .iter()
         .find(|(key, _)| key.to_string_lossy().eq_ignore_ascii_case(name))
@@ -853,6 +1178,8 @@ fn resolve_development_runtime() -> Result<RecognizerRuntime, String> {
         module_root,
         component_version: None,
         source: "development".into(),
+        model_files: Vec::new(),
+        model_fingerprint: None,
     })
 }
 
@@ -871,12 +1198,16 @@ fn runtime_from_root(
     manifest: &OcrComponentManifest,
     source: &str,
 ) -> RecognizerRuntime {
+    let model_files = runtime_model_files(manifest);
+    let model_fingerprint = runtime_model_fingerprint(&model_files);
     RecognizerRuntime {
         python: root.join(&manifest.python_relative_path),
         module_root: root.join(&manifest.module_root_relative_path),
         model_cache: root.join(&manifest.model_cache_relative_path),
         component_version: Some(manifest.component_version.clone()),
         source: source.into(),
+        model_files,
+        model_fingerprint,
     }
 }
 
@@ -943,16 +1274,14 @@ fn install_component(
         fs::remove_dir_all(destination)
             .map_err(|error| format!("无法替换损坏的本地识别组件：{error}"))?;
     }
-    fs::rename(&staging, destination)
-        .map_err(|error| format!("无法启用本地识别组件：{error}"))?;
+    fs::rename(&staging, destination).map_err(|error| format!("无法启用本地识别组件：{error}"))?;
     cleanup_other_versions(versions_root, &manifest.component_version);
     Ok(())
 }
 
 fn read_manifest(path: &Path) -> Result<OcrComponentManifest, String> {
     let bytes = fs::read(path).map_err(|error| format!("无法读取本地识别组件清单：{error}"))?;
-    serde_json::from_slice(&bytes)
-        .map_err(|error| format!("本地识别组件清单格式无效：{error}"))
+    serde_json::from_slice(&bytes).map_err(|error| format!("本地识别组件清单格式无效：{error}"))
 }
 
 fn validate_manifest(manifest: &OcrComponentManifest) -> Result<(), String> {
@@ -1048,10 +1377,7 @@ fn inspect_component_dir(root: &Path, manifest: &OcrComponentManifest) -> Result
     Ok(())
 }
 
-fn verify_bundled_component(
-    root: &Path,
-    manifest: &OcrComponentManifest,
-) -> Result<(), String> {
+fn verify_bundled_component(root: &Path, manifest: &OcrComponentManifest) -> Result<(), String> {
     let key = format!("{}|{}", root.to_string_lossy(), manifest.component_version);
     let verified = VERIFIED_BUNDLED_COMPONENTS.get_or_init(|| Mutex::new(HashSet::new()));
     {
@@ -1102,8 +1428,7 @@ fn install_from_resource(
         let source = resource_root.join(&expected.path);
         let target = destination.join(&expected.path);
         if let Some(parent) = target.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|error| format!("无法创建识别组件目录：{error}"))?;
+            fs::create_dir_all(parent).map_err(|error| format!("无法创建识别组件目录：{error}"))?;
         }
         fs::copy(&source, &target)
             .map_err(|error| format!("无法复制识别组件文件 {}：{error}", expected.path))?;
@@ -1198,6 +1523,8 @@ mod tests {
             model_cache: root.join("models"),
             component_version: Some("test-v1".into()),
             source: "test".into(),
+            model_files: Vec::new(),
+            model_fingerprint: None,
         }
     }
 
@@ -1237,7 +1564,8 @@ mod tests {
         inherited.insert(OsString::from("CONDA_PREFIX"), OsString::from(r"C:\conda"));
         inherited.insert(OsString::from("CUDA_PATH"), OsString::from(r"C:\cuda"));
 
-        let isolated = build_isolated_environment(&runtime, &inherited).unwrap();
+        let isolated =
+            build_isolated_environment(&runtime, &runtime.model_cache, &inherited).unwrap();
         let keys = isolated
             .keys()
             .map(|key| key.to_string_lossy().to_ascii_uppercase())
@@ -1261,6 +1589,25 @@ mod tests {
         assert!(!path.contains("fake-python"));
         assert!(!path.contains("conda"));
         assert!(!path.contains("cuda"));
+    }
+
+    #[test]
+    fn model_manifest_fingerprint_is_stable_and_sensitive() {
+        let first = RuntimeModelFile {
+            relative_path: PathBuf::from("paddlex/model/inference.json"),
+            size: 12,
+            sha256: "a".repeat(64),
+        };
+        let mut changed = first.clone();
+        changed.sha256 = "b".repeat(64);
+        assert_eq!(
+            runtime_model_fingerprint(std::slice::from_ref(&first)),
+            runtime_model_fingerprint(std::slice::from_ref(&first))
+        );
+        assert_ne!(
+            runtime_model_fingerprint(std::slice::from_ref(&first)),
+            runtime_model_fingerprint(std::slice::from_ref(&changed))
+        );
     }
 
     #[test]
