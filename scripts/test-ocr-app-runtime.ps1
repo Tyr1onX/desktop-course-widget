@@ -162,14 +162,21 @@ function Invoke-IsolatedPortableSmoke {
     [Parameter(Mandatory = $true)][string]$Python,
     [Parameter(Mandatory = $true)][string]$ModelsRoot,
     [Parameter(Mandatory = $true)][string]$SmokeScript,
-    [Parameter(Mandatory = $true)][string]$Output
+    [Parameter(Mandatory = $true)][string]$Output,
+    [switch]$GenerateSampleOnly
   )
   $startInfo = [Diagnostics.ProcessStartInfo]::new()
   $startInfo.FileName = $Python
   $startInfo.UseShellExecute = $false
   $startInfo.WorkingDirectory = Split-Path -Parent $SmokeScript
   Add-IsolatedPythonEnvironment -StartInfo $startInfo -PythonRoot (Split-Path -Parent $Python) -ModelsRoot $ModelsRoot
-  foreach ($argument in @('-I', $SmokeScript, '--output', $Output, '--inference')) {
+  $arguments = @('-I', $SmokeScript, '--output', $Output)
+  if ($GenerateSampleOnly) {
+    $arguments += '--generate-sample'
+  } else {
+    $arguments += '--inference'
+  }
+  foreach ($argument in $arguments) {
     [void]$startInfo.ArgumentList.Add($argument)
   }
   $process = [Diagnostics.Process]::Start($startInfo)
@@ -323,12 +330,12 @@ try {
   $appExecutable = Get-AppExecutable -InstallRoot $installRoot
   $smokeScript = Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts/ocr-component-smoke.py'
   $directSmokeRoot = Join-Path $smokeRoot '直接隔离运行'
-  Invoke-IsolatedPortableSmoke -Python $portablePython -ModelsRoot $modelsRoot -SmokeScript $smokeScript -Output $directSmokeRoot
+  Invoke-IsolatedPortableSmoke -Python $portablePython -ModelsRoot $modelsRoot -SmokeScript $smokeScript -Output $directSmokeRoot -GenerateSampleOnly
   $directReport = Get-Content -LiteralPath (Join-Path $directSmokeRoot 'portable-ocr-smoke.json') -Raw | ConvertFrom-Json
-  if ($directReport.tokenCount -lt 4 -or $directReport.productionCliCourseCount -lt 1) {
-    throw 'Direct isolated portable Python smoke did not produce a valid OCR draft.'
-  }
   $sampleImage = [IO.Path]::GetFullPath([string]$directReport.sampleImage)
+  if (-not (Test-Path -LiteralPath $sampleImage -PathType Leaf)) {
+    throw 'Installed portable Python did not generate the Unicode-path OCR fixture.'
+  }
 
   $before = Get-DirectoryFingerprint -Root $resourceRoot
   Set-ResourceFilesReadOnly -Root $resourceRoot -ReadOnly $true

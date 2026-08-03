@@ -1025,7 +1025,7 @@ fn populate_ascii_model_cache(runtime: &RecognizerRuntime, target: &Path) -> Res
     }
     match fs::rename(&staging, target) {
         Ok(()) => Ok(()),
-        Err(error) if verify_runtime_model_cache(target, &runtime.model_files).is_ok() => {
+        Err(_error) if verify_runtime_model_cache(target, &runtime.model_files).is_ok() => {
             let _ = fs::remove_dir_all(&staging);
             Ok(())
         }
@@ -1145,6 +1145,8 @@ fn resolve_configured_runtime() -> Result<Option<RecognizerRuntime>, String> {
                 module_root,
                 component_version: None,
                 source: "configured".into(),
+                model_files: Vec::new(),
+                model_fingerprint: None,
             }))
         }
         _ => Err(format!(
