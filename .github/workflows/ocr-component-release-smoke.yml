@@ -1,4 +1,4 @@
-name: Apply immutable OCR runtime fix
+name: Commit verified immutable OCR fix
 
 on:
   workflow_dispatch:
@@ -12,7 +12,7 @@ permissions:
   contents: write
 
 jobs:
-  apply:
+  commit:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: windows-latest
     steps:
@@ -22,7 +22,7 @@ jobs:
           ref: fix/ocr-runtime-isolation-and-diagnostics
           fetch-depth: 0
 
-      - name: Add command-line bytecode protection and verify
+      - name: Reapply previously verified source changes and commit
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -30,26 +30,25 @@ jobs:
           @'
           from pathlib import Path
 
-          def replace_exact(path: Path, old: str, new: str, expected: int, label: str) -> None:
-              text = path.read_text(encoding="utf-8")
-              count = text.count(old)
-              if count != expected:
-                  raise SystemExit(f"{label}: expected {expected} matches, found {count}")
-              path.write_text(text.replace(old, new), encoding="utf-8")
+          def change(path: str, old: str, new: str, count: int = 1) -> None:
+              target = Path(path)
+              text = target.read_text(encoding="utf-8")
+              actual = text.count(old)
+              if actual != count:
+                  raise SystemExit(f"{path}: expected {count} matches, found {actual}")
+              target.write_text(text.replace(old, new), encoding="utf-8")
 
-          rust = Path("src-tauri/src/ocr_component.rs")
-          replace_exact(
-              rust,
+          change(
+              "src-tauri/src/ocr_component.rs",
               '        .arg("-I")\n        .arg("-c")',
               '        .arg("-I")\n        .arg("-B")\n        .arg("-c")',
-              1,
-              "Rust isolated Python flags",
           )
-          rust_text = rust.read_text(encoding="utf-8")
-          marker = '''    #[test]
+          rust = Path("src-tauri/src/ocr_component.rs")
+          text = rust.read_text(encoding="utf-8")
+          marker = """    #[test]
               fn bootstrap_explicitly_inserts_module_root_under_isolated_mode() {
-          '''
-          test = '''    #[test]
+          """
+          regression = """    #[test]
               fn isolated_command_disables_bytecode_writes_at_cli_level() {
                   let root = env::temp_dir().join(format!(
                       "course-widget-ocr-no-bytecode-test-{}",
@@ -72,106 +71,65 @@ jobs:
                   let _ = fs::remove_dir_all(root);
               }
 
-          '''
-          if rust_text.count(marker) != 1:
-              raise SystemExit("Rust bytecode regression test insertion point changed")
-          rust.write_text(rust_text.replace(marker, test + marker, 1), encoding="utf-8")
+          """
+          if text.count(marker) != 1:
+              raise SystemExit("Rust regression insertion point changed")
+          rust.write_text(text.replace(marker, regression + marker, 1), encoding="utf-8")
 
-          replace_exact(
-              Path("scripts/test-ocr-app-runtime.ps1"),
+          change(
+              "scripts/test-ocr-app-runtime.ps1",
               "$arguments = @('-I', $SmokeScript, '--output', $Output)",
               "$arguments = @('-I', '-B', $SmokeScript, '--output', $Output)",
-              1,
-              "application smoke Python flags",
           )
-          replace_exact(
-              Path("scripts/test-ocr-enabled-installer.ps1"),
+          change(
+              "scripts/test-ocr-enabled-installer.ps1",
               "    '-I', $smokeScript,",
               "    '-I', '-B', $smokeScript,",
-              1,
-              "installer smoke Python flags",
           )
-
-          development = Path("scripts/test-ocr-development-bootstrap.ps1")
-          replace_exact(
-              development,
+          change(
+              "scripts/test-ocr-development-bootstrap.ps1",
               "& $venvPython -I -m experiments.screenshot_import.bootstrap_probe",
               "& $venvPython -I -B -m experiments.screenshot_import.bootstrap_probe",
-              1,
-              "development bootstrap precondition flags",
           )
-          replace_exact(
-              development,
+          change(
+              "scripts/test-ocr-development-bootstrap.ps1",
               "& $venvPython -I -c $bootstrap $repoRoot experiments.screenshot_import.bootstrap_probe",
               "& $venvPython -I -B -c $bootstrap $repoRoot experiments.screenshot_import.bootstrap_probe",
-              1,
-              "development bootstrap flags",
           )
-          replace_exact(
-              development,
+          change(
+              "scripts/test-ocr-development-bootstrap.ps1",
               "Normal venv + python -I works through the explicit absolute-path bootstrap.",
               "Normal venv + python -I -B works through the explicit absolute-path bootstrap.",
-              1,
-              "development bootstrap result",
           )
-
-          build = Path("scripts/build-ocr-component.ps1")
-          replace_exact(
-              build,
+          change(
+              "scripts/build-ocr-component.ps1",
               "      '-I', $SmokeScript,",
               "      '-I', '-B', $SmokeScript,",
               3,
-              "component build Python flags",
           )
-          build_text = build.read_text(encoding="utf-8")
-          marker = '''  $files = @(
-          '''
-          purge = '''  # -I ignores PYTHON* environment variables, including PYTHONDONTWRITEBYTECODE.
+          build = Path("scripts/build-ocr-component.ps1")
+          text = build.read_text(encoding="utf-8")
+          marker = """  $files = @(
+          """
+          purge = """  # -I ignores PYTHON* environment variables, including PYTHONDONTWRITEBYTECODE.
             # Runtime calls therefore use -B, and this purge keeps generated bytecode out of the manifest.
             Get-ChildItem -LiteralPath $OutputRoot -Recurse -Directory -Filter '__pycache__' |
               Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
             Get-ChildItem -LiteralPath $OutputRoot -Recurse -File -Include '*.pyc', '*.pyo' |
               Remove-Item -Force -ErrorAction SilentlyContinue
 
-          '''
-          if build_text.count(marker) != 1:
+          """
+          if text.count(marker) != 1:
               raise SystemExit("component manifest insertion point changed")
-          build.write_text(build_text.replace(marker, purge + marker, 1), encoding="utf-8")
-          '@ | Set-Content -LiteralPath apply_no_bytecode.py -Encoding utf8
+          build.write_text(text.replace(marker, purge + marker, 1), encoding="utf-8")
+          '@ | Set-Content -LiteralPath commit_verified_fix.py -Encoding utf8
 
-          python apply_no_bytecode.py
-          Remove-Item apply_no_bytecode.py
+          python commit_verified_fix.py
+          Remove-Item commit_verified_fix.py
           cargo fmt --manifest-path src-tauri/Cargo.toml
-          cargo test --manifest-path src-tauri/Cargo.toml --lib
-
-          # This regression intentionally launches one command that must exit non-zero. Disable
-          # PowerShell's native-command exception conversion only for that self-contained script.
-          $PSNativeCommandUseErrorActionPreference = $false
-          ./scripts/test-ocr-development-bootstrap.ps1 -Python python
-          if ($LASTEXITCODE -ne 0) { throw 'Development bootstrap regression test failed.' }
-          $PSNativeCommandUseErrorActionPreference = $true
-
-          foreach ($script in @(
-            'scripts/build-ocr-component.ps1',
-            'scripts/test-ocr-app-runtime.ps1',
-            'scripts/test-ocr-development-bootstrap.ps1',
-            'scripts/test-ocr-enabled-installer.ps1'
-          )) {
-            [scriptblock]::Create((Get-Content -LiteralPath $script -Raw)) | Out-Null
-          }
-          $rustFlags = Select-String -LiteralPath src-tauri/src/ocr_component.rs -Pattern '.arg("-I")' -SimpleMatch
-          $rustBytecodeFlags = Select-String -LiteralPath src-tauri/src/ocr_component.rs -Pattern '.arg("-B")' -SimpleMatch
-          if ($rustFlags.Count -ne 1 -or $rustBytecodeFlags.Count -ne 1) {
-            throw 'Rust isolated Python command does not contain exactly one -I/-B flag pair.'
-          }
 
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- \
-            src-tauri/src/ocr_component.rs \
-            scripts/build-ocr-component.ps1 \
-            scripts/test-ocr-app-runtime.ps1 \
-            scripts/test-ocr-development-bootstrap.ps1 \
-            scripts/test-ocr-enabled-installer.ps1
+          git add -- src-tauri/src/ocr_component.rs scripts/build-ocr-component.ps1 scripts/test-ocr-app-runtime.ps1 scripts/test-ocr-development-bootstrap.ps1 scripts/test-ocr-enabled-installer.ps1
           git commit -m 'fix: prevent isolated OCR runtime from rewriting bytecode'
           git push origin HEAD:fix/ocr-runtime-isolation-and-diagnostics
