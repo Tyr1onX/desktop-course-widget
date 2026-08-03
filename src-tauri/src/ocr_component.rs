@@ -1,15 +1,24 @@
 use std::{
-    collections::HashSet,
-    env, fs,
+    collections::{BTreeMap, HashMap, HashSet},
+    env,
+    ffi::{OsStr, OsString},
+    fs,
     io::Read,
     path::{Component, Path, PathBuf},
+    process::{Command, Stdio},
     sync::{Mutex, OnceLock},
-    time::{SystemTime, UNIX_EPOCH},
+    thread,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Manager};
+
+use crate::ocr_diagnostics::{self, DiagnosticEvidence};
 
 const OCR_PYTHON_ENV: &str = "COURSE_WIDGET_OCR_PYTHON";
 const OCR_REPO_ROOT_ENV: &str = "COURSE_WIDGET_OCR_REPO_ROOT";
@@ -20,13 +29,60 @@ const COMPONENT_STORAGE_DIR: &str = "ocr-component";
 const COMPONENT_MANIFEST_FILE: &str = "component.json";
 const COMPONENT_SCHEMA_VERSION: u8 = 1;
 const SUPPORTED_PLATFORM: &str = "windows-x86_64";
+const QUICK_PROBE_TIMEOUT: Duration = Duration::from_secs(45);
+const INITIALIZATION_PROBE_TIMEOUT: Duration = Duration::from_secs(4 * 60);
+const PYTHON_BOOTSTRAP: &str =
+    "import runpy,sys;root=sys.argv.pop(1);module=sys.argv.pop(1);sys.path.insert(0,root);runpy.run_module(module,run_name='__main__')";
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
 static VERIFIED_BUNDLED_COMPONENTS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+static QUICK_PROBE_SUCCESSES: OnceLock<Mutex<HashMap<String, OcrProbeReport>>> = OnceLock::new();
+static INITIALIZATION_PROBE_SUCCESSES: OnceLock<Mutex<HashMap<String, OcrProbeReport>>> =
+    OnceLock::new();
 
 #[derive(Debug, Clone)]
 pub struct RecognizerRuntime {
     pub python: PathBuf,
     pub module_root: PathBuf,
     pub model_cache: PathBuf,
+    pub component_version: Option<String>,
+    pub source: String,
+}
+
+impl RecognizerRuntime {
+    pub fn component_root(&self) -> Option<PathBuf> {
+        let python_root = self.python.parent()?;
+        let module_root = self.module_root.parent()?;
+        if python_root == module_root {
+            return Some(python_root.to_path_buf());
+        }
+        if python_root.parent() == Some(module_root) {
+            return Some(module_root.to_path_buf());
+        }
+        if module_root.parent() == Some(python_root) {
+            return Some(python_root.to_path_buf());
+        }
+        common_parent(&self.python, &self.module_root)
+    }
+
+    fn cache_key(&self, probe_level: &str) -> String {
+        format!(
+            "{probe_level}|{}|{}|{}",
+            self.component_version.as_deref().unwrap_or("development"),
+            self.source,
+            self.python.to_string_lossy()
+        )
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct OcrProbeReport {
+    pub ok: bool,
+    pub level: String,
+    #[serde(flatten)]
+    pub detail: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -37,6 +93,7 @@ pub struct OcrComponentStatus {
     pub source: Option<String>,
     pub message: String,
     pub can_prepare: bool,
+    pub diagnostic_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -45,6 +102,7 @@ pub enum OcrComponentState {
     Ready,
     Missing,
     Corrupt,
+    RuntimeFailed,
     Unavailable,
 }
 
@@ -71,63 +129,36 @@ struct OcrComponentFile {
     sha256: String,
 }
 
+#[derive(Debug)]
+struct ProbeFailure {
+    message: String,
+    diagnostic_id: String,
+}
+
+#[derive(Debug)]
+struct ProcessOutcome {
+    exit_code: Option<i32>,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+    timed_out: bool,
+}
+
 pub fn read_status(app: &AppHandle) -> OcrComponentStatus {
-    match resolve_configured_runtime() {
-        Ok(Some(_)) => return ready_status("configured", None),
-        Err(error) => return corrupt_status("configured", None, error, false),
-        Ok(None) => {}
-    }
-
-    if cfg!(debug_assertions) {
-        return match resolve_development_runtime() {
-            Ok(_) => ready_status("development", None),
-            Err(error) => OcrComponentStatus {
-                state: OcrComponentState::Missing,
-                component_version: None,
-                source: Some("development".into()),
-                message: error,
-                can_prepare: false,
-            },
-        };
-    }
-
-    let resource_root = match resource_root(app) {
-        Ok(path) => path,
-        Err(error) => return unavailable_status(error),
-    };
-    let manifest = match read_manifest(&resource_root.join(COMPONENT_MANIFEST_FILE)) {
+    let (runtime, can_prepare) = match resolve_runtime_for_status(app) {
         Ok(value) => value,
-        Err(error) => return unavailable_status(error),
+        Err(status) => return status,
     };
-    if let Err(error) = validate_manifest(&manifest) {
-        return unavailable_status(error);
-    }
-    if !manifest.available {
-        return unavailable_status(
-            "当前安装包尚未包含离线识别组件，请安装支持截图识别的版本。".into(),
-        );
-    }
-
-    let installed_root = match installed_version_root(app, &manifest.component_version) {
-        Ok(path) => path,
-        Err(error) => return unavailable_status(error),
-    };
-    if installed_root.exists() {
-        return match inspect_component_dir(&installed_root, &manifest) {
-            Ok(()) => ready_status("installed", Some(manifest.component_version)),
-            Err(_) => corrupt_status(
-                "installed",
-                Some(manifest.component_version),
-                "本地识别组件不完整或已损坏，可以重新准备并自动修复。".into(),
-                true,
-            ),
-        };
-    }
-
-    match inspect_component_dir(&resource_root, &manifest) {
-        Ok(()) => ready_status("bundled", Some(manifest.component_version)),
-        Err(_) => unavailable_status(
-            "安装包内的离线识别组件不完整，请重新下载安装课刻。".into(),
+    match ensure_quick_probe(app, &runtime) {
+        Ok(_) => ready_status(
+            &runtime.source,
+            runtime.component_version.clone(),
+            can_prepare,
+        ),
+        Err(failure) => runtime_failed_status(
+            &runtime.source,
+            runtime.component_version.clone(),
+            failure.message,
+            failure.diagnostic_id,
         ),
     }
 }
@@ -151,44 +182,585 @@ pub fn prepare(app: &AppHandle) -> Result<OcrComponentStatus, String> {
     install_component(&resource_root, &destination, &manifest)?;
     let status = read_status(app);
     if status.state != OcrComponentState::Ready {
-        return Err("本地识别组件准备完成后校验未通过".into());
+        return Err(status.message);
     }
     Ok(status)
 }
 
 pub fn resolve_runtime(app: &AppHandle) -> Result<RecognizerRuntime, String> {
-    if let Some(runtime) = resolve_configured_runtime()? {
-        return Ok(runtime);
+    let runtime_result = if let Some(runtime) = resolve_configured_runtime()
+        .map_err(|error| component_resolution_failure(app, "configured-runtime", error))?
+    {
+        Ok(runtime)
+    } else if cfg!(debug_assertions) {
+        resolve_development_runtime()
+    } else {
+        resolve_release_runtime(app, true)
+    };
+    let runtime = runtime_result
+        .map_err(|error| component_resolution_failure(app, "component-verification", error))?;
+    ensure_quick_probe(app, &runtime).map_err(|failure| {
+        ocr_diagnostics::user_error(
+            &failure.diagnostic_id,
+            "本地截图识别运行时检查失败。",
+            &failure.message,
+        )
+    })?;
+    Ok(runtime)
+}
+
+pub fn run_initialization_probe(app: &AppHandle) -> Result<OcrProbeReport, String> {
+    let runtime = resolve_runtime(app)?;
+    let key = runtime.cache_key("initialize");
+    if let Some(cached) = INITIALIZATION_PROBE_SUCCESSES
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .map_err(|_| "无法读取 OCR 初始化探针缓存".to_owned())?
+        .get(&key)
+        .cloned()
+    {
+        return Ok(cached);
     }
-    if cfg!(debug_assertions) {
-        return resolve_development_runtime();
+    let report = run_probe(
+        app,
+        &runtime,
+        "initialize",
+        &["initialize", "--inference"],
+        INITIALIZATION_PROBE_TIMEOUT,
+    )
+    .map_err(|failure| {
+        ocr_diagnostics::user_error(
+            &failure.diagnostic_id,
+            "本地截图识别模型初始化失败。",
+            &failure.message,
+        )
+    })?;
+    INITIALIZATION_PROBE_SUCCESSES
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .map_err(|_| "无法更新 OCR 初始化探针缓存".to_owned())?
+        .insert(key, report.clone());
+    Ok(report)
+}
+
+pub fn isolated_python_command(
+    runtime: &RecognizerRuntime,
+    module: &str,
+) -> Result<Command, String> {
+    fs::create_dir_all(runtime.model_cache.join("paddleocr"))
+        .map_err(|error| format!("无法准备 PaddleOCR 模型目录：{error}"))?;
+    fs::create_dir_all(runtime.model_cache.join("paddlex"))
+        .map_err(|error| format!("无法准备 PaddleX 模型目录：{error}"))?;
+
+    let inherited = env::vars_os().collect::<BTreeMap<_, _>>();
+    let environment = build_isolated_environment(runtime, &inherited)?;
+    let mut command = Command::new(&runtime.python);
+    command
+        .current_dir(&runtime.module_root)
+        .env_clear()
+        .envs(environment)
+        .arg("-I")
+        .arg("-c")
+        .arg(PYTHON_BOOTSTRAP)
+        .arg(&runtime.module_root)
+        .arg(module);
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    Ok(command)
+}
+
+fn resolve_runtime_for_status(
+    app: &AppHandle,
+) -> Result<(RecognizerRuntime, bool), OcrComponentStatus> {
+    match resolve_configured_runtime() {
+        Ok(Some(runtime)) => return Ok((runtime, false)),
+        Err(error) => return Err(corrupt_status("configured", None, error, false)),
+        Ok(None) => {}
     }
 
+    if cfg!(debug_assertions) {
+        return resolve_development_runtime()
+            .map(|runtime| (runtime, false))
+            .map_err(|error| OcrComponentStatus {
+                state: OcrComponentState::Missing,
+                component_version: None,
+                source: Some("development".into()),
+                message: error,
+                can_prepare: false,
+                diagnostic_id: None,
+            });
+    }
+
+    let resource_root = resource_root(app).map_err(|error| {
+        status_component_failure(
+            app,
+            None,
+            OcrComponentState::Unavailable,
+            "bundled",
+            None,
+            false,
+            "未找到安装包内的离线识别组件。",
+            error,
+        )
+    })?;
+    let manifest = read_manifest(&resource_root.join(COMPONENT_MANIFEST_FILE))
+        .and_then(|manifest| {
+            validate_manifest(&manifest)?;
+            Ok(manifest)
+        })
+        .map_err(|error| {
+            status_component_failure(
+                app,
+                None,
+                OcrComponentState::Unavailable,
+                "bundled",
+                None,
+                false,
+                "离线识别组件清单无效。",
+                error,
+            )
+        })?;
+    if !manifest.available {
+        return Err(unavailable_status(
+            "当前安装包尚未包含离线识别组件。".into(),
+        ));
+    }
+
+    let installed_root = installed_version_root(app, &manifest.component_version).map_err(|error| {
+        status_component_failure(
+            app,
+            None,
+            OcrComponentState::Unavailable,
+            "installed",
+            Some(manifest.component_version.clone()),
+            false,
+            "无法定位本地识别组件。",
+            error,
+        )
+    })?;
+    if installed_root.exists() {
+        let runtime = runtime_from_root(&installed_root, &manifest, "installed");
+        return inspect_component_dir(&installed_root, &manifest)
+            .map(|()| (runtime.clone(), false))
+            .map_err(|error| {
+                status_component_failure(
+                    app,
+                    Some(&runtime),
+                    OcrComponentState::Corrupt,
+                    "installed",
+                    Some(manifest.component_version),
+                    true,
+                    "本地识别组件不完整或已损坏，可以重新准备并自动修复。",
+                    error,
+                )
+            });
+    }
+
+    let runtime = runtime_from_root(&resource_root, &manifest, "bundled");
+    inspect_component_dir(&resource_root, &manifest)
+        .map(|()| (runtime.clone(), false))
+        .map_err(|error| {
+            status_component_failure(
+                app,
+                Some(&runtime),
+                OcrComponentState::Unavailable,
+                "bundled",
+                Some(manifest.component_version),
+                false,
+                "安装包内的离线识别组件不完整。",
+                error,
+            )
+        })
+}
+
+fn resolve_release_runtime(app: &AppHandle, verify_all: bool) -> Result<RecognizerRuntime, String> {
     let resource_root = resource_root(app)?;
     let manifest = read_manifest(&resource_root.join(COMPONENT_MANIFEST_FILE))?;
     validate_manifest(&manifest)?;
     if !manifest.available {
-        return Err("当前安装包尚未包含离线识别组件".into());
+        return Err("当前安装包尚未包含离线识别组件，请安装支持截图识别的版本。".into());
     }
+
     let installed_root = installed_version_root(app, &manifest.component_version)?;
     if installed_root.exists() {
-        verify_component_dir(&installed_root, &manifest)
-            .map_err(|_| "本地识别组件已损坏，请先重新准备".to_owned())?;
-        return Ok(runtime_from_root(&installed_root, &manifest));
+        if verify_all {
+            verify_component_dir(&installed_root, &manifest)
+                .map_err(|error| format!("installed component verification failed: {error}"))?;
+        } else {
+            inspect_component_dir(&installed_root, &manifest)?;
+        }
+        return Ok(runtime_from_root(&installed_root, &manifest, "installed"));
     }
 
-    verify_bundled_component(&resource_root, &manifest)
-        .map_err(|_| "安装包内的离线识别组件校验失败，请重新下载安装课刻".to_owned())?;
-    Ok(runtime_from_root(&resource_root, &manifest))
+    if verify_all {
+        verify_bundled_component(&resource_root, &manifest)
+            .map_err(|error| format!("bundled component verification failed: {error}"))?;
+    } else {
+        inspect_component_dir(&resource_root, &manifest)?;
+    }
+    Ok(runtime_from_root(&resource_root, &manifest, "bundled"))
 }
 
-fn ready_status(source: &str, component_version: Option<String>) -> OcrComponentStatus {
+fn ensure_quick_probe(
+    app: &AppHandle,
+    runtime: &RecognizerRuntime,
+) -> Result<OcrProbeReport, ProbeFailure> {
+    let key = runtime.cache_key("quick");
+    if let Ok(cache) = QUICK_PROBE_SUCCESSES
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+    {
+        if let Some(report) = cache.get(&key) {
+            return Ok(report.clone());
+        }
+    }
+    let report = run_probe(
+        app,
+        runtime,
+        "quick-probe",
+        &["quick"],
+        QUICK_PROBE_TIMEOUT,
+    )?;
+    if let Ok(mut cache) = QUICK_PROBE_SUCCESSES
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+    {
+        cache.insert(key, report.clone());
+    }
+    Ok(report)
+}
+
+fn run_probe(
+    app: &AppHandle,
+    runtime: &RecognizerRuntime,
+    stage: &str,
+    args: &[&str],
+    timeout: Duration,
+) -> Result<OcrProbeReport, ProbeFailure> {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let output_root = env::temp_dir().join(format!(
+        "course-widget-ocr-probe-{}-{nonce}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&output_root).map_err(|error| {
+        probe_setup_failure(
+            app,
+            runtime,
+            stage,
+            format!("could not create probe output directory: {error}"),
+        )
+    })?;
+    let stdout_path = output_root.join("stdout.log");
+    let stderr_path = output_root.join("stderr.log");
+    let stdout_file = fs::File::create(&stdout_path).map_err(|error| {
+        probe_setup_failure(
+            app,
+            runtime,
+            stage,
+            format!("could not create probe stdout: {error}"),
+        )
+    })?;
+    let stderr_file = fs::File::create(&stderr_path).map_err(|error| {
+        probe_setup_failure(
+            app,
+            runtime,
+            stage,
+            format!("could not create probe stderr: {error}"),
+        )
+    })?;
+
+    let mut command =
+        isolated_python_command(runtime, "experiments.screenshot_import.runtime_probe")
+            .map_err(|message| probe_setup_failure(app, runtime, stage, message))?;
+    command
+        .args(args)
+        .stdout(Stdio::from(stdout_file))
+        .stderr(Stdio::from(stderr_file));
+    let mut child = command.spawn().map_err(|error| {
+        probe_setup_failure(app, runtime, stage, format!("spawn failed: {error}"))
+    })?;
+    let (exit_code, timed_out) = wait_for_probe(&mut child, timeout).map_err(|message| {
+        probe_setup_failure(app, runtime, stage, message)
+    })?;
+    let outcome = ProcessOutcome {
+        exit_code,
+        stdout: fs::read(&stdout_path).unwrap_or_default(),
+        stderr: fs::read(&stderr_path).unwrap_or_default(),
+        timed_out,
+    };
+    let _ = fs::remove_dir_all(&output_root);
+
+    let report = parse_probe_report(&outcome.stdout);
+    if outcome.timed_out || outcome.exit_code != Some(0) || report.as_ref().is_err() {
+        let parsed_message = report
+            .as_ref()
+            .err()
+            .cloned()
+            .or_else(|| probe_message(&outcome.stdout))
+            .unwrap_or_else(|| "OCR runtime probe failed without a structured message".into());
+        let diagnostic_id = ocr_diagnostics::record(
+            app,
+            Some(runtime),
+            DiagnosticEvidence {
+                stage: stage.into(),
+                exit_code: outcome.exit_code,
+                stdout: outcome.stdout,
+                stderr: outcome.stderr,
+                timed_out: outcome.timed_out,
+                cancelled: false,
+                error_category: Some(if outcome.timed_out {
+                    "probe-timeout".into()
+                } else {
+                    "probe-failed".into()
+                }),
+                detail: Some(parsed_message.clone()),
+            },
+        );
+        return Err(ProbeFailure {
+            message: parsed_message,
+            diagnostic_id,
+        });
+    }
+    report.map_err(|message| probe_setup_failure(app, runtime, stage, message))
+}
+
+fn component_resolution_failure(app: &AppHandle, stage: &str, message: String) -> String {
+    let diagnostic_id = ocr_diagnostics::record(
+        app,
+        None,
+        DiagnosticEvidence {
+            stage: stage.into(),
+            error_category: Some("component-resolution".into()),
+            detail: Some(message.clone()),
+            ..DiagnosticEvidence::default()
+        },
+    );
+    ocr_diagnostics::user_error(
+        &diagnostic_id,
+        "本地截图识别组件检查失败。",
+        &message,
+    )
+}
+
+fn probe_setup_failure(
+    app: &AppHandle,
+    runtime: &RecognizerRuntime,
+    stage: &str,
+    message: String,
+) -> ProbeFailure {
+    let diagnostic_id = ocr_diagnostics::record(
+        app,
+        Some(runtime),
+        DiagnosticEvidence {
+            stage: stage.into(),
+            error_category: Some("probe-launch".into()),
+            detail: Some(message.clone()),
+            ..DiagnosticEvidence::default()
+        },
+    );
+    ProbeFailure {
+        message,
+        diagnostic_id,
+    }
+}
+
+fn parse_probe_report(stdout: &[u8]) -> Result<OcrProbeReport, String> {
+    let decoded = String::from_utf8_lossy(stdout);
+    for line in decoded.lines().rev() {
+        if let Ok(report) = serde_json::from_str::<OcrProbeReport>(line.trim()) {
+            if report.ok {
+                return Ok(report);
+            }
+            return Err(report
+                .detail
+                .get("message")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("OCR runtime probe returned a failure")
+                .to_owned());
+        }
+    }
+    Err("OCR runtime probe did not return structured JSON".into())
+}
+
+fn probe_message(stdout: &[u8]) -> Option<String> {
+    let decoded = String::from_utf8_lossy(stdout);
+    for line in decoded.lines().rev() {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(line.trim()) {
+            if let Some(message) = value.get("message").and_then(serde_json::Value::as_str) {
+                return Some(message.to_owned());
+            }
+        }
+    }
+    None
+}
+
+fn wait_for_probe(
+    child: &mut std::process::Child,
+    timeout: Duration,
+) -> Result<(Option<i32>, bool), String> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Some(status) = child
+            .try_wait()
+            .map_err(|error| format!("could not read probe status: {error}"))?
+        {
+            return Ok((status.code(), false));
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let status = child
+                .wait()
+                .map_err(|error| format!("could not wait for timed-out probe: {error}"))?;
+            return Ok((status.code(), true));
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+}
+
+fn build_isolated_environment(
+    runtime: &RecognizerRuntime,
+    inherited: &BTreeMap<OsString, OsString>,
+) -> Result<BTreeMap<OsString, OsString>, String> {
+    let python_root = runtime
+        .python
+        .parent()
+        .ok_or_else(|| "无法定位打包 Python 根目录".to_owned())?;
+    let mut values = BTreeMap::new();
+
+    for name in [
+        "SystemRoot",
+        "WINDIR",
+        "TEMP",
+        "TMP",
+        "USERPROFILE",
+        "LOCALAPPDATA",
+        "APPDATA",
+        "PROGRAMDATA",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "COMSPEC",
+        "PATHEXT",
+        "NUMBER_OF_PROCESSORS",
+        "PROCESSOR_ARCHITECTURE",
+        "PROCESSOR_IDENTIFIER",
+        "OS",
+    ] {
+        if let Some(value) = lookup_env(inherited, name) {
+            values.insert(OsString::from(name), value.to_os_string());
+        }
+    }
+
+    #[cfg(windows)]
+    let path_entries = {
+        let system_root = lookup_env(inherited, "SystemRoot")
+            .or_else(|| lookup_env(inherited, "WINDIR"))
+            .ok_or_else(|| "Windows OCR 子进程缺少 SystemRoot/WINDIR".to_owned())?;
+        vec![python_root.to_path_buf(), PathBuf::from(system_root).join("System32")]
+    };
+    #[cfg(not(windows))]
+    let path_entries = vec![python_root.to_path_buf(), PathBuf::from("/usr/bin")];
+
+    values.insert(
+        OsString::from("PATH"),
+        env::join_paths(path_entries)
+            .map_err(|error| format!("无法构建隔离 OCR PATH：{error}"))?,
+    );
+    values.insert(OsString::from("PYTHONNOUSERSITE"), OsString::from("1"));
+    values.insert(OsString::from("PYTHONDONTWRITEBYTECODE"), OsString::from("1"));
+    values.insert(OsString::from("PYTHONUTF8"), OsString::from("1"));
+    values.insert(
+        OsString::from("PYTHONIOENCODING"),
+        OsString::from("utf-8"),
+    );
+    values.insert(
+        OsString::from("PADDLE_PDX_MODEL_SOURCE"),
+        OsString::from("BOS"),
+    );
+    values.insert(
+        OsString::from("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"),
+        OsString::from("1"),
+    );
+    values.insert(
+        OsString::from("PADDLE_OCR_BASE_DIR"),
+        runtime.model_cache.join("paddleocr").into_os_string(),
+    );
+    values.insert(
+        OsString::from("PADDLE_PDX_CACHE_HOME"),
+        runtime.model_cache.join("paddlex").into_os_string(),
+    );
+    values.insert(OsString::from("OMP_NUM_THREADS"), OsString::from("2"));
+    values.insert(
+        OsString::from("HTTP_PROXY"),
+        OsString::from("http://127.0.0.1:9"),
+    );
+    values.insert(
+        OsString::from("HTTPS_PROXY"),
+        OsString::from("http://127.0.0.1:9"),
+    );
+    values.insert(
+        OsString::from("ALL_PROXY"),
+        OsString::from("http://127.0.0.1:9"),
+    );
+    values.insert(OsString::from("NO_PROXY"), OsString::new());
+    Ok(values)
+}
+
+fn lookup_env<'a>(
+    values: &'a BTreeMap<OsString, OsString>,
+    name: &str,
+) -> Option<&'a OsStr> {
+    values
+        .iter()
+        .find(|(key, _)| key.to_string_lossy().eq_ignore_ascii_case(name))
+        .map(|(_, value)| value.as_os_str())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn status_component_failure(
+    app: &AppHandle,
+    runtime: Option<&RecognizerRuntime>,
+    state: OcrComponentState,
+    source: &str,
+    component_version: Option<String>,
+    can_prepare: bool,
+    user_message: &str,
+    technical_detail: String,
+) -> OcrComponentStatus {
+    let diagnostic_id = ocr_diagnostics::record(
+        app,
+        runtime,
+        DiagnosticEvidence {
+            stage: "component-status".into(),
+            error_category: Some("component-status".into()),
+            detail: Some(technical_detail),
+            ..DiagnosticEvidence::default()
+        },
+    );
+    OcrComponentStatus {
+        state,
+        component_version,
+        source: Some(source.into()),
+        message: format!("{user_message} 诊断编号：{diagnostic_id}"),
+        can_prepare,
+        diagnostic_id: Some(diagnostic_id),
+    }
+}
+
+fn ready_status(
+    source: &str,
+    component_version: Option<String>,
+    can_prepare: bool,
+) -> OcrComponentStatus {
     OcrComponentStatus {
         state: OcrComponentState::Ready,
         component_version,
         source: Some(source.into()),
-        message: "本地识别组件已就绪，课表图片不会上传。".into(),
-        can_prepare: false,
+        message: "本地识别运行时已通过隔离导入检查，课表图片不会上传。".into(),
+        can_prepare,
+        diagnostic_id: None,
     }
 }
 
@@ -204,16 +776,34 @@ fn corrupt_status(
         source: Some(source.into()),
         message,
         can_prepare,
+        diagnostic_id: None,
     }
 }
 
-fn unavailable_status(message: String) -> OcrComponentStatus {
+fn runtime_failed_status(
+    source: &str,
+    component_version: Option<String>,
+    _message: String,
+    diagnostic_id: String,
+) -> OcrComponentStatus {
+    OcrComponentStatus {
+        state: OcrComponentState::RuntimeFailed,
+        component_version,
+        source: Some(source.into()),
+        message: format!("本地截图识别运行时检查失败。诊断编号：{diagnostic_id}"),
+        can_prepare: false,
+        diagnostic_id: Some(diagnostic_id),
+    }
+}
+
+pub fn unavailable_status(message: String) -> OcrComponentStatus {
     OcrComponentStatus {
         state: OcrComponentState::Unavailable,
         component_version: None,
         source: Some("bundled".into()),
         message,
         can_prepare: false,
+        diagnostic_id: None,
     }
 }
 
@@ -228,6 +818,8 @@ fn resolve_configured_runtime() -> Result<Option<RecognizerRuntime>, String> {
                 python,
                 model_cache: module_root.join(".tmp/screenshot-ocr-models"),
                 module_root,
+                component_version: None,
+                source: "configured".into(),
             }))
         }
         _ => Err(format!(
@@ -259,6 +851,8 @@ fn resolve_development_runtime() -> Result<RecognizerRuntime, String> {
         python,
         model_cache: module_root.join(".tmp/screenshot-ocr-models"),
         module_root,
+        component_version: None,
+        source: "development".into(),
     })
 }
 
@@ -272,11 +866,17 @@ fn validate_runtime_paths(python: &Path, module_root: &Path) -> Result<(), Strin
     Ok(())
 }
 
-fn runtime_from_root(root: &Path, manifest: &OcrComponentManifest) -> RecognizerRuntime {
+fn runtime_from_root(
+    root: &Path,
+    manifest: &OcrComponentManifest,
+    source: &str,
+) -> RecognizerRuntime {
     RecognizerRuntime {
         python: root.join(&manifest.python_relative_path),
         module_root: root.join(&manifest.module_root_relative_path),
         model_cache: root.join(&manifest.model_cache_relative_path),
+        component_version: Some(manifest.component_version.clone()),
+        source: source.into(),
     }
 }
 
@@ -299,9 +899,7 @@ fn resolve_resource_root_from_base(base: &Path) -> Result<PathBuf, String> {
     candidates
         .into_iter()
         .find(|candidate| candidate.join(COMPONENT_MANIFEST_FILE).is_file())
-        .ok_or_else(|| {
-            "当前安装包中未找到本地识别组件清单，请重新下载安装课刻。".to_owned()
-        })
+        .ok_or_else(|| "当前安装包中未找到本地识别组件清单。".to_owned())
 }
 
 fn component_storage_root(app: &AppHandle) -> Result<PathBuf, String> {
@@ -325,7 +923,7 @@ fn install_component(
     manifest: &OcrComponentManifest,
 ) -> Result<(), String> {
     verify_component_dir(resource_root, manifest)
-        .map_err(|_| "安装包内的识别组件校验失败，请重新下载安装课刻".to_owned())?;
+        .map_err(|_| "安装包内的识别组件校验失败".to_owned())?;
     let versions_root = destination
         .parent()
         .ok_or_else(|| "无法定位识别组件版本目录".to_owned())?;
@@ -352,8 +950,7 @@ fn install_component(
 }
 
 fn read_manifest(path: &Path) -> Result<OcrComponentManifest, String> {
-    let bytes = fs::read(path)
-        .map_err(|error| format!("无法读取本地识别组件清单：{error}"))?;
+    let bytes = fs::read(path).map_err(|error| format!("无法读取本地识别组件清单：{error}"))?;
     serde_json::from_slice(&bytes)
         .map_err(|error| format!("本地识别组件清单格式无效：{error}"))
 }
@@ -430,7 +1027,7 @@ fn inspect_component_dir(root: &Path, manifest: &OcrComponentManifest) -> Result
     if !manifest.available {
         return Err("本地识别组件不可用".into());
     }
-    let runtime = runtime_from_root(root, manifest);
+    let runtime = runtime_from_root(root, manifest, "inspection");
     validate_runtime_paths(&runtime.python, &runtime.module_root)?;
     if !runtime.model_cache.is_dir() {
         return Err("本地识别组件模型目录不存在".into());
@@ -490,7 +1087,7 @@ fn verify_component_dir(root: &Path, manifest: &OcrComponentManifest) -> Result<
             return Err(format!("本地识别组件文件校验失败：{}", expected.path));
         }
     }
-    let runtime = runtime_from_root(root, manifest);
+    let runtime = runtime_from_root(root, manifest, "verification");
     validate_runtime_paths(&runtime.python, &runtime.module_root)
 }
 
@@ -519,8 +1116,8 @@ fn install_from_resource(
 }
 
 fn sha256_file(path: &Path) -> Result<String, String> {
-    let mut file = fs::File::open(path)
-        .map_err(|error| format!("无法读取识别组件文件：{error}"))?;
+    let mut file =
+        fs::File::open(path).map_err(|error| format!("无法读取识别组件文件：{error}"))?;
     let mut hasher = Sha256::new();
     let mut buffer = [0_u8; 64 * 1024];
     loop {
@@ -551,6 +1148,24 @@ fn cleanup_other_versions(versions_root: &Path, active_version: &str) {
     }
 }
 
+fn common_parent(left: &Path, right: &Path) -> Option<PathBuf> {
+    let left_components = left.components().collect::<Vec<_>>();
+    let right_components = right.components().collect::<Vec<_>>();
+    let count = left_components
+        .iter()
+        .zip(&right_components)
+        .take_while(|(left, right)| left == right)
+        .count();
+    if count == 0 {
+        return None;
+    }
+    let mut path = PathBuf::new();
+    for component in &left_components[..count] {
+        path.push(component.as_os_str());
+    }
+    Some(path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -576,45 +1191,86 @@ mod tests {
         }
     }
 
+    fn test_runtime(root: &Path) -> RecognizerRuntime {
+        RecognizerRuntime {
+            python: root.join("python/python.exe"),
+            module_root: root.join("app"),
+            model_cache: root.join("models"),
+            component_version: Some("test-v1".into()),
+            source: "test".into(),
+        }
+    }
+
     #[test]
     fn rejects_absolute_and_parent_paths() {
         assert!(validate_relative_path("python/python.exe").is_ok());
         assert!(validate_relative_path("../python.exe").is_err());
-        assert!(validate_relative_path("C:\\python.exe").is_err());
+        assert!(validate_relative_path(r"C:\python.exe").is_err());
         assert!(validate_relative_path("python/./python.exe").is_err());
         assert!(validate_relative_path("python//python.exe").is_err());
-        assert!(validate_relative_path("python\\..\\python.exe").is_err());
-        assert!(validate_relative_path(".").is_err());
-        assert!(validate_relative_path("..").is_err());
+        assert!(validate_relative_path(r"python\..\python.exe").is_err());
     }
 
     #[test]
-    fn manifest_requires_the_python_entry() {
-        let result = validate_manifest(&manifest(vec![file_record("app/module.py", b"test")]));
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn manifest_accepts_empty_files() {
-        let result = validate_manifest(&manifest(vec![
+    fn manifest_accepts_empty_files_and_requires_python() {
+        let valid = manifest(vec![
             file_record("python/python.exe", b"python"),
             file_record("app/experiments/__init__.py", b""),
-        ]));
-        assert!(result.is_ok());
+        ]);
+        assert!(validate_manifest(&valid).is_ok());
+        assert!(validate_manifest(&manifest(vec![file_record("app/module.py", b"x")])).is_err());
     }
 
     #[test]
-    fn bundled_manifest_matches_runtime_validation() {
-        let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("resources")
-            .join(COMPONENT_RESOURCE_DIR)
-            .join(COMPONENT_MANIFEST_FILE);
-        let bundled_manifest = read_manifest(&manifest_path).unwrap();
-        validate_manifest(&bundled_manifest).unwrap();
+    fn isolated_environment_drops_python_conda_cuda_and_user_path() {
+        let root = env::temp_dir().join("course-widget-isolated-environment");
+        let runtime = test_runtime(&root);
+        let mut inherited = BTreeMap::new();
+        inherited.insert(OsString::from("SystemRoot"), OsString::from(r"C:\Windows"));
+        inherited.insert(
+            OsString::from("PATH"),
+            OsString::from(r"C:\fake-python;C:\conda;C:\cuda"),
+        );
+        inherited.insert(OsString::from("PYTHONHOME"), OsString::from(r"C:\bad"));
+        inherited.insert(OsString::from("PYTHONPATH"), OsString::from(r"C:\bad-site"));
+        inherited.insert(OsString::from("VIRTUAL_ENV"), OsString::from(r"C:\venv"));
+        inherited.insert(OsString::from("CONDA_PREFIX"), OsString::from(r"C:\conda"));
+        inherited.insert(OsString::from("CUDA_PATH"), OsString::from(r"C:\cuda"));
+
+        let isolated = build_isolated_environment(&runtime, &inherited).unwrap();
+        let keys = isolated
+            .keys()
+            .map(|key| key.to_string_lossy().to_ascii_uppercase())
+            .collect::<HashSet<_>>();
+        for polluted in [
+            "PYTHONHOME",
+            "PYTHONPATH",
+            "VIRTUAL_ENV",
+            "CONDA_PREFIX",
+            "CONDA_DEFAULT_ENV",
+            "CUDA_PATH",
+            "CUDA_HOME",
+            "PADDLE_HOME",
+            "LD_LIBRARY_PATH",
+        ] {
+            assert!(!keys.contains(polluted));
+        }
+        let path = isolated.get(OsStr::new("PATH")).unwrap().to_string_lossy();
+        assert!(path.contains("python"));
+        assert!(path.to_ascii_lowercase().contains("system32"));
+        assert!(!path.contains("fake-python"));
+        assert!(!path.contains("conda"));
+        assert!(!path.contains("cuda"));
     }
 
     #[test]
-    fn readiness_inspection_checks_only_required_runtime_paths() {
+    fn bootstrap_explicitly_inserts_module_root_under_isolated_mode() {
+        assert!(PYTHON_BOOTSTRAP.contains("sys.path.insert(0,root)"));
+        assert!(PYTHON_BOOTSTRAP.contains("runpy.run_module"));
+    }
+
+    #[test]
+    fn readiness_inspection_checks_required_runtime_paths() {
         let root = env::temp_dir().join(format!(
             "course-widget-ocr-inspection-test-{}",
             std::process::id()
@@ -652,10 +1308,7 @@ mod tests {
         fs::write(source.join("unlisted.txt"), b"ignore").unwrap();
         let manifest = manifest(vec![
             file_record("python/python.exe", b"python"),
-            file_record(
-                "app/experiments/screenshot_import/__init__.py",
-                b"",
-            ),
+            file_record("app/experiments/screenshot_import/__init__.py", b""),
         ]);
 
         install_from_resource(&source, &destination, &manifest).unwrap();

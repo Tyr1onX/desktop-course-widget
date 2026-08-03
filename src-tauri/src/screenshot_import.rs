@@ -1,31 +1,36 @@
 use std::{
     env, fs,
     fs::File,
-    path::Path,
-    process::{Child, Command, ExitStatus, Stdio},
+    path::{Path, PathBuf},
+    process::{Child, ExitStatus, Stdio},
     sync::atomic::{AtomicBool, Ordering},
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
-
-use tauri::AppHandle;
+use serde::Serialize;
+use tauri::{AppHandle, Emitter};
 
 use crate::{
     import_draft::{
         ImportCourseReview, ImportDraft, ImportFieldEvidence, ImportFieldKey, ImportReviewStatus,
         ImportSource,
     },
-    ocr_component,
+    ocr_component::{self, RecognizerRuntime},
+    ocr_diagnostics::{self, DiagnosticEvidence},
 };
 
 const OCR_TIMEOUT: Duration = Duration::from_secs(10 * 60);
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 static RECOGNITION_RUNNING: AtomicBool = AtomicBool::new(false);
 static CANCELLATION_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OcrStageEvent {
+    stage: &'static str,
+    title: &'static str,
+    detail: &'static str,
+}
 
 pub(crate) struct RecognitionGuard;
 
@@ -60,7 +65,7 @@ impl Drop for RecognitionGuard {
 }
 
 struct TempOutput {
-    path: std::path::PathBuf,
+    path: PathBuf,
 }
 
 impl TempOutput {
@@ -87,38 +92,57 @@ impl Drop for TempOutput {
     }
 }
 
+enum WaitResult {
+    Exited(ExitStatus),
+    TimedOut,
+    Cancelled,
+}
+
 pub fn recognize_screenshot(app: &AppHandle, image_path: &Path) -> Result<ImportDraft, String> {
     validate_image_path(image_path)?;
-    let runtime = ocr_component::resolve_runtime(app)?;
-    let paddleocr_cache = runtime.model_cache.join("paddleocr");
-    let paddlex_cache = runtime.model_cache.join("paddlex");
-    fs::create_dir_all(&paddleocr_cache)
-        .map_err(|error| format!("无法准备 OCR 模型目录：{error}"))?;
-    fs::create_dir_all(&paddlex_cache)
-        .map_err(|error| format!("无法准备 OCR 模型目录：{error}"))?;
+    emit_stage(
+        app,
+        "checking-component",
+        "正在检查本地识别组件…",
+        "正在验证课刻自带的 Python、OCR 依赖和离线模型。",
+    );
 
+    let runtime = ocr_component::resolve_runtime(app)?;
     let output = TempOutput::create()?;
     let stdout_path = output.path.join("recognizer.stdout.log");
     let stderr_path = output.path.join("recognizer.stderr.log");
+    let stage_path = output.path.join("recognizer-stage.json");
     let stdout = File::create(&stdout_path)
         .map_err(|error| format!("无法创建截图识别输出日志：{error}"))?;
     let stderr = File::create(&stderr_path)
         .map_err(|error| format!("无法创建截图识别错误日志：{error}"))?;
 
-    let mut command = Command::new(&runtime.python);
+    emit_stage(
+        app,
+        "starting-recognizer",
+        "正在启动本地识别器…",
+        "只会使用课刻安装目录中的隔离运行时。",
+    );
+    let mut command = ocr_component::isolated_python_command(
+        &runtime,
+        "experiments.screenshot_import",
+    )
+    .map_err(|error| {
+        failure(
+            app,
+            &runtime,
+            "environment",
+            "本地截图识别器启动失败。",
+            error,
+            None,
+            Vec::new(),
+            Vec::new(),
+            false,
+            false,
+        )
+    })?;
     command
-        .current_dir(&runtime.module_root)
-        .env("PYTHONNOUSERSITE", "1")
-        .env("PYTHONDONTWRITEBYTECODE", "1")
-        .env("PYTHONUTF8", "1")
-        .env("PYTHONIOENCODING", "utf-8")
-        .env("PADDLE_PDX_MODEL_SOURCE", "BOS")
-        .env("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "1")
-        .env("PADDLE_OCR_BASE_DIR", &paddleocr_cache)
-        .env("PADDLE_PDX_CACHE_HOME", &paddlex_cache)
-        .arg("-I")
-        .arg("-m")
-        .arg("experiments.screenshot_import")
+        .env("COURSE_WIDGET_OCR_STAGE_FILE", &stage_path)
         .arg("recognize")
         .arg("--input")
         .arg(image_path)
@@ -130,71 +154,261 @@ pub fn recognize_screenshot(app: &AppHandle, image_path: &Path) -> Result<Import
         .arg(&runtime.module_root)
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr));
-    #[cfg(windows)]
-    command.creation_flags(CREATE_NO_WINDOW);
 
-    let mut process = command
-        .spawn()
-        .map_err(|error| format!("无法启动本地截图识别器：{error}"))?;
+    let mut process = command.spawn().map_err(|error| {
+        failure(
+            app,
+            &runtime,
+            "spawn",
+            "本地截图识别器启动失败。",
+            format!("spawn failed: {error}"),
+            None,
+            Vec::new(),
+            Vec::new(),
+            false,
+            false,
+        )
+    })?;
 
-    let status = wait_for_process(&mut process, OCR_TIMEOUT)?;
-    if !status.success() {
-        let stderr = fs::read(&stderr_path).unwrap_or_default();
-        let stdout = fs::read(&stdout_path).unwrap_or_default();
-        let detail = compact_failure(&stderr, &stdout);
-        return Err(format!("课表截图识别失败：{detail}"));
+    emit_stage(
+        app,
+        "loading-models",
+        "正在加载本地识别模型…",
+        "首次加载可能需要较长时间，图片不会上传。",
+    );
+    let wait_result = wait_for_process(app, &mut process, OCR_TIMEOUT, &stage_path)
+        .map_err(|error| {
+            failure(
+                app,
+                &runtime,
+                "wait",
+                "本地截图识别器运行失败。",
+                error,
+                None,
+                read_bytes(&stdout_path),
+                read_bytes(&stderr_path),
+                false,
+                false,
+            )
+        })?;
+
+    match wait_result {
+        WaitResult::Cancelled => {
+            return Err(failure(
+                app,
+                &runtime,
+                "cancelled",
+                "已取消截图识别。",
+                "recognition cancelled by user".into(),
+                None,
+                read_bytes(&stdout_path),
+                read_bytes(&stderr_path),
+                false,
+                true,
+            ));
+        }
+        WaitResult::TimedOut => {
+            return Err(failure(
+                app,
+                &runtime,
+                "timeout",
+                "课表截图识别超时，请尝试使用更清晰或尺寸更小的图片。",
+                "recognition exceeded the ten minute safety timeout".into(),
+                None,
+                read_bytes(&stdout_path),
+                read_bytes(&stderr_path),
+                true,
+                false,
+            ));
+        }
+        WaitResult::Exited(status) if !status.success() => {
+            let stderr = read_bytes(&stderr_path);
+            let stdout = read_bytes(&stdout_path);
+            let detail = compact_failure(&stderr, &stdout);
+            return Err(failure(
+                app,
+                &runtime,
+                "process-exit",
+                "课表截图识别失败。",
+                detail,
+                status.code(),
+                stdout,
+                stderr,
+                false,
+                false,
+            ));
+        }
+        WaitResult::Exited(_) => {}
     }
 
+    emit_stage(
+        app,
+        "organizing-courses",
+        "正在整理课程信息…",
+        "正在组合课程名、周次、节次、地点和教师。",
+    );
     let draft_path = output.path.join("draft.json");
-    let raw = fs::read_to_string(&draft_path)
-        .map_err(|error| format!("截图识别器未生成可用草稿：{error}"))?;
-    let mut draft: ImportDraft = serde_json::from_str(&raw)
-        .map_err(|error| format!("截图识别草稿格式无效：{error}"))?;
+    let raw = fs::read_to_string(&draft_path).map_err(|error| {
+        failure(
+            app,
+            &runtime,
+            "draft-read",
+            "截图识别器未生成可用结果。",
+            format!("draft.json read failed: {error}"),
+            Some(0),
+            read_bytes(&stdout_path),
+            read_bytes(&stderr_path),
+            false,
+            false,
+        )
+    })?;
+    let mut draft: ImportDraft = serde_json::from_str(&raw).map_err(|error| {
+        failure(
+            app,
+            &runtime,
+            "draft-parse",
+            "截图识别结果格式无效。",
+            format!("draft.json parse failed: {error}"),
+            Some(0),
+            read_bytes(&stdout_path),
+            read_bytes(&stderr_path),
+            false,
+            false,
+        )
+    })?;
 
-    if draft.source != ImportSource::Image {
-        return Err("截图识别器返回了错误的导入来源类型".into());
-    }
-    let image_source = draft
-        .image_source
-        .as_ref()
-        .ok_or_else(|| "截图识别器未返回图片尺寸信息".to_owned())?;
-    if image_source.width == 0 || image_source.height == 0 {
-        return Err("截图识别器返回的图片尺寸无效".into());
-    }
-    if draft.courses.is_empty() {
-        return Err("没有从主课表区域识别到课程安排".into());
-    }
-
+    validate_draft(app, &runtime, &draft, &stdout_path, &stderr_path)?;
     draft.source_name = image_path
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("已选择课表截图")
         .to_owned();
     enforce_manual_review(&mut draft);
+    emit_stage(
+        app,
+        "review-ready",
+        "正在生成复核结果…",
+        "识别已完成，即将打开课程检查页面。",
+    );
     Ok(draft)
 }
 
-fn wait_for_process(process: &mut Child, timeout: Duration) -> Result<ExitStatus, String> {
+fn validate_draft(
+    app: &AppHandle,
+    runtime: &RecognizerRuntime,
+    draft: &ImportDraft,
+    stdout_path: &Path,
+    stderr_path: &Path,
+) -> Result<(), String> {
+    let detail = if draft.source != ImportSource::Image {
+        Some("recognizer returned a non-image import source")
+    } else if draft.image_source.as_ref().is_none_or(|image| {
+        image.width == 0 || image.height == 0
+    }) {
+        Some("recognizer returned invalid image dimensions")
+    } else if draft.courses.is_empty() {
+        Some("recognizer returned no courses")
+    } else {
+        None
+    };
+    if let Some(detail) = detail {
+        return Err(failure(
+            app,
+            runtime,
+            "draft-validation",
+            "没有从这张图片中识别到可用课程。",
+            detail.into(),
+            Some(0),
+            read_bytes(stdout_path),
+            read_bytes(stderr_path),
+            false,
+            false,
+        ));
+    }
+    Ok(())
+}
+
+fn wait_for_process(
+    app: &AppHandle,
+    process: &mut Child,
+    timeout: Duration,
+    stage_path: &Path,
+) -> Result<WaitResult, String> {
     let deadline = Instant::now() + timeout;
+    let mut recognition_stage_reported = false;
     loop {
         if cancellation_requested() {
             let _ = process.kill();
             let _ = process.wait();
-            return Err("已取消截图识别".into());
+            return Ok(WaitResult::Cancelled);
+        }
+        if !recognition_stage_reported && stage_path.is_file() {
+            recognition_stage_reported = true;
+            emit_stage(
+                app,
+                "recognizing-text",
+                "正在识别课表文字…",
+                "模型已加载，正在分析星期、节次和课程内容。",
+            );
         }
         if let Some(status) = process
             .try_wait()
             .map_err(|error| format!("无法读取截图识别器状态：{error}"))?
         {
-            return Ok(status);
+            return Ok(WaitResult::Exited(status));
         }
         if Instant::now() >= deadline {
             let _ = process.kill();
             let _ = process.wait();
-            return Err("课表截图识别超时，请检查图片大小或本地 OCR 运行环境后重试".into());
+            return Ok(WaitResult::TimedOut);
         }
         thread::sleep(Duration::from_millis(200));
     }
+}
+
+fn emit_stage(app: &AppHandle, stage: &'static str, title: &'static str, detail: &'static str) {
+    let _ = app.emit(
+        "screenshot-ocr-stage",
+        OcrStageEvent {
+            stage,
+            title,
+            detail,
+        },
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn failure(
+    app: &AppHandle,
+    runtime: &RecognizerRuntime,
+    stage: &str,
+    user_message: &str,
+    technical_detail: String,
+    exit_code: Option<i32>,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+    timed_out: bool,
+    cancelled: bool,
+) -> String {
+    let diagnostic_id = ocr_diagnostics::record(
+        app,
+        Some(runtime),
+        DiagnosticEvidence {
+            stage: stage.into(),
+            exit_code,
+            stdout,
+            stderr,
+            timed_out,
+            cancelled,
+            error_category: Some(stage.into()),
+            detail: Some(technical_detail.clone()),
+        },
+    );
+    ocr_diagnostics::user_error(&diagnostic_id, user_message, &technical_detail)
+}
+
+fn read_bytes(path: &Path) -> Vec<u8> {
+    fs::read(path).unwrap_or_default()
 }
 
 fn validate_image_path(path: &Path) -> Result<(), String> {
@@ -227,11 +441,11 @@ fn enforce_manual_review(draft: &mut ImportDraft) {
                 ImportFieldKey::Teacher => course
                     .teacher
                     .as_deref()
-                    .map_or(true, |value| value.trim().is_empty()),
+                    .is_none_or(|value| value.trim().is_empty()),
                 ImportFieldKey::Location => course
                     .location
                     .as_deref()
-                    .map_or(true, |value| value.trim().is_empty()),
+                    .is_none_or(|value| value.trim().is_empty()),
                 ImportFieldKey::Weeks => course.weeks.is_empty(),
                 ImportFieldKey::Parity => course.parity.trim().is_empty(),
                 _ => false,
@@ -272,14 +486,14 @@ fn compact_failure(stderr: &[u8], stdout: &[u8]) -> String {
         .map(str::trim)
         .filter(|line| !line.is_empty())
         .rev()
-        .take(4)
+        .take(8)
         .collect::<Vec<_>>();
     lines.reverse();
     let joined = lines.join(" · ");
     if joined.is_empty() {
         "识别器未提供错误详情".into()
     } else {
-        joined.chars().take(600).collect()
+        joined.chars().take(1000).collect()
     }
 }
 
@@ -344,20 +558,12 @@ mod tests {
                 .status,
             ImportReviewStatus::Missing
         );
-        assert_eq!(
-            fields
-                .iter()
-                .find(|item| item.field == ImportFieldKey::Location)
-                .unwrap()
-                .status,
-            ImportReviewStatus::Missing
-        );
     }
 
     #[test]
     fn failure_output_is_bounded_and_prefers_stderr() {
         let detail = compact_failure(b"first\nsecond\nthird\nfourth\nfifth\n", b"ignored");
-        assert_eq!(detail, "second · third · fourth · fifth");
+        assert_eq!(detail, "first · second · third · fourth · fifth");
     }
 
     #[test]

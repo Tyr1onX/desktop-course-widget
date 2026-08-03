@@ -3,12 +3,15 @@ mod data_transaction;
 pub mod excel_import;
 mod import_draft;
 mod ocr_component;
+mod ocr_diagnostics;
 mod schedule_apply;
 mod schedule_catalog;
 mod schedule_store;
 mod screenshot_import;
 
 use std::{
+    env, fs,
+    path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
     time::Duration,
 };
@@ -56,6 +59,19 @@ struct ApplyImportedScheduleResult {
     course_count: usize,
     missing_location_count: usize,
     warnings: Vec<String>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HeadlessOcrSmokeResult {
+    ok: bool,
+    run_count: usize,
+    course_count: usize,
+    error: Option<String>,
+    diagnostic_id: Option<String>,
+    diagnostic_summary: Option<String>,
+    component_status: Option<ocr_component::OcrComponentStatus>,
+    probe: Option<ocr_component::OcrProbeReport>,
 }
 
 fn position_is_visible(window: &tauri::WebviewWindow) -> tauri::Result<bool> {
@@ -347,8 +363,25 @@ fn save_lesson_times(
 }
 
 #[tauri::command]
-fn read_screenshot_ocr_component_status(app: AppHandle) -> ocr_component::OcrComponentStatus {
-    ocr_component::read_status(&app)
+async fn read_screenshot_ocr_component_status(
+    app: AppHandle,
+) -> ocr_component::OcrComponentStatus {
+    tauri::async_runtime::spawn_blocking(move || ocr_component::read_status(&app))
+        .await
+        .unwrap_or_else(|error| {
+            ocr_component::unavailable_status(format!(
+                "本地识别运行时检查任务异常结束：{error}"
+            ))
+        })
+}
+
+#[tauri::command]
+async fn probe_screenshot_ocr_runtime(
+    app: AppHandle,
+) -> Result<ocr_component::OcrProbeReport, String> {
+    tauri::async_runtime::spawn_blocking(move || ocr_component::run_initialization_probe(&app))
+        .await
+        .map_err(|error| format!("OCR 初始化探针任务异常结束：{error}"))?
 }
 
 #[tauri::command]
@@ -361,8 +394,29 @@ async fn prepare_screenshot_ocr_component(
 }
 
 #[tauri::command]
+fn read_screenshot_ocr_diagnostic(
+    app: AppHandle,
+    diagnostic_id: String,
+) -> Result<String, String> {
+    ocr_diagnostics::read_summary(&app, &diagnostic_id)
+}
+
+#[tauri::command]
 fn cancel_screenshot_recognition() -> bool {
     screenshot_import::cancel_recognition()
+}
+
+async fn parse_screenshot_path(
+    app: AppHandle,
+    path: PathBuf,
+) -> Result<import_draft::ImportDraft, String> {
+    let _recognition_guard = screenshot_import::begin_recognition()?;
+    let recognition_app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        screenshot_import::recognize_screenshot(&recognition_app, &path)
+    })
+    .await
+    .map_err(|error| format!("截图识别任务异常结束：{error}"))?
 }
 
 #[tauri::command]
@@ -382,14 +436,7 @@ async fn choose_and_parse_screenshot(
     let path = selected
         .into_path()
         .map_err(|_| "无法读取所选课表截图路径".to_owned())?;
-    let _recognition_guard = screenshot_import::begin_recognition()?;
-    let recognition_app = app.clone();
-    let draft = tauri::async_runtime::spawn_blocking(move || {
-        screenshot_import::recognize_screenshot(&recognition_app, &path)
-    })
-    .await
-    .map_err(|error| format!("截图识别任务异常结束：{error}"))??;
-    Ok(Some(draft))
+    Ok(Some(parse_screenshot_path(app, path).await?))
 }
 
 #[tauri::command]
@@ -476,6 +523,187 @@ fn apply_imported_schedule(
     })
 }
 
+fn diagnostic_id_from_error(error: &str) -> Option<String> {
+    let start = error.find("[OCR-DIAG:")? + "[OCR-DIAG:".len();
+    let end = error[start..].find(']')? + start;
+    let value = &error[start..end];
+    if value
+        .bytes()
+        .all(|item| item.is_ascii_uppercase() || item.is_ascii_digit() || item == b'-')
+    {
+        Some(value.to_owned())
+    } else {
+        None
+    }
+}
+
+fn headless_smoke_request() -> Option<(PathBuf, PathBuf, bool, usize)> {
+    let image = env::var_os("COURSE_WIDGET_OCR_APP_SMOKE_IMAGE").map(PathBuf::from)?;
+    let result = env::var_os("COURSE_WIDGET_OCR_APP_SMOKE_RESULT").map(PathBuf::from)?;
+    let initialize = env::var_os("COURSE_WIDGET_OCR_APP_SMOKE_INITIALIZE")
+        .is_some_and(|value| value.to_string_lossy() == "1");
+    let runs = env::var("COURSE_WIDGET_OCR_APP_SMOKE_RUNS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(1)
+        .clamp(1, 3);
+    Some((image, result, initialize, runs))
+}
+
+fn schedule_headless_ocr_smoke(
+    app: &tauri::App,
+    image: PathBuf,
+    result_path: PathBuf,
+    initialize: bool,
+    runs: usize,
+) {
+    let app_handle = app.handle().clone();
+    tauri::async_runtime::spawn(async move {
+        let status_app = app_handle.clone();
+        let component_status = match tauri::async_runtime::spawn_blocking(move || {
+            ocr_component::read_status(&status_app)
+        })
+        .await
+        {
+            Ok(status) if status.state == ocr_component::OcrComponentState::Ready => status,
+            Ok(status) => {
+                let result = HeadlessOcrSmokeResult {
+                    ok: false,
+                    run_count: 0,
+                    course_count: 0,
+                    error: Some(status.message.clone()),
+                    diagnostic_id: status.diagnostic_id.clone(),
+                    diagnostic_summary: status
+                        .diagnostic_id
+                        .as_deref()
+                        .and_then(|id| ocr_diagnostics::read_summary(&app_handle, id).ok()),
+                    component_status: Some(status),
+                    probe: None,
+                };
+                write_headless_result(&result_path, &result);
+                app_handle.exit(2);
+                return;
+            }
+            Err(error) => {
+                let result = HeadlessOcrSmokeResult {
+                    ok: false,
+                    run_count: 0,
+                    course_count: 0,
+                    diagnostic_id: None,
+                    diagnostic_summary: None,
+                    component_status: None,
+                    error: Some(format!("component status join failed: {error}")),
+                    probe: None,
+                };
+                write_headless_result(&result_path, &result);
+                app_handle.exit(2);
+                return;
+            }
+        };
+
+        let probe = if initialize {
+            let probe_app = app_handle.clone();
+            match tauri::async_runtime::spawn_blocking(move || {
+                ocr_component::run_initialization_probe(&probe_app)
+            })
+            .await
+            {
+                Ok(Ok(report)) => Some(report),
+                Ok(Err(error)) => {
+                    let diagnostic_id = diagnostic_id_from_error(&error);
+                    let result = HeadlessOcrSmokeResult {
+                        ok: false,
+                        run_count: 0,
+                        course_count: 0,
+                        diagnostic_summary: diagnostic_id
+                            .as_deref()
+                            .and_then(|id| ocr_diagnostics::read_summary(&app_handle, id).ok()),
+                        diagnostic_id,
+                        error: Some(error),
+                        component_status: Some(component_status.clone()),
+                        probe: None,
+                    };
+                    write_headless_result(&result_path, &result);
+                    app_handle.exit(2);
+                    return;
+                }
+                Err(error) => {
+                    let result = HeadlessOcrSmokeResult {
+                        ok: false,
+                        run_count: 0,
+                        course_count: 0,
+                        diagnostic_id: None,
+                        diagnostic_summary: None,
+                        error: Some(format!("initialization probe join failed: {error}")),
+                        component_status: Some(component_status.clone()),
+                        probe: None,
+                    };
+                    write_headless_result(&result_path, &result);
+                    app_handle.exit(2);
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+
+        let mut completed_runs = 0;
+        let mut last_course_count = 0;
+        let mut failure = None;
+        for _ in 0..runs {
+            match parse_screenshot_path(app_handle.clone(), image.clone()).await {
+                Ok(draft) => {
+                    completed_runs += 1;
+                    last_course_count = draft.courses.len();
+                }
+                Err(error) => {
+                    failure = Some(error);
+                    break;
+                }
+            }
+        }
+
+        let result = if let Some(error) = failure {
+            let diagnostic_id = diagnostic_id_from_error(&error);
+            HeadlessOcrSmokeResult {
+                ok: false,
+                run_count: completed_runs,
+                course_count: last_course_count,
+                diagnostic_summary: diagnostic_id
+                    .as_deref()
+                    .and_then(|id| ocr_diagnostics::read_summary(&app_handle, id).ok()),
+                diagnostic_id,
+                error: Some(error),
+                component_status: Some(component_status.clone()),
+                probe,
+            }
+        } else {
+            HeadlessOcrSmokeResult {
+                ok: completed_runs == runs && last_course_count > 0,
+                run_count: completed_runs,
+                course_count: last_course_count,
+                error: None,
+                diagnostic_id: None,
+                diagnostic_summary: None,
+                component_status: Some(component_status),
+                probe,
+            }
+        };
+        let exit_code = if result.ok { 0 } else { 2 };
+        write_headless_result(&result_path, &result);
+        app_handle.exit(exit_code);
+    });
+}
+
+fn write_headless_result(path: &Path, result: &HeadlessOcrSmokeResult) {
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if let Ok(bytes) = serde_json::to_vec_pretty(result) {
+        let _ = fs::write(path, bytes);
+    }
+}
+
 fn schedule_startup_safety_fallback(app: &tauri::App) {
     let app_handle = app.handle().clone();
 
@@ -555,6 +783,11 @@ pub fn run() {
         )
         .plugin(schedule_catalog::init())
         .setup(|app| {
+            if let Some((image, result, initialize, runs)) = headless_smoke_request() {
+                schedule_headless_ocr_smoke(app, image, result, initialize, runs);
+                return Ok(());
+            }
+
             if let Err(error) = data_transaction::recover_pending(app.handle()) {
                 return Err(std::io::Error::other(error).into());
             }
@@ -599,7 +832,9 @@ pub fn run() {
             save_lesson_times,
             choose_and_parse_excel,
             read_screenshot_ocr_component_status,
+            probe_screenshot_ocr_runtime,
             prepare_screenshot_ocr_component,
+            read_screenshot_ocr_diagnostic,
             cancel_screenshot_recognition,
             choose_and_parse_screenshot,
             apply_imported_schedule,
