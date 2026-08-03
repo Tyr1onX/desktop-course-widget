@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import json
 import platform
-import subprocess
 import sys
 from pathlib import Path
 
@@ -34,8 +33,9 @@ def main() -> int:
     import numpy
     import paddle
     import paddleocr
-    from PIL import Image
+    from PIL import Image, ImageOps
 
+    from experiments.screenshot_import.cli import main as screenshot_import_main
     from experiments.screenshot_import.models import PixelBox
     from experiments.screenshot_import.paddle_cpu import WindowsCpuPaddleOcrEngine
     from experiments.screenshot_import.synthetic_chinese_corpus import (
@@ -60,9 +60,15 @@ def main() -> int:
     if args.inference:
         sample = generate_chinese_timetable_sample(output / "sample", "mobile_cards_12")
         sample_image = Path(sample["image"]).resolve()
-        image = cv2.imread(str(sample_image), cv2.IMREAD_COLOR)
-        if image is None:
-            raise RuntimeError("portable OCR smoke sample could not be decoded")
+        try:
+            with Image.open(sample_image) as source:
+                rgb = numpy.asarray(ImageOps.exif_transpose(source).convert("RGB"))
+                sample_size = list(source.size)
+        except Exception as error:
+            raise RuntimeError(
+                f"portable OCR smoke sample could not be decoded: {error}"
+            ) from error
+        image = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
         height, width = image.shape[:2]
         engine = WindowsCpuPaddleOcrEngine()
         tokens = engine.recognize(
@@ -76,12 +82,8 @@ def main() -> int:
             )
 
         cli_output = output / "production-cli"
-        completed = subprocess.run(
+        cli_exit_code = screenshot_import_main(
             [
-                sys.executable,
-                "-I",
-                "-m",
-                "experiments.screenshot_import",
                 "recognize",
                 "--input",
                 str(sample_image),
@@ -91,19 +93,11 @@ def main() -> int:
                 "paddle",
                 "--repo-root",
                 str(module_root),
-            ],
-            cwd=module_root,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
+            ]
         )
-        if completed.returncode != 0:
-            detail = (completed.stderr or completed.stdout).strip()[-2000:]
+        if cli_exit_code != 0:
             raise RuntimeError(
-                "production screenshot import command exited with "
-                f"{completed.returncode}: {detail}"
+                f"production screenshot import command exited with {cli_exit_code}"
             )
         draft_path = cli_output / "draft.json"
         if not draft_path.is_file():
@@ -113,14 +107,13 @@ def main() -> int:
         if not isinstance(courses, list) or not courses:
             raise RuntimeError("production screenshot import command returned no courses")
 
-        with Image.open(sample_image) as generated:
-            report["sampleSize"] = list(generated.size)
+        report["sampleSize"] = sample_size
         report["sampleImage"] = str(sample_image)
         report["tokenCount"] = len(visible)
         report["tokenPreview"] = visible[:12]
         report["engine"] = engine.version_info()
         report["runtime"] = engine.runtime_info()
-        report["productionCliExitCode"] = completed.returncode
+        report["productionCliExitCode"] = cli_exit_code
         report["productionCliCourseCount"] = len(courses)
         report["productionDraft"] = str(draft_path)
 
