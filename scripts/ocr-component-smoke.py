@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import platform
+import subprocess
 import sys
 from pathlib import Path
 
@@ -35,7 +36,6 @@ def main() -> int:
     import paddleocr
     from PIL import Image
 
-    from experiments.screenshot_import.cli import main as screenshot_import_main
     from experiments.screenshot_import.models import PixelBox
     from experiments.screenshot_import.paddle_cpu import WindowsCpuPaddleOcrEngine
     from experiments.screenshot_import.synthetic_chinese_corpus import (
@@ -76,8 +76,12 @@ def main() -> int:
             )
 
         cli_output = output / "production-cli"
-        cli_exit_code = screenshot_import_main(
+        completed = subprocess.run(
             [
+                sys.executable,
+                "-I",
+                "-m",
+                "experiments.screenshot_import",
                 "recognize",
                 "--input",
                 str(sample_image),
@@ -87,11 +91,19 @@ def main() -> int:
                 "paddle",
                 "--repo-root",
                 str(module_root),
-            ]
+            ],
+            cwd=module_root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
         )
-        if cli_exit_code != 0:
+        if completed.returncode != 0:
+            detail = (completed.stderr or completed.stdout).strip()[-2000:]
             raise RuntimeError(
-                f"production screenshot import command exited with {cli_exit_code}"
+                "production screenshot import command exited with "
+                f"{completed.returncode}: {detail}"
             )
         draft_path = cli_output / "draft.json"
         if not draft_path.is_file():
@@ -108,7 +120,7 @@ def main() -> int:
         report["tokenPreview"] = visible[:12]
         report["engine"] = engine.version_info()
         report["runtime"] = engine.runtime_info()
-        report["productionCliExitCode"] = cli_exit_code
+        report["productionCliExitCode"] = completed.returncode
         report["productionCliCourseCount"] = len(courses)
         report["productionDraft"] = str(draft_path)
 
