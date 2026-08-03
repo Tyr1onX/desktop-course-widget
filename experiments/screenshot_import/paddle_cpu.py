@@ -20,7 +20,7 @@ class WindowsCpuPaddleOcrEngine(PaddleOcrEngine):
         *,
         language: str = "ch",
         device: str = "cpu",
-        cpu_threads: int = 8,
+        cpu_threads: int = 2,
     ) -> None:
         try:
             from paddleocr import PaddleOCR
