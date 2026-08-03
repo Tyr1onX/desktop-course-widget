@@ -4,8 +4,7 @@ on:
   push:
     branches:
       - fix/ocr-runtime-isolation-and-diagnostics
-    paths:
-      - '.github/workflows/apply-ocr-fix-payload.yml'
+      - feat/release-ocr-component-foundation
 
 permissions:
   contents: write
