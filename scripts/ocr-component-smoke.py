@@ -34,6 +34,7 @@ def main() -> int:
     import paddleocr
     from PIL import Image
 
+    from experiments.screenshot_import.cli import main as screenshot_import_main
     from experiments.screenshot_import.models import PixelBox
     from experiments.screenshot_import.paddle_cpu import WindowsCpuPaddleOcrEngine
     from experiments.screenshot_import.synthetic_chinese_corpus import (
@@ -55,11 +56,12 @@ def main() -> int:
 
     if args.inference:
         sample = generate_chinese_timetable_sample(output / "sample", "mobile_cards_12")
-        image = cv2.imread(str(sample["image"]), cv2.IMREAD_COLOR)
+        sample_image = Path(sample["image"]).resolve()
+        image = cv2.imread(str(sample_image), cv2.IMREAD_COLOR)
         if image is None:
             raise RuntimeError("portable OCR smoke sample could not be decoded")
         height, width = image.shape[:2]
-        engine = WindowsCpuPaddleOcrEngine(cpu_threads=2)
+        engine = WindowsCpuPaddleOcrEngine()
         tokens = engine.recognize(
             image,
             PixelBox(x=0.0, y=0.0, width=float(width), height=float(height)),
@@ -69,12 +71,43 @@ def main() -> int:
             raise RuntimeError(
                 f"portable OCR inference returned too few text tokens: {visible!r}"
             )
-        with Image.open(sample["image"]) as generated:
+
+        cli_output = output / "production-cli"
+        cli_exit_code = screenshot_import_main(
+            [
+                "recognize",
+                "--input",
+                str(sample_image),
+                "--output",
+                str(cli_output),
+                "--engine",
+                "paddle",
+                "--repo-root",
+                str(Path(__file__).resolve().parents[1]),
+            ]
+        )
+        if cli_exit_code != 0:
+            raise RuntimeError(
+                f"production screenshot import command exited with {cli_exit_code}"
+            )
+        draft_path = cli_output / "draft.json"
+        if not draft_path.is_file():
+            raise RuntimeError("production screenshot import command did not write draft.json")
+        draft = json.loads(draft_path.read_text(encoding="utf-8"))
+        courses = draft.get("courses")
+        if not isinstance(courses, list) or not courses:
+            raise RuntimeError("production screenshot import command returned no courses")
+
+        with Image.open(sample_image) as generated:
             report["sampleSize"] = list(generated.size)
+        report["sampleImage"] = str(sample_image)
         report["tokenCount"] = len(visible)
         report["tokenPreview"] = visible[:12]
         report["engine"] = engine.version_info()
         report["runtime"] = engine.runtime_info()
+        report["productionCliExitCode"] = cli_exit_code
+        report["productionCliCourseCount"] = len(courses)
+        report["productionDraft"] = str(draft_path)
 
     rendered = json.dumps(report, ensure_ascii=False, indent=2)
     (output / "portable-ocr-smoke.json").write_text(rendered, encoding="utf-8")
