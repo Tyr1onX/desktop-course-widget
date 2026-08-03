@@ -50,11 +50,56 @@ function Set-ResourceFilesReadOnly {
   }
 }
 
+function Get-RegisteredInstallRoot {
+  $subKeyPath = 'Software\Tyr1onX\课刻'
+  foreach ($hive in @(
+    [Microsoft.Win32.RegistryHive]::CurrentUser,
+    [Microsoft.Win32.RegistryHive]::LocalMachine
+  )) {
+    foreach ($view in @(
+      [Microsoft.Win32.RegistryView]::Registry64,
+      [Microsoft.Win32.RegistryView]::Registry32
+    )) {
+      $baseKey = [Microsoft.Win32.RegistryKey]::OpenBaseKey($hive, $view)
+      try {
+        $productKey = $baseKey.OpenSubKey($subKeyPath)
+        if ($productKey) {
+          try {
+            $value = $productKey.GetValue('')
+            if ($value) {
+              return [string]$value
+            }
+          } finally {
+            $productKey.Dispose()
+          }
+        }
+      } finally {
+        $baseKey.Dispose()
+      }
+    }
+  }
+  return $null
+}
+
+function Wait-ForRegisteredInstallRoot {
+  param([int]$TimeoutSeconds = 120)
+
+  $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+  while ([DateTime]::UtcNow -lt $deadline) {
+    $registeredRoot = Get-RegisteredInstallRoot
+    if ($registeredRoot -and (Test-Path -LiteralPath $registeredRoot -PathType Container)) {
+      return [IO.Path]::GetFullPath($registeredRoot)
+    }
+    Start-Sleep -Seconds 1
+  }
+  throw 'The NSIS installer exited without registering a usable installation directory.'
+}
+
 function Wait-ForInstalledComponent {
   param(
     [Parameter(Mandatory = $true)][string]$Root,
     [Parameter(Mandatory = $true)][string]$ManifestPath,
-    [int]$TimeoutSeconds = 600
+    [int]$TimeoutSeconds = 180
   )
 
   $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
@@ -90,7 +135,7 @@ function Wait-ForInstalledComponent {
 
     if ([DateTime]::UtcNow -ge $nextProgressAt) {
       $observedCount = @(Get-ChildItem -LiteralPath $Root -Recurse -File -ErrorAction SilentlyContinue).Count
-      Write-Host "Waiting for NSIS child extraction: $observedCount OCR resource files currently visible"
+      Write-Host "Waiting for installed OCR resources: $observedCount files currently visible"
       $nextProgressAt = [DateTime]::UtcNow.AddSeconds(30)
     }
     Start-Sleep -Seconds 1
@@ -108,10 +153,12 @@ if (-not (Test-Path -LiteralPath $InstallerPath -PathType Leaf)) {
   throw "Installer not found: $InstallerPath"
 }
 
-$InstallRoot = Join-Path $WorkingRoot 'install'
+$RequestedInstallRoot = Join-Path $WorkingRoot 'install'
 $SmokeRoot = Join-Path $WorkingRoot 'smoke'
+[string]$InstallRoot = ''
 [string]$ResourceRoot = ''
 $ResourcesReadOnly = $false
+$UninstallCompleted = $false
 $OriginalEnvironment = @{
   PATH = $env:PATH
   PYTHONHOME = $env:PYTHONHOME
@@ -130,17 +177,25 @@ $OriginalEnvironment = @{
 }
 
 try {
-  Remove-Item -LiteralPath $WorkingRoot -Recurse -Force -ErrorAction SilentlyContinue
-  New-Item -ItemType Directory -Force -Path $InstallRoot, $SmokeRoot | Out-Null
+  $existingInstallRoot = Get-RegisteredInstallRoot
+  if ($existingInstallRoot) {
+    throw "The installer smoke test requires a clean machine, but an existing 课刻 installation is registered at $existingInstallRoot"
+  }
 
-  # NSIS requires /D to be the final argument and does not accept quotes around its value.
-  Invoke-Checked -FilePath $InstallerPath -ArgumentList @('/S', "/D=$InstallRoot")
+  Remove-Item -LiteralPath $WorkingRoot -Recurse -Force -ErrorAction SilentlyContinue
+  New-Item -ItemType Directory -Force -Path $RequestedInstallRoot, $SmokeRoot | Out-Null
+
+  # NSIS accepts /D only as the final argument. Tauri records the authoritative $INSTDIR in its
+  # publisher/product registry key, so read that value after installation instead of assuming the
+  # requested directory was honored by every NSIS execution path.
+  Invoke-Checked -FilePath $InstallerPath -ArgumentList @('/S', "/D=$RequestedInstallRoot")
+  $InstallRoot = Wait-ForRegisteredInstallRoot
+  Write-Host "NSIS registered install root: $InstallRoot"
 
   $ResourceRoot = Join-Path $InstallRoot 'resources/ocr-component'
   $manifestPath = Join-Path $ResourceRoot 'component.json'
-  # Tauri's NSIS elevation/installer process can return before its child has finished copying the
-  # large resource payload. Treat installation as complete only after every manifest-listed file
-  # exists at its declared size; otherwise the smoke test can race a valid installation.
+  # Treat installation as complete only after every manifest-listed file exists at its declared
+  # size. This protects the smoke test from both asynchronous extraction and partial installations.
   $manifest = Wait-ForInstalledComponent -Root $ResourceRoot -ManifestPath $manifestPath
   $manifestFile = Get-Item -LiteralPath $manifestPath
   if ($manifest.available -ne $true) {
@@ -233,7 +288,7 @@ try {
   }
   Invoke-Checked -FilePath $uninstaller.FullName -ArgumentList @('/S')
 
-  $uninstallDeadline = [DateTime]::UtcNow.AddSeconds(30)
+  $uninstallDeadline = [DateTime]::UtcNow.AddSeconds(60)
   while ((Test-Path -LiteralPath $portablePython -PathType Leaf) -and [DateTime]::UtcNow -lt $uninstallDeadline) {
     Start-Sleep -Milliseconds 500
   }
@@ -243,6 +298,7 @@ try {
   if (Test-Path -LiteralPath $manifestFile.FullName -PathType Leaf) {
     throw "Uninstaller left the OCR component manifest behind: $($manifestFile.FullName)"
   }
+  $UninstallCompleted = $true
 
   Write-Host "Installed OCR resource root: $ResourceRoot"
   Write-Host "Installed component version: $($manifest.componentVersion)"
@@ -255,6 +311,20 @@ try {
   if ($ResourcesReadOnly -and $ResourceRoot -and (Test-Path -LiteralPath $ResourceRoot)) {
     Set-ResourceFilesReadOnly -Root $ResourceRoot -ReadOnly $false
   }
+
+  if (-not $UninstallCompleted -and $InstallRoot -and (Test-Path -LiteralPath $InstallRoot)) {
+    $fallbackUninstaller = Get-ChildItem -LiteralPath $InstallRoot -Recurse -File -ErrorAction SilentlyContinue |
+      Where-Object { $_.Name -match '^(uninstall|unins.*)\.exe$' } |
+      Select-Object -First 1
+    if ($fallbackUninstaller) {
+      try {
+        Invoke-Checked -FilePath $fallbackUninstaller.FullName -ArgumentList @('/S')
+      } catch {
+        Write-Warning "Fallback uninstall failed: $($_.Exception.Message)"
+      }
+    }
+  }
+
   foreach ($name in $OriginalEnvironment.Keys) {
     $value = $OriginalEnvironment[$name]
     if ($null -eq $value) {
