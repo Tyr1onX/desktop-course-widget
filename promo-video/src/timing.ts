@@ -6,12 +6,13 @@ export const VIDEO = {
 } as const;
 
 export const BEATS = {
-  lightAppears: 8,
-  orbitStarts: 18,
-  stripStarts: 42,
-  echoesStart: 65,
-  iconLocks: 108,
-  titleStarts: 123,
+  lightAppears: 7,
+  orbitStarts: 16,
+  stripStarts: 37,
+  echoesStart: 57,
+  convergeStarts: 73,
+  iconLocks: 121,
+  titleStarts: 126,
 } as const;
 
 export const PALETTE = {
