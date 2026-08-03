@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   isFirstWeekMonday,
+  screenshotImportDiagnosticId,
   screenshotImportErrorText,
   screenshotImportLessonCount,
 } from '../src/screenshot-import-policy.ts'
@@ -41,10 +42,10 @@ test('maps noisy OCR no-course output to a concise user message', () => {
   assert.equal(message.includes('Paddle'), false)
 })
 
-test('maps common runtime failures without exposing implementation details', () => {
+test('maps runtime failures without suggesting reinstall or restart', () => {
   assert.equal(
     screenshotImportErrorText('PaddleOCR is not installed'),
-    '本地截图识别器启动失败，请稍后重试；无需重新安装或重启应用。',
+    '本地截图识别运行时检查失败。',
   )
   assert.equal(
     screenshotImportErrorText({ detail: 'operation timed out while invoking python.exe' }),
@@ -56,10 +57,27 @@ test('maps common runtime failures without exposing implementation details', () 
   )
 })
 
+test('preserves a copyable diagnostic identifier while hiding release details', () => {
+  const error = '本地截图识别器启动失败。 [OCR-DIAG:OCR-ABC-123] spawn failed at C:\\Users\\alice\\python.exe'
+  assert.equal(screenshotImportDiagnosticId(error), 'OCR-ABC-123')
+  assert.equal(
+    screenshotImportErrorText(error),
+    '课表截图识别失败。 诊断编号：OCR-ABC-123',
+  )
+})
+
+test('keeps explicit development details only when the backend supplies them', () => {
+  const message = screenshotImportErrorText(
+    '本地截图识别器启动失败。 [OCR-DIAG:OCR-DEV-1] DEV_OCR_DETAIL:ImportError: DLL load failed',
+  )
+  assert.match(message, /诊断编号：OCR-DEV-1/)
+  assert.match(message, /开发诊断：ImportError: DLL load failed/)
+})
+
 test('hides unknown technical diagnostics and keeps harmless short messages', () => {
   assert.equal(
     screenshotImportErrorText('warnings.warn: model cache at C:\\Users\\name\\.paddlex'),
-    '课表截图识别失败，请稍后重试。',
+    '课表截图识别失败。',
   )
   assert.equal(screenshotImportErrorText('保存失败，请重试'), '保存失败，请重试')
   assert.equal(screenshotImportErrorText({ unknown: true }), '操作失败，请稍后重试。')
