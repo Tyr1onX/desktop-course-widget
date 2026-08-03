@@ -1,4 +1,11 @@
-import {Easing, interpolate, spring, useCurrentFrame, useVideoConfig} from 'remotion';
+import {
+  Easing,
+  interpolate,
+  spring,
+  staticFile,
+  useCurrentFrame,
+  useVideoConfig,
+} from 'remotion';
 import {BEATS, PALETTE} from '../timing';
 
 const clamp = {
@@ -12,151 +19,291 @@ const progress = (frame: number, start: number, end: number) =>
     easing: Easing.bezier(0.22, 1, 0.36, 1),
   });
 
-const orbitPoint = (value: number, radiusX: number, radiusY: number) => {
-  const angle = (-155 + value * 330) * (Math.PI / 180);
+type Point = {x: number; y: number};
+
+const cubicPoint = (
+  value: number,
+  start: Point,
+  controlOne: Point,
+  controlTwo: Point,
+  end: Point,
+): Point => {
+  const t = Math.max(0, Math.min(1, value));
+  const inverse = 1 - t;
+
   return {
-    x: 280 + Math.cos(angle) * radiusX,
-    y: 280 + Math.sin(angle) * radiusY,
+    x:
+      inverse ** 3 * start.x +
+      3 * inverse ** 2 * t * controlOne.x +
+      3 * inverse * t ** 2 * controlTwo.x +
+      t ** 3 * end.x,
+    y:
+      inverse ** 3 * start.y +
+      3 * inverse ** 2 * t * controlOne.y +
+      3 * inverse * t ** 2 * controlTwo.y +
+      t ** 3 * end.y,
   };
 };
+
+const OFFICIAL_ICON = staticFile('course-icon.png');
+
+const OUTER_ORBIT =
+  'M 14 315 C 58 158 260 28 430 55 C 490 64 517 98 503 152';
+const INNER_ORBIT =
+  'M 104 338 C 112 222 248 112 390 99 C 452 93 498 111 510 158';
+const LOWER_ORBIT =
+  'M 34 386 C 117 486 316 503 450 414 C 496 383 518 338 501 291';
+const RIBBON_CENTER =
+  'M 4 356 C 55 304 98 367 148 420 C 194 469 253 454 305 389 C 360 319 414 218 516 139';
 
 export const CourseMark = () => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
 
-  const appear = progress(frame, BEATS.lightAppears, BEATS.lightAppears + 14);
-  const orbit = progress(frame, BEATS.orbitStarts, BEATS.iconLocks - 12);
-  const innerOrbit = progress(frame, BEATS.orbitStarts + 12, BEATS.iconLocks - 4);
-  const strip = progress(frame, BEATS.stripStarts, BEATS.stripStarts + 30);
+  const background = progress(frame, BEATS.lightAppears - 3, BEATS.orbitStarts + 8);
+  const outerOrbit = progress(frame, BEATS.orbitStarts, BEATS.iconLocks - 25);
+  const innerOrbit = progress(frame, BEATS.orbitStarts + 11, BEATS.iconLocks - 17);
+  const lowerOrbit = progress(frame, BEATS.orbitStarts + 26, BEATS.iconLocks - 8);
+  const ribbon = progress(frame, BEATS.stripStarts, BEATS.iconLocks - 12);
+  const lights = progress(frame, BEATS.lightAppears + 8, BEATS.iconLocks - 4);
+  const completion = progress(frame, BEATS.iconLocks - 6, BEATS.iconLocks + 12);
+
   const settle = spring({
-    frame: frame - BEATS.iconLocks,
+    frame: Math.max(0, frame - BEATS.iconLocks),
     fps,
-    config: {damping: 18, stiffness: 115, mass: 0.8},
+    config: {damping: 20, stiffness: 105, mass: 0.85},
     durationInFrames: 24,
   });
 
-  const mainPoint = orbitPoint(orbit, 193, 150);
-  const secondaryProgress = Math.max(0, orbit - 0.19);
-  const secondaryPoint = orbitPoint(secondaryProgress, 151, 112);
-
-  const markScale = interpolate(settle, [0, 1], [0.985, 1]);
-  const stripWidth = interpolate(strip, [0, 1], [8, 238]);
-  const stripHeight = interpolate(strip, [0, 1], [4, 74]);
-  const stripRadius = interpolate(strip, [0, 1], [2, 28]);
-
-  const echoOne = progress(frame, BEATS.echoesStart, BEATS.echoesStart + 15) *
+  const echoOne =
+    progress(frame, BEATS.echoesStart, BEATS.echoesStart + 14) *
     (1 - progress(frame, BEATS.echoesStart + 18, BEATS.echoesStart + 34));
-  const echoTwo = progress(frame, BEATS.echoesStart + 8, BEATS.echoesStart + 23) *
+  const echoTwo =
+    progress(frame, BEATS.echoesStart + 8, BEATS.echoesStart + 22) *
     (1 - progress(frame, BEATS.echoesStart + 27, BEATS.echoesStart + 42));
+
+  const leadPoint = cubicPoint(
+    outerOrbit,
+    {x: 14, y: 315},
+    {x: 58, y: 158},
+    {x: 260, y: 28},
+    {x: 503, y: 152},
+  );
+  const secondaryPoint = cubicPoint(
+    innerOrbit,
+    {x: 104, y: 338},
+    {x: 112, y: 222},
+    {x: 390, y: 99},
+    {x: 510, y: 158},
+  );
+
+  const markScale = interpolate(background, [0, 1], [0.94, 1]) *
+    interpolate(settle, [0, 1], [0.992, 1]);
+  const constructionOpacity = 1 - completion;
 
   return (
     <svg
-      viewBox="0 0 560 560"
+      viewBox="0 0 512 512"
       width="560"
       height="560"
-      aria-label="课刻图标形成动画"
-      style={{overflow: 'visible', transform: `scale(${markScale})`}}
+      aria-label="课刻正式图标逐层形成动画"
+      style={{
+        overflow: 'visible',
+        transform: `scale(${markScale})`,
+        opacity: background,
+      }}
     >
       <defs>
-        <filter id="course-mark-glow" x="-80%" y="-80%" width="260%" height="260%">
-          <feGaussianBlur stdDeviation="9" />
+        <linearGradient id="course-icon-base" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#D8DDF3" />
+          <stop offset="0.55" stopColor="#CFD6F0" />
+          <stop offset="1" stopColor="#C6CDE9" />
+        </linearGradient>
+        <radialGradient id="course-icon-warmth" cx="66%" cy="53%" r="58%">
+          <stop offset="0" stopColor="#FFE9B1" stopOpacity="0.38" />
+          <stop offset="0.62" stopColor="#E5E9F5" stopOpacity="0.08" />
+          <stop offset="1" stopColor="#D3D9EF" stopOpacity="0" />
+        </radialGradient>
+        <filter id="course-mark-glow" x="-100%" y="-100%" width="300%" height="300%">
+          <feGaussianBlur stdDeviation="11" />
         </filter>
-        <filter id="course-mark-shadow" x="-40%" y="-60%" width="180%" height="220%">
-          <feDropShadow dx="0" dy="18" stdDeviation="22" floodColor="#26313C" floodOpacity="0.14" />
+        <filter id="course-mark-shadow" x="-35%" y="-45%" width="170%" height="200%">
+          <feDropShadow dx="0" dy="20" stdDeviation="24" floodColor="#65729A" floodOpacity="0.22" />
         </filter>
+        <clipPath id="course-icon-clip">
+          <rect x="0" y="0" width="512" height="512" rx="102" />
+        </clipPath>
+
+        <mask id="outer-orbit-mask">
+          <rect width="512" height="512" fill="black" />
+          <path
+            d={OUTER_ORBIT}
+            fill="none"
+            stroke="white"
+            strokeWidth="34"
+            strokeLinecap="round"
+            pathLength={1}
+            strokeDasharray="1"
+            strokeDashoffset={1 - outerOrbit}
+          />
+        </mask>
+        <mask id="inner-orbit-mask">
+          <rect width="512" height="512" fill="black" />
+          <path
+            d={INNER_ORBIT}
+            fill="none"
+            stroke="white"
+            strokeWidth="34"
+            strokeLinecap="round"
+            pathLength={1}
+            strokeDasharray="1"
+            strokeDashoffset={1 - innerOrbit}
+          />
+        </mask>
+        <mask id="lower-orbit-mask">
+          <rect width="512" height="512" fill="black" />
+          <path
+            d={LOWER_ORBIT}
+            fill="none"
+            stroke="white"
+            strokeWidth="38"
+            strokeLinecap="round"
+            pathLength={1}
+            strokeDasharray="1"
+            strokeDashoffset={1 - lowerOrbit}
+          />
+        </mask>
+        <mask id="ribbon-mask">
+          <rect width="512" height="512" fill="black" />
+          <path
+            d={RIBBON_CENTER}
+            fill="none"
+            stroke="white"
+            strokeWidth="194"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            pathLength={1}
+            strokeDasharray="1"
+            strokeDashoffset={1 - ribbon}
+          />
+        </mask>
+        <mask id="light-mask">
+          <rect width="512" height="512" fill="black" />
+          <circle cx="129" cy="86" r={38 * lights} fill="white" />
+          <circle cx="336" cy="107" r={36 * lights} fill="white" />
+          <circle cx="500" cy="383" r={38 * lights} fill="white" />
+          <circle cx="361" cy="491" r={38 * lights} fill="white" />
+        </mask>
       </defs>
 
-      <g opacity={interpolate(orbit, [0, 1], [0.18, 1])}>
-        <path
-          d="M 87 280 C 87 151 177 83 280 83 C 408 83 473 178 473 280 C 473 409 383 477 280 477 C 152 477 87 382 87 280"
-          fill="none"
-          stroke={PALETTE.trackMuted}
-          strokeWidth="16"
-          strokeLinecap="round"
-          pathLength={1}
-          strokeDasharray="1"
-          strokeDashoffset={1 - orbit}
+      <g clipPath="url(#course-icon-clip)" filter="url(#course-mark-shadow)">
+        <rect width="512" height="512" rx="102" fill="url(#course-icon-base)" />
+        <rect width="512" height="512" rx="102" fill="url(#course-icon-warmth)" />
+
+        <image
+          href={OFFICIAL_ICON}
+          width="512"
+          height="512"
+          preserveAspectRatio="xMidYMid slice"
+          mask="url(#outer-orbit-mask)"
         />
-        <path
-          d="M 129 280 C 129 184 197 126 280 126 C 382 126 431 202 431 280 C 431 376 363 434 280 434 C 178 434 129 358 129 280"
-          fill="none"
-          stroke={PALETTE.track}
-          strokeWidth="11"
-          strokeLinecap="round"
-          pathLength={1}
-          strokeDasharray="1"
-          strokeDashoffset={1 - innerOrbit}
-          opacity="0.76"
+        <image
+          href={OFFICIAL_ICON}
+          width="512"
+          height="512"
+          preserveAspectRatio="xMidYMid slice"
+          mask="url(#inner-orbit-mask)"
+        />
+        <image
+          href={OFFICIAL_ICON}
+          width="512"
+          height="512"
+          preserveAspectRatio="xMidYMid slice"
+          mask="url(#lower-orbit-mask)"
+        />
+
+        <g opacity={echoOne * 0.22} transform="translate(0 -18)">
+          <image
+            href={OFFICIAL_ICON}
+            width="512"
+            height="512"
+            preserveAspectRatio="xMidYMid slice"
+            mask="url(#ribbon-mask)"
+          />
+        </g>
+        <g opacity={echoTwo * 0.16} transform="translate(0 20)">
+          <image
+            href={OFFICIAL_ICON}
+            width="512"
+            height="512"
+            preserveAspectRatio="xMidYMid slice"
+            mask="url(#ribbon-mask)"
+          />
+        </g>
+        <image
+          href={OFFICIAL_ICON}
+          width="512"
+          height="512"
+          preserveAspectRatio="xMidYMid slice"
+          mask="url(#ribbon-mask)"
+        />
+        <image
+          href={OFFICIAL_ICON}
+          width="512"
+          height="512"
+          preserveAspectRatio="xMidYMid slice"
+          mask="url(#light-mask)"
+        />
+
+        <image
+          href={OFFICIAL_ICON}
+          width="512"
+          height="512"
+          preserveAspectRatio="xMidYMid slice"
+          opacity={completion}
         />
       </g>
 
-      <g opacity={echoOne * 0.28} transform={`translate(0 ${interpolate(echoOne, [0, 1], [18, -18])})`}>
-        <rect x="183" y="240" width="194" height="64" rx="25" fill={PALETTE.accentSoft} />
-      </g>
-      <g opacity={echoTwo * 0.2} transform={`translate(0 ${interpolate(echoTwo, [0, 1], [24, 22])})`}>
-        <rect x="197" y="250" width="166" height="55" rx="22" fill={PALETTE.track} />
-      </g>
-
-      <g filter="url(#course-mark-shadow)">
-        <rect
-          x={280 - stripWidth / 2}
-          y={280 - stripHeight / 2}
-          width={stripWidth}
-          height={stripHeight}
-          rx={stripRadius}
-          fill={PALETTE.strip}
-          stroke={PALETTE.stripBorder}
-          strokeWidth="3"
-        />
-        <rect
-          x={280 - stripWidth * 0.31}
-          y={278 - stripHeight * 0.12}
-          width={stripWidth * 0.42}
-          height={Math.max(2, stripHeight * 0.12)}
-          rx="8"
-          fill={PALETTE.ink}
-          opacity={strip * 0.68}
-        />
-        <rect
-          x={280 - stripWidth * 0.31}
-          y={296 - stripHeight * 0.06}
-          width={stripWidth * 0.58}
-          height={Math.max(2, stripHeight * 0.09)}
-          rx="7"
-          fill={PALETTE.track}
-          opacity={strip * 0.5}
-        />
-      </g>
-
-      <circle
-        cx={mainPoint.x}
-        cy={mainPoint.y}
-        r={23 * appear}
-        fill={PALETTE.accent}
-        opacity={appear * 0.22}
-        filter="url(#course-mark-glow)"
-      />
-      <circle
-        cx={mainPoint.x}
-        cy={mainPoint.y}
-        r={9 * appear}
-        fill={PALETTE.accent}
-      />
-      <circle
-        cx={mainPoint.x - 2}
-        cy={mainPoint.y - 2}
-        r={3.2 * appear}
-        fill="#FFFFFF"
-        opacity="0.9"
+      <rect
+        x="2"
+        y="2"
+        width="508"
+        height="508"
+        rx="100"
+        fill="none"
+        stroke="#FFFFFF"
+        strokeWidth="4"
+        opacity={0.52 * (1 - completion) + 0.16}
       />
 
-      <circle
-        cx={secondaryPoint.x}
-        cy={secondaryPoint.y}
-        r={5.5 * progress(frame, BEATS.orbitStarts + 22, BEATS.orbitStarts + 37)}
-        fill={PALETTE.ink}
-        opacity={0.7 * (1 - progress(frame, BEATS.iconLocks - 10, BEATS.iconLocks + 6))}
-      />
+      <g opacity={constructionOpacity}>
+        <circle
+          cx={leadPoint.x}
+          cy={leadPoint.y}
+          r="28"
+          fill={PALETTE.accent}
+          opacity={0.3 * outerOrbit}
+          filter="url(#course-mark-glow)"
+        />
+        <circle cx={leadPoint.x} cy={leadPoint.y} r="8" fill={PALETTE.accent} opacity={outerOrbit} />
+        <circle cx={leadPoint.x - 2} cy={leadPoint.y - 2} r="2.8" fill="#FFFFFF" opacity={outerOrbit} />
+
+        <circle
+          cx={secondaryPoint.x}
+          cy={secondaryPoint.y}
+          r="18"
+          fill={PALETTE.accent}
+          opacity={0.18 * innerOrbit}
+          filter="url(#course-mark-glow)"
+        />
+        <circle
+          cx={secondaryPoint.x}
+          cy={secondaryPoint.y}
+          r="5.5"
+          fill={PALETTE.accent}
+          opacity={0.72 * innerOrbit}
+        />
+      </g>
     </svg>
   );
 };
