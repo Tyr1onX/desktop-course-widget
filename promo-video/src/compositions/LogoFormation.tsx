@@ -1,11 +1,4 @@
-import {
-  AbsoluteFill,
-  Easing,
-  Img,
-  interpolate,
-  staticFile,
-  useCurrentFrame,
-} from 'remotion';
+import {AbsoluteFill, Easing, interpolate, useCurrentFrame} from 'remotion';
 import {CourseMark} from '../components/CourseMark';
 import {BEATS, PALETTE} from '../timing';
 
@@ -17,24 +10,6 @@ const clamp = {
 export const LogoFormation = () => {
   const frame = useCurrentFrame();
 
-  const vectorOpacity = interpolate(
-    frame,
-    [BEATS.officialIconCrossfade - 4, BEATS.officialIconCrossfade + 16],
-    [1, 0],
-    clamp,
-  );
-  const officialOpacity = interpolate(
-    frame,
-    [BEATS.officialIconCrossfade, BEATS.officialIconCrossfade + 14],
-    [0, 1],
-    {...clamp, easing: Easing.bezier(0.22, 1, 0.36, 1)},
-  );
-  const officialScale = interpolate(
-    frame,
-    [BEATS.officialIconCrossfade, BEATS.officialIconCrossfade + 18],
-    [0.96, 1],
-    {...clamp, easing: Easing.bezier(0.22, 1, 0.36, 1)},
-  );
   const titleProgress = interpolate(
     frame,
     [BEATS.titleStarts, BEATS.titleStarts + 18],
@@ -67,21 +42,7 @@ export const LogoFormation = () => {
             placeItems: 'center',
           }}
         >
-          <div style={{position: 'absolute', opacity: vectorOpacity}}>
-            <CourseMark />
-          </div>
-          <Img
-            src={staticFile('course-icon.png')}
-            style={{
-              position: 'absolute',
-              width: 420,
-              height: 420,
-              objectFit: 'contain',
-              opacity: officialOpacity,
-              transform: `scale(${officialScale})`,
-              filter: 'drop-shadow(0 24px 36px rgba(33, 42, 52, 0.12))',
-            }}
-          />
+          <CourseMark />
         </div>
       </AbsoluteFill>
 
