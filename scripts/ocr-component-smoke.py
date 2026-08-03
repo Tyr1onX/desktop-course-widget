@@ -29,6 +29,7 @@ def main() -> int:
     output.mkdir(parents=True, exist_ok=True)
 
     import cv2
+    import experiments
     import numpy
     import paddle
     import paddleocr
@@ -41,9 +42,11 @@ def main() -> int:
         generate_chinese_timetable_sample,
     )
 
+    module_root = Path(experiments.__file__).resolve().parent.parent
     report: dict[str, object] = {
         "python": sys.version,
         "executable": str(Path(sys.executable).resolve()),
+        "moduleRoot": str(module_root),
         "platform": platform.platform(),
         "versions": {
             "numpy": numpy.__version__,
@@ -83,7 +86,7 @@ def main() -> int:
                 "--engine",
                 "paddle",
                 "--repo-root",
-                str(Path(__file__).resolve().parents[1]),
+                str(module_root),
             ]
         )
         if cli_exit_code != 0:
