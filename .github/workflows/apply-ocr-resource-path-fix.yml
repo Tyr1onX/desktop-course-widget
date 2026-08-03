@@ -1,0 +1,128 @@
+name: Apply OCR resource path fix
+
+on:
+  push:
+    branches:
+      - feat/release-ocr-component-foundation
+    paths:
+      - '.github/workflows/apply-ocr-resource-path-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/release-ocr-component-foundation
+      - name: Patch resolver and installer smoke test
+        shell: python
+        run: |
+          from pathlib import Path
+
+          rust_path = Path('src-tauri/src/ocr_component.rs')
+          rust = rust_path.read_text(encoding='utf-8')
+          old = '''fn resource_root(app: &AppHandle) -> Result<PathBuf, String> {
+              if let Some(path) = env::var_os(OCR_RESOURCE_ROOT_ENV) {
+                  return Ok(PathBuf::from(path));
+              }
+              Ok(app
+                  .path()
+                  .resource_dir()
+                  .map_err(|error| format!("无法定位安装包资源目录：{error}"))?
+                  .join(COMPONENT_RESOURCE_DIR))
+          }
+          '''
+          new = '''fn resource_root(app: &AppHandle) -> Result<PathBuf, String> {
+              if let Some(path) = env::var_os(OCR_RESOURCE_ROOT_ENV) {
+                  return Ok(PathBuf::from(path));
+              }
+              let base = app
+                  .path()
+                  .resource_dir()
+                  .map_err(|error| format!("无法定位安装包资源目录：{error}"))?;
+              resolve_resource_root_from_base(&base)
+          }
+
+          fn resolve_resource_root_from_base(base: &Path) -> Result<PathBuf, String> {
+              let candidates = [
+                  base.join(COMPONENT_RESOURCE_DIR),
+                  base.join("resources").join(COMPONENT_RESOURCE_DIR),
+              ];
+              candidates
+                  .into_iter()
+                  .find(|candidate| candidate.join(COMPONENT_MANIFEST_FILE).is_file())
+                  .ok_or_else(|| {
+                      "当前安装包中未找到本地识别组件清单，请重新下载安装课刻。".to_owned()
+                  })
+          }
+          '''
+          if rust.count(old) != 1:
+              raise SystemExit('expected one resource_root implementation')
+          rust = rust.replace(old, new)
+
+          test = '''
+
+              #[test]
+              fn resolves_both_tauri_resource_layouts() {
+                  let root = env::temp_dir().join(format!(
+                      "course-widget-ocr-resource-layout-test-{}",
+                      std::process::id()
+                  ));
+                  let _ = fs::remove_dir_all(&root);
+
+                  let direct = root.join(COMPONENT_RESOURCE_DIR);
+                  fs::create_dir_all(&direct).unwrap();
+                  fs::write(direct.join(COMPONENT_MANIFEST_FILE), b"{}").unwrap();
+                  assert_eq!(resolve_resource_root_from_base(&root).unwrap(), direct);
+
+                  fs::remove_dir_all(root.join(COMPONENT_RESOURCE_DIR)).unwrap();
+                  let nested = root.join("resources").join(COMPONENT_RESOURCE_DIR);
+                  fs::create_dir_all(&nested).unwrap();
+                  fs::write(nested.join(COMPONENT_MANIFEST_FILE), b"{}").unwrap();
+                  assert_eq!(resolve_resource_root_from_base(&root).unwrap(), nested);
+
+                  fs::remove_dir_all(&nested).unwrap();
+                  assert!(resolve_resource_root_from_base(&root).is_err());
+                  let _ = fs::remove_dir_all(root);
+              }
+          '''
+          marker = '\n}'
+          pos = rust.rfind(marker)
+          if pos < 0 or 'resolves_both_tauri_resource_layouts' in rust:
+              raise SystemExit('could not place resource layout regression test')
+          rust = rust[:pos] + test + rust[pos:]
+          rust_path.write_text(rust, encoding='utf-8')
+
+          smoke_path = Path('scripts/test-ocr-enabled-installer.ps1')
+          smoke = smoke_path.read_text(encoding='utf-8')
+          old_smoke = '''  $manifestFile = Get-ChildItem -LiteralPath $InstallRoot -Recurse -File -Filter 'component.json' |
+              Where-Object { $_.Directory.Name -eq 'ocr-component' } |
+              Select-Object -First 1
+            if (-not $manifestFile) {
+              throw "Installed OCR component manifest was not found below $InstallRoot"
+            }
+            $ResourceRoot = $manifestFile.Directory.FullName
+          '''
+          new_smoke = '''  $ResourceRoot = Join-Path $InstallRoot 'resources/ocr-component'
+            $manifestPath = Join-Path $ResourceRoot 'component.json'
+            if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+              throw "Installed OCR component manifest was not found at the application resource path: $manifestPath"
+            }
+            $manifestFile = Get-Item -LiteralPath $manifestPath
+          '''
+          if smoke.count(old_smoke) != 1:
+              raise SystemExit('expected one recursive manifest lookup')
+          smoke = smoke.replace(old_smoke, new_smoke)
+          smoke_path.write_text(smoke, encoding='utf-8')
+      - name: Commit permanent fix and remove this workflow
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/apply-ocr-resource-path-fix.yml
+          git add src-tauri/src/ocr_component.rs scripts/test-ocr-enabled-installer.ps1
+          git commit -m 'fix: resolve installed OCR resource path'
+          git push
