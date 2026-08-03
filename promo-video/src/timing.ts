@@ -10,19 +10,18 @@ export const BEATS = {
   orbitStarts: 18,
   stripStarts: 42,
   echoesStart: 65,
-  iconLocks: 102,
-  officialIconCrossfade: 116,
+  iconLocks: 108,
   titleStarts: 123,
 } as const;
 
 export const PALETTE = {
   background: '#F4F6F8',
   ink: '#18202A',
-  track: '#8E9AA8',
-  trackMuted: '#D8DEE5',
-  strip: '#FFFFFF',
-  stripBorder: '#DDE3E9',
-  accent: '#66C8C4',
-  accentSoft: '#BCE9E6',
-  shadow: 'rgba(33, 42, 52, 0.12)',
+  track: '#7897D1',
+  trackMuted: '#A9BCE1',
+  strip: '#F8FAFF',
+  stripBorder: '#D8E0F2',
+  accent: '#FFD478',
+  accentSoft: '#FFE8AC',
+  shadow: 'rgba(61, 75, 115, 0.16)',
 } as const;
