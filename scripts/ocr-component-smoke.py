@@ -19,6 +19,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Validate the portable screenshot OCR component")
     parser.add_argument("--output", required=True)
     parser.add_argument("--inference", action="store_true")
+    parser.add_argument("--generate-sample", action="store_true")
     return parser.parse_args()
 
 
@@ -57,13 +58,27 @@ def main() -> int:
         "inferenceRequested": bool(args.inference),
     }
 
-    if args.inference:
+    sample_image: Path | None = None
+    sample_size: list[int] | None = None
+    if args.inference or args.generate_sample:
         sample = generate_chinese_timetable_sample(output / "sample", "mobile_cards_12")
         sample_image = Path(sample["image"]).resolve()
         try:
             with Image.open(sample_image) as source:
-                rgb = numpy.asarray(ImageOps.exif_transpose(source).convert("RGB"))
                 sample_size = list(source.size)
+        except Exception as error:
+            raise RuntimeError(
+                f"portable OCR smoke sample could not be decoded: {error}"
+            ) from error
+        report["sampleSize"] = sample_size
+        report["sampleImage"] = str(sample_image)
+
+    if args.inference:
+        if sample_image is None or sample_size is None:
+            raise RuntimeError("portable OCR smoke did not prepare its sample image")
+        try:
+            with Image.open(sample_image) as source:
+                rgb = numpy.asarray(ImageOps.exif_transpose(source).convert("RGB"))
         except Exception as error:
             raise RuntimeError(
                 f"portable OCR smoke sample could not be decoded: {error}"
@@ -107,8 +122,6 @@ def main() -> int:
         if not isinstance(courses, list) or not courses:
             raise RuntimeError("production screenshot import command returned no courses")
 
-        report["sampleSize"] = sample_size
-        report["sampleImage"] = str(sample_image)
         report["tokenCount"] = len(visible)
         report["tokenPreview"] = visible[:12]
         report["engine"] = engine.version_info()
