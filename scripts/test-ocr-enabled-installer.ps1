@@ -54,10 +54,11 @@ function Wait-ForInstalledComponent {
   param(
     [Parameter(Mandatory = $true)][string]$Root,
     [Parameter(Mandatory = $true)][string]$ManifestPath,
-    [int]$TimeoutSeconds = 180
+    [int]$TimeoutSeconds = 600
   )
 
   $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+  $nextProgressAt = [DateTime]::UtcNow
   while ([DateTime]::UtcNow -lt $deadline) {
     if (Test-Path -LiteralPath $ManifestPath -PathType Leaf) {
       try {
@@ -66,7 +67,8 @@ function Wait-ForInstalledComponent {
         if ($candidate.available -eq $true -and $files.Count -ge 100) {
           $complete = $true
           foreach ($file in $files) {
-            $installedPath = Join-Path $Root ([string]$file.path).Replace('/', '\')
+            $relativePath = ([string]$file.path).Replace('/', '\')
+            $installedPath = Join-Path $Root $relativePath
             if (-not (Test-Path -LiteralPath $installedPath -PathType Leaf)) {
               $complete = $false
               break
@@ -77,6 +79,7 @@ function Wait-ForInstalledComponent {
             }
           }
           if ($complete) {
+            Write-Host "Installed OCR component is complete: $($files.Count) manifest files"
             return $candidate
           }
         }
@@ -84,10 +87,17 @@ function Wait-ForInstalledComponent {
         # The manifest itself can become visible before the installer has finished flushing it.
       }
     }
+
+    if ([DateTime]::UtcNow -ge $nextProgressAt) {
+      $observedCount = @(Get-ChildItem -LiteralPath $Root -Recurse -File -ErrorAction SilentlyContinue).Count
+      Write-Host "Waiting for NSIS child extraction: $observedCount OCR resource files currently visible"
+      $nextProgressAt = [DateTime]::UtcNow.AddSeconds(30)
+    }
     Start-Sleep -Seconds 1
   }
 
-  throw "Installed OCR component did not finish materializing before timeout: $ManifestPath"
+  $finalObservedCount = @(Get-ChildItem -LiteralPath $Root -Recurse -File -ErrorAction SilentlyContinue).Count
+  throw "Installed OCR component did not finish materializing before timeout: $ManifestPath (observed files: $finalObservedCount)"
 }
 
 if (-not $IsWindows) {
