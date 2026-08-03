@@ -50,6 +50,46 @@ function Set-ResourceFilesReadOnly {
   }
 }
 
+function Wait-ForInstalledComponent {
+  param(
+    [Parameter(Mandatory = $true)][string]$Root,
+    [Parameter(Mandatory = $true)][string]$ManifestPath,
+    [int]$TimeoutSeconds = 180
+  )
+
+  $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+  while ([DateTime]::UtcNow -lt $deadline) {
+    if (Test-Path -LiteralPath $ManifestPath -PathType Leaf) {
+      try {
+        $candidate = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
+        $files = @($candidate.files)
+        if ($candidate.available -eq $true -and $files.Count -ge 100) {
+          $complete = $true
+          foreach ($file in $files) {
+            $installedPath = Join-Path $Root ([string]$file.path).Replace('/', '\')
+            if (-not (Test-Path -LiteralPath $installedPath -PathType Leaf)) {
+              $complete = $false
+              break
+            }
+            if ((Get-Item -LiteralPath $installedPath).Length -ne [int64]$file.size) {
+              $complete = $false
+              break
+            }
+          }
+          if ($complete) {
+            return $candidate
+          }
+        }
+      } catch {
+        # The manifest itself can become visible before the installer has finished flushing it.
+      }
+    }
+    Start-Sleep -Seconds 1
+  }
+
+  throw "Installed OCR component did not finish materializing before timeout: $ManifestPath"
+}
+
 if (-not $IsWindows) {
   throw 'The OCR-enabled installer smoke test requires Windows.'
 }
@@ -88,11 +128,11 @@ try {
 
   $ResourceRoot = Join-Path $InstallRoot 'resources/ocr-component'
   $manifestPath = Join-Path $ResourceRoot 'component.json'
-  if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
-    throw "Installed OCR component manifest was not found at the application resource path: $manifestPath"
-  }
+  # Tauri's NSIS elevation/installer process can return before its child has finished copying the
+  # large resource payload. Treat installation as complete only after every manifest-listed file
+  # exists at its declared size; otherwise the smoke test can race a valid installation.
+  $manifest = Wait-ForInstalledComponent -Root $ResourceRoot -ManifestPath $manifestPath
   $manifestFile = Get-Item -LiteralPath $manifestPath
-  $manifest = Get-Content -LiteralPath $manifestFile.FullName -Raw | ConvertFrom-Json
   if ($manifest.available -ne $true) {
     throw 'Installed OCR component manifest is not available.'
   }
