@@ -1,19 +1,16 @@
 from __future__ import annotations
 
+import json
+import os
 import time
+from pathlib import Path
 from typing import Any
 
 from .ocr import OcrError, PaddleOcrEngine
 
 
 class WindowsCpuPaddleOcrEngine(PaddleOcrEngine):
-    """PaddleOCR adapter for the evidenced Paddle 3.3.1 Windows CPU path.
-
-    PaddleOCR 3.7.0 defaults to oneDNN/MKLDNN on CPU. PaddlePaddle 3.3.1 can
-    fail in the PIR oneDNN attribute converter for the default PP-OCRv6
-    models. This subclass only changes construction: token parsing and all
-    return-format handling remain the inherited PaddleOcrEngine.recognize().
-    """
+    """PaddleOCR adapter for the evidenced Paddle 3.3.1 Windows CPU path."""
 
     def __init__(
         self,
@@ -62,6 +59,30 @@ class WindowsCpuPaddleOcrEngine(PaddleOcrEngine):
         self._language = language
         self._device = device
         self._cpu_threads = cpu_threads
+        self._write_stage_marker()
+
+    def _write_stage_marker(self) -> None:
+        configured = os.environ.get("COURSE_WIDGET_OCR_STAGE_FILE", "").strip()
+        if not configured:
+            return
+        path = Path(configured)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = path.with_suffix(path.suffix + ".tmp")
+            temporary.write_text(
+                json.dumps(
+                    {
+                        "stage": "model-ready",
+                        "initializationSeconds": self._initialization_seconds,
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            temporary.replace(path)
+        except OSError:
+            # Progress reporting must never turn a successful OCR initialization into a failure.
+            pass
 
     def version_info(self) -> dict[str, str]:
         values = super().version_info()
