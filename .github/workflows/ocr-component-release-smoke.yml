@@ -1,4 +1,4 @@
-name: Finish Paddle ASCII model path fix
+name: Complete Paddle ASCII model path fix
 
 on:
   pull_request:
@@ -20,103 +20,73 @@ jobs:
           ref: fix/ocr-runtime-isolation-and-diagnostics
           fetch-depth: 0
 
-      - name: Complete source edits and verify
+      - name: Patch and verify before commit
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
+
           @'
           from pathlib import Path
 
           def replace_once(text: str, old: str, new: str, label: str) -> str:
               count = text.count(old)
               if count != 1:
-                  raise SystemExit(f"{label}: expected one match, found {count}")
+                  raise SystemExit(f"{label}: expected exactly one match, found {count}")
               return text.replace(old, new, 1)
 
           rust_path = Path("src-tauri/src/ocr_component.rs")
-          rust = rust_path.read_text(encoding="utf-8")
+          rust_original = rust_path.read_text(encoding="utf-8")
+          rust = rust_original
           rust = replace_once(
               rust,
-              '''            component_version: None,
-                          source: "configured".into(),
-                      }))
-          ''',
-              '''            component_version: None,
-                          source: "configured".into(),
-                          model_files: Vec::new(),
-                          model_fingerprint: None,
-                      }))
-          ''',
+              '                source: "configured".into(),\n            }))',
+              '                source: "configured".into(),\n                model_files: Vec::new(),\n                model_fingerprint: None,\n            }))',
               "configured runtime fields",
           )
-          rust = rust.replace(
-              "Err(error) if verify_runtime_model_cache(target, &runtime.model_files).is_ok() => {",
-              "Err(_error) if verify_runtime_model_cache(target, &runtime.model_files).is_ok() => {",
-              1,
+          rust = replace_once(
+              rust,
+              'Err(error) if verify_runtime_model_cache(target, &runtime.model_files).is_ok() => {',
+              'Err(_error) if verify_runtime_model_cache(target, &runtime.model_files).is_ok() => {',
+              "unused concurrent-cache error binding",
           )
-          rust_path.write_text(rust, encoding="utf-8")
 
           ps_path = Path("scripts/test-ocr-app-runtime.ps1")
-          ps = ps_path.read_text(encoding="utf-8")
+          ps_original = ps_path.read_text(encoding="utf-8")
+          ps = ps_original
           ps = replace_once(
               ps,
-              '''    [Parameter(Mandatory = $true)][string]$SmokeScript,
-                  [Parameter(Mandatory = $true)][string]$Output
-                )
-          ''',
-              '''    [Parameter(Mandatory = $true)][string]$SmokeScript,
-                  [Parameter(Mandatory = $true)][string]$Output,
-                  [switch]$GenerateSampleOnly
-                )
-          ''',
-              "PowerShell smoke parameters",
+              "    [Parameter(Mandatory = $true)][string]$Output\n  )\n  $startInfo = [Diagnostics.ProcessStartInfo]::new()",
+              "    [Parameter(Mandatory = $true)][string]$Output,\n    [switch]$GenerateSampleOnly\n  )\n  $startInfo = [Diagnostics.ProcessStartInfo]::new()",
+              "portable smoke switch",
           )
           ps = replace_once(
               ps,
-              '''  foreach ($argument in @('-I', $SmokeScript, '--output', $Output, '--inference')) {
-                  [void]$startInfo.ArgumentList.Add($argument)
-                }
-          ''',
-              '''  $arguments = @('-I', $SmokeScript, '--output', $Output)
-                if ($GenerateSampleOnly) {
-                  $arguments += '--generate-sample'
-                } else {
-                  $arguments += '--inference'
-                }
-                foreach ($argument in $arguments) {
-                  [void]$startInfo.ArgumentList.Add($argument)
-                }
-          ''',
-              "PowerShell smoke arguments",
+              "  foreach ($argument in @('-I', $SmokeScript, '--output', $Output, '--inference')) {\n    [void]$startInfo.ArgumentList.Add($argument)\n  }",
+              "  $arguments = @('-I', $SmokeScript, '--output', $Output)\n  if ($GenerateSampleOnly) {\n    $arguments += '--generate-sample'\n  } else {\n    $arguments += '--inference'\n  }\n  foreach ($argument in $arguments) {\n    [void]$startInfo.ArgumentList.Add($argument)\n  }",
+              "portable smoke arguments",
           )
           ps = replace_once(
               ps,
-              '''  Invoke-IsolatedPortableSmoke -Python $portablePython -ModelsRoot $modelsRoot -SmokeScript $smokeScript -Output $directSmokeRoot
-                $directReport = Get-Content -LiteralPath (Join-Path $directSmokeRoot 'portable-ocr-smoke.json') -Raw | ConvertFrom-Json
-                if ($directReport.tokenCount -lt 4 -or $directReport.productionCliCourseCount -lt 1) {
-                  throw 'Direct isolated portable Python smoke did not produce a valid OCR draft.'
-                }
-                $sampleImage = [IO.Path]::GetFullPath([string]$directReport.sampleImage)
-          ''',
-              '''  Invoke-IsolatedPortableSmoke -Python $portablePython -ModelsRoot $modelsRoot -SmokeScript $smokeScript -Output $directSmokeRoot -GenerateSampleOnly
-                $directReport = Get-Content -LiteralPath (Join-Path $directSmokeRoot 'portable-ocr-smoke.json') -Raw | ConvertFrom-Json
-                $sampleImage = [IO.Path]::GetFullPath([string]$directReport.sampleImage)
-                if (-not (Test-Path -LiteralPath $sampleImage -PathType Leaf)) {
-                  throw 'Installed portable Python did not generate the Unicode-path OCR fixture.'
-                }
-          ''',
-              "PowerShell app fixture",
+              "  Invoke-IsolatedPortableSmoke -Python $portablePython -ModelsRoot $modelsRoot -SmokeScript $smokeScript -Output $directSmokeRoot\n  $directReport = Get-Content -LiteralPath (Join-Path $directSmokeRoot 'portable-ocr-smoke.json') -Raw | ConvertFrom-Json\n  if ($directReport.tokenCount -lt 4 -or $directReport.productionCliCourseCount -lt 1) {\n    throw 'Direct isolated portable Python smoke did not produce a valid OCR draft.'\n  }\n  $sampleImage = [IO.Path]::GetFullPath([string]$directReport.sampleImage)",
+              "  Invoke-IsolatedPortableSmoke -Python $portablePython -ModelsRoot $modelsRoot -SmokeScript $smokeScript -Output $directSmokeRoot -GenerateSampleOnly\n  $directReport = Get-Content -LiteralPath (Join-Path $directSmokeRoot 'portable-ocr-smoke.json') -Raw | ConvertFrom-Json\n  $sampleImage = [IO.Path]::GetFullPath([string]$directReport.sampleImage)\n  if (-not (Test-Path -LiteralPath $sampleImage -PathType Leaf)) {\n    throw 'Installed portable Python did not generate the Unicode-path OCR fixture.'\n  }",
+              "application-level Unicode fixture setup",
           )
+
+          if rust == rust_original or ps == ps_original:
+              raise SystemExit("expected both Rust and PowerShell sources to change")
+          rust_path.write_text(rust, encoding="utf-8")
           ps_path.write_text(ps, encoding="utf-8")
-          '@ | Set-Content -LiteralPath finish_fix.py -Encoding utf8
-          python finish_fix.py
-          Remove-Item finish_fix.py
+          '@ | Set-Content -LiteralPath complete_fix.py -Encoding utf8
+
+          python complete_fix.py
+          Remove-Item complete_fix.py
           cargo fmt --manifest-path src-tauri/Cargo.toml
           cargo test --manifest-path src-tauri/Cargo.toml --lib
+          [scriptblock]::Create((Get-Content -LiteralPath scripts/test-ocr-app-runtime.ps1 -Raw)) | Out-Null
 
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add src-tauri/src/ocr_component.rs scripts/test-ocr-app-runtime.ps1
-          git commit -m 'test: cover Paddle model aliases through the installed app'
+          git commit -m 'test: verify Paddle ASCII model path through installed app'
           git push origin HEAD:fix/ocr-runtime-isolation-and-diagnostics
