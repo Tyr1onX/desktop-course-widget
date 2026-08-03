@@ -37,29 +37,34 @@ jobs:
               for path in sorted(parts_root.glob('part*'))
           )
           raw = base64.b64decode(encoded, validate=True)
-          expected_hash = '7ae149a92b061e7419f6f5fd7364b67dbcac1f50311187adf28e7d21d6361ab5'
-          actual_hash = hashlib.sha256(raw).hexdigest()
-          if actual_hash != expected_hash:
-              raise SystemExit(f'payload sha mismatch: {actual_hash}')
+          expected_payload_hash = '32d0e98db88d204b2944cb1e86d75bd48f4b4d857fe79787413e2a1b5d797cd6'
+          actual_payload_hash = hashlib.sha256(raw).hexdigest()
+          if actual_payload_hash != expected_payload_hash:
+              raise SystemExit(f'payload sha mismatch: {actual_payload_hash}')
 
-          expected_paths = {
-              'src-tauri/src/ocr_component.rs',
-              'src-tauri/src/screenshot_import.rs',
-              'src-tauri/src/lib.rs',
-              'scripts/test-ocr-app-runtime.ps1',
-              'scripts/test-ocr-development-bootstrap.ps1',
-              '.github/workflows/ocr-component-release-smoke.yml',
+          expected_file_hashes = {
+              'src-tauri/src/ocr_component.rs': '0ad21f6eecb0a4dd3db5b82e3ae333e78270115c2b0660211ef0bf269534a5dc',
+              'src-tauri/src/screenshot_import.rs': '9bd47efdecc8b4524db7dce34c382241f57359fd186a0762bcd5fc3a60d76414',
+              'src-tauri/src/lib.rs': '084b358984d848451544759b01520883ae2cab82a9816579ffe5d0eb985c4e86',
+              'scripts/test-ocr-app-runtime.ps1': '535fd9a3893a08a1afa448802dd2e7eb1b448b7b9f900025fe5a92851a5c43ec',
+              'scripts/test-ocr-development-bootstrap.ps1': 'd57ba09252fef50cc64496b5e8bfac45c34214da7d343cb4752f47c9b03a464c',
+              '.github/workflows/ocr-component-release-smoke.yml': 'faaac3990ce50429e41cada8a3000f3b1b9629576a06e0b47174ab04e19bbec6',
           }
           with tarfile.open(fileobj=io.BytesIO(raw), mode='r:gz') as archive:
               members = archive.getmembers()
               names = {member.name for member in members}
-              if names != expected_paths:
+              if names != set(expected_file_hashes):
                   raise SystemExit(f'unexpected payload paths: {sorted(names)}')
               for member in members:
                   target = (root / member.name).resolve()
                   if root != target and root not in target.parents:
                       raise SystemExit(f'unsafe payload target: {member.name}')
               archive.extractall(root, filter='data')
+
+          for relative, expected in expected_file_hashes.items():
+              actual = hashlib.sha256((root / relative).read_bytes()).hexdigest()
+              if actual != expected:
+                  raise SystemExit(f'extracted file sha mismatch: {relative}: {actual}')
 
           for path in parts_root.glob('part*'):
               path.unlink()
