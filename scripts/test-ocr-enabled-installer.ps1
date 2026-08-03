@@ -192,7 +192,9 @@ try {
   $InstallRoot = Wait-ForRegisteredInstallRoot
   Write-Host "NSIS registered install root: $InstallRoot"
 
-  $ResourceRoot = Join-Path $InstallRoot 'resources/ocr-component'
+  # tauri.conf.json maps resources/ocr-component directly to the install-root/ocr-component
+  # destination. Keep this smoke test aligned with the same primary layout the application resolves.
+  $ResourceRoot = Join-Path $InstallRoot 'ocr-component'
   $manifestPath = Join-Path $ResourceRoot 'component.json'
   # Treat installation as complete only after every manifest-listed file exists at its declared
   # size. This protects the smoke test from both asynchronous extraction and partial installations.
