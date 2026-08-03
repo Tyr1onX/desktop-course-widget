@@ -2,20 +2,43 @@
 
 这个独立子工程用于通过 React + Remotion 生成课刻宣传片，不参与主应用、Tauri 安装包或官网构建。
 
-## 当前内容
+## 当前主线
 
-`LogoFormation` 是一条 5 秒、1920×1080、30fps 的无声概念样片：
+主线已从“纯 SVG 拟合正式图标”切换为：
 
-1. 光点逐渐出现并带出三条流动轨道；
-2. 中央纸带从几乎收拢的细小形态展开；
-3. 两层低透明度纸带残影短暂重复；
-4. 抽象轨道的控制点、线宽和位置连续收敛到课刻正式图标结构；
-5. 纸带轮廓从横向流动形态逐帧变化为正式图标中的立体卷曲纸带；
-6. 四个光点沿轨道运动，随后落到正式图标的位置；
-7. 圆形光场逐渐定型为圆角方形图标底板；
-8. 显示“课刻 / 让一天在桌面上缓慢流动”。
+```text
+原始 PNG 像素图层 → Canvas 三角网格形变 → 精确回到原始像素位置
+```
 
-动画不使用正式 PNG 的遮罩显露，也不在结尾交叉淡入或替换图片。最终画面由开场时同一组 SVG 轨道、纸带、光点和底板持续形变得到。
+旧的 `LogoFormation` 和 `CourseMark` 暂时保留为实验对照，不再继续承担最终 Logo 形成方案。
+
+`RibbonMeshProof` 是第一轮 3 秒生死线验证：
+
+1. 从正式 512×512 应用图标提取纸带原始像素；
+2. 纸带以压缩状态出现，而不是用遮罩逐步显露；
+3. 原像素通过三角网格展开并产生连续流动形变；
+4. 第 84 帧起锁定为原始纸带像素和原始坐标；
+5. 最后一帧通过脚本与参考纸带逐像素比较。
+
+本轮故意不加入轨道、光点、标题和完整宣传片时间线。只有纸带验证通过后，才继续拆分其余图层。
+
+## 素材结构
+
+```text
+assets/
+  logo-source/
+    icon-original.png
+  logo-layers/
+    ribbon-geometry.json
+    ribbon-main.png          # npm run assets:logo 生成，不提交
+    residual-detail.png      # npm run assets:logo 生成，不提交
+public/
+  logo-source/
+    icon-original.png
+  logo-layers/               # Remotion 运行时图层，不提交
+```
+
+`assets/logo-source/icon-original.png` 与应用使用的 `src-tauri/icons/icon.png` 复用同一个 Git blob，避免再造一个低清或重新压缩的源图。
 
 ## 本地预览
 
@@ -25,7 +48,7 @@ npm install
 npm run dev
 ```
 
-Remotion Studio 打开后选择 `LogoFormation`，可以逐帧拖动时间线。
+`predev` 会先生成纸带图层。Remotion Studio 打开后选择 `RibbonMeshProof`。
 
 ## 类型检查
 
@@ -33,32 +56,41 @@ Remotion Studio 打开后选择 `LogoFormation`，可以逐帧拖动时间线。
 npm run check
 ```
 
-## 渲染 MP4
+## 渲染纸带验证样片
 
 ```powershell
-npm run render:logo
+npm run render:ribbon
 ```
 
-输出文件：
+输出：
 
 ```text
-promo-video/out/logo-formation.mp4
+promo-video/out/ribbon-mesh-proof.mp4
 ```
 
-## 调整节奏
+## 校验最终帧
 
-主要时间节点集中在：
+```powershell
+npm run verify:ribbon-final
+```
+
+该命令会生成：
 
 ```text
-src/timing.ts
+promo-video/out/ribbon-mesh-final.png
 ```
 
-其中 `convergeStarts` 到 `iconLocks` 是抽象元素向正式图标结构收敛的阶段。
+然后输出平均像素误差、超阈值像素比例和最大通道误差；误差超过阈值时命令失败。
 
-主要视觉结构和路径控制点位于：
+## 关键代码
 
 ```text
-src/components/CourseMark.tsx
+src/mesh/createMesh.ts
+src/mesh/warpMath.ts
+src/mesh/drawTriangle.ts
+src/mesh/drawMesh.ts
+src/mesh/ribbonMeshConfig.ts
+src/layers/RibbonWarp.tsx
+scripts/extract-logo-layers.mjs
+scripts/compare-final-frame.mjs
 ```
-
-第一轮只验证 Logo 形成方式。确认视觉方向后，再加入产品界面、音乐、音效、横竖屏构图和完整宣传片时间线。

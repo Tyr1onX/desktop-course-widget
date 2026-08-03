@@ -4,10 +4,15 @@
   "private": true,
   "description": "Programmatic promo video compositions for 课刻.",
   "scripts": {
+    "assets:logo": "node scripts/extract-logo-layers.mjs",
+    "predev": "npm run assets:logo",
     "dev": "remotion studio src/index.ts",
     "check": "tsc --noEmit",
     "render:logo": "remotion render src/index.ts LogoFormation out/logo-formation.mp4 --codec=h264 --crf=16",
-    "still:logo": "remotion still src/index.ts LogoFormation out/logo-formation.png --frame=132"
+    "still:logo": "remotion still src/index.ts LogoFormation out/logo-formation.png --frame=132",
+    "render:ribbon": "npm run assets:logo && remotion render src/index.ts RibbonMeshProof out/ribbon-mesh-proof.mp4 --codec=h264 --crf=14",
+    "still:ribbon-final": "npm run assets:logo && remotion still src/index.ts RibbonMeshProof out/ribbon-mesh-final.png --frame=89",
+    "verify:ribbon-final": "npm run still:ribbon-final && node scripts/compare-final-frame.mjs"
   },
   "dependencies": {
     "@remotion/cli": "4.0.468",
@@ -18,6 +23,7 @@
   "devDependencies": {
     "@types/react": "19.2.7",
     "@types/react-dom": "19.2.3",
+    "pngjs": "7.0.0",
     "typescript": "5.9.3"
   }
 }

@@ -1,2 +1,6 @@
 out/
 public/course-icon.png
+assets/logo-layers/*.png
+assets/logo-layers/layer-manifest.json
+public/logo-layers/*.png
+public/logo-layers/layer-manifest.json

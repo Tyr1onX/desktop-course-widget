@@ -1,0 +1,15 @@
+{
+  "canvas": {"width": 512, "height": 512},
+  "bounds": {"x": 42, "y": 120, "width": 470, "height": 354},
+  "maskPadding": 3.5,
+  "segmentsPerCurve": 28,
+  "start": {"x": 66, "y": 340},
+  "segments": [
+    {"controlOne": {"x": 101, "y": 302}, "controlTwo": {"x": 139, "y": 330}, "end": {"x": 178, "y": 386}},
+    {"controlOne": {"x": 218, "y": 443}, "controlTwo": {"x": 258, "y": 429}, "end": {"x": 306, "y": 362}},
+    {"controlOne": {"x": 356, "y": 292}, "controlTwo": {"x": 416, "y": 193}, "end": {"x": 489, "y": 139}},
+    {"controlOne": {"x": 502, "y": 129}, "controlTwo": {"x": 512, "y": 140}, "end": {"x": 502, "y": 165}},
+    {"controlOne": {"x": 465, "y": 263}, "controlTwo": {"x": 405, "y": 362}, "end": {"x": 333, "y": 418}},
+    {"controlOne": {"x": 274, "y": 464}, "controlTwo": {"x": 217, "y": 469}, "end": {"x": 168, "y": 412}}
+  ]
+}
