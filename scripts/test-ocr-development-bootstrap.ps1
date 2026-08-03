@@ -24,12 +24,12 @@ try {
 
   Push-Location $unrelatedRoot
   try {
-    & $venvPython -I -m experiments.screenshot_import.bootstrap_probe 2>$null
+    & $venvPython -I -B -m experiments.screenshot_import.bootstrap_probe 2>$null
     if ($LASTEXITCODE -eq 0) {
       throw 'The regression precondition is invalid: plain -I -m unexpectedly found the repository package.'
     }
 
-    $output = & $venvPython -I -c $bootstrap $repoRoot experiments.screenshot_import.bootstrap_probe
+    $output = & $venvPython -I -B -c $bootstrap $repoRoot experiments.screenshot_import.bootstrap_probe
     if ($LASTEXITCODE -ne 0) {
       throw 'The explicit isolated bootstrap could not load the repository module.'
     }
@@ -41,7 +41,7 @@ try {
   if ($report.ok -ne $true) { throw 'Development bootstrap probe did not report success.' }
   if ($report.isolated -ne $true) { throw 'Development bootstrap did not preserve Python isolated mode.' }
   if ($report.module -ne '__main__') { throw "Unexpected bootstrap module name: $($report.module)" }
-  Write-Host 'Normal venv + python -I works through the explicit absolute-path bootstrap.'
+  Write-Host 'Normal venv + python -I -B works through the explicit absolute-path bootstrap.'
 } finally {
   Remove-Item -LiteralPath $WorkingRoot -Recurse -Force -ErrorAction SilentlyContinue
 }

@@ -261,7 +261,7 @@ try {
 
   $smokeScript = Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts/ocr-component-smoke.py'
   Invoke-Checked -FilePath $portablePython -ArgumentList @(
-    '-I', $smokeScript,
+    '-I', '-B', $smokeScript,
     '--output', $SmokeRoot,
     '--inference'
   )

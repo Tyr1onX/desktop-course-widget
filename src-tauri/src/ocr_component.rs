@@ -297,6 +297,7 @@ fn isolated_python_command_with_model_access(
         .env_clear()
         .envs(environment)
         .arg("-I")
+        .arg("-B")
         .arg("-c")
         .arg(PYTHON_BOOTSTRAP)
         .arg(&runtime.module_root)
@@ -1610,6 +1611,29 @@ mod tests {
             runtime_model_fingerprint(std::slice::from_ref(&first)),
             runtime_model_fingerprint(std::slice::from_ref(&changed))
         );
+    }
+
+    #[test]
+    fn isolated_command_disables_bytecode_writes_at_cli_level() {
+        let root = env::temp_dir().join(format!(
+            "course-widget-ocr-no-bytecode-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        let runtime = test_runtime(&root);
+        let command = isolated_python_command_with_model_access(
+            &runtime,
+            "experiments.screenshot_import.bootstrap_probe",
+            false,
+        )
+        .unwrap();
+        let args = command
+            .get_args()
+            .map(|argument| argument.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(args.get(0).map(String::as_str), Some("-I"));
+        assert_eq!(args.get(1).map(String::as_str), Some("-B"));
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

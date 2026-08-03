@@ -164,7 +164,7 @@ function Invoke-IsolatedPortableSmoke {
   $startInfo.UseShellExecute = $false
   $startInfo.WorkingDirectory = Split-Path -Parent $SmokeScript
   Add-IsolatedPythonEnvironment -StartInfo $startInfo -PythonRoot (Split-Path -Parent $Python) -ModelsRoot $ModelsRoot
-  $arguments = @('-I', $SmokeScript, '--output', $Output)
+  $arguments = @('-I', '-B', $SmokeScript, '--output', $Output)
   if ($GenerateSampleOnly) {
     $arguments += '--generate-sample'
   } else {
