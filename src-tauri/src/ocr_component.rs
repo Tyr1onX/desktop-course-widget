@@ -113,7 +113,7 @@ pub fn read_status(app: &AppHandle) -> OcrComponentStatus {
         Err(error) => return unavailable_status(error),
     };
     if installed_root.exists() {
-        return match verify_component_dir(&installed_root, &manifest) {
+        return match inspect_component_dir(&installed_root, &manifest) {
             Ok(()) => ready_status("installed", Some(manifest.component_version)),
             Err(_) => corrupt_status(
                 "installed",
@@ -124,10 +124,10 @@ pub fn read_status(app: &AppHandle) -> OcrComponentStatus {
         };
     }
 
-    match verify_bundled_component(&resource_root, &manifest) {
+    match inspect_component_dir(&resource_root, &manifest) {
         Ok(()) => ready_status("bundled", Some(manifest.component_version)),
         Err(_) => unavailable_status(
-            "安装包内的离线识别组件校验失败，请重新下载安装课刻。".into(),
+            "安装包内的离线识别组件不完整，请重新下载安装课刻。".into(),
         ),
     }
 }
@@ -425,6 +425,32 @@ fn validate_relative_path(value: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn inspect_component_dir(root: &Path, manifest: &OcrComponentManifest) -> Result<(), String> {
+    validate_manifest(manifest)?;
+    if !manifest.available {
+        return Err("本地识别组件不可用".into());
+    }
+    let runtime = runtime_from_root(root, manifest);
+    validate_runtime_paths(&runtime.python, &runtime.module_root)?;
+    if !runtime.model_cache.is_dir() {
+        return Err("本地识别组件模型目录不存在".into());
+    }
+    let python_entry = manifest
+        .files
+        .iter()
+        .find(|file| file.path == manifest.python_relative_path)
+        .ok_or_else(|| "本地识别组件清单未包含 Python 入口".to_owned())?;
+    let metadata = fs::metadata(&runtime.python)
+        .map_err(|error| format!("本地识别组件 Python 入口不可读：{error}"))?;
+    if !metadata.is_file() || metadata.len() != python_entry.size {
+        return Err("本地识别组件 Python 入口大小不匹配".into());
+    }
+    if sha256_file(&runtime.python)? != python_entry.sha256 {
+        return Err("本地识别组件 Python 入口校验失败".into());
+    }
+    Ok(())
+}
+
 fn verify_bundled_component(
     root: &Path,
     manifest: &OcrComponentManifest,
@@ -588,6 +614,24 @@ mod tests {
     }
 
     #[test]
+    fn readiness_inspection_checks_only_required_runtime_paths() {
+        let root = env::temp_dir().join(format!(
+            "course-widget-ocr-inspection-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("python")).unwrap();
+        fs::create_dir_all(root.join("app/experiments/screenshot_import")).unwrap();
+        fs::create_dir_all(root.join("models")).unwrap();
+        fs::write(root.join("python/python.exe"), b"python").unwrap();
+        let manifest = manifest(vec![file_record("python/python.exe", b"python")]);
+        assert!(inspect_component_dir(&root, &manifest).is_ok());
+        fs::write(root.join("python/python.exe"), b"changed").unwrap();
+        assert!(inspect_component_dir(&root, &manifest).is_err());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn install_copies_only_manifest_files_and_detects_tampering() {
         let root = env::temp_dir().join(format!(
             "course-widget-ocr-component-test-{}",
@@ -598,6 +642,7 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(source.join("python")).unwrap();
         fs::create_dir_all(source.join("app/experiments/screenshot_import")).unwrap();
+        fs::create_dir_all(source.join("models")).unwrap();
         fs::write(source.join("python/python.exe"), b"python").unwrap();
         fs::write(
             source.join("app/experiments/screenshot_import/__init__.py"),
