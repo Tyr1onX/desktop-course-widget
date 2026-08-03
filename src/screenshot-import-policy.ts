@@ -78,7 +78,7 @@ export function screenshotImportErrorText(error: unknown): string {
     return '课表截图识别超时，请尝试使用更清晰或尺寸更小的图片。'
   }
   if (runtimeHints.some((hint) => normalized.includes(hint))) {
-    return '本地截图识别组件尚未准备好，请重新启动应用后重试。'
+    return '本地截图识别器启动失败，请稍后重试；无需重新安装或重启应用。'
   }
   if (invalidImageHints.some((hint) => normalized.includes(hint))) {
     return '无法读取这张图片，请选择有效的 PNG、JPG 或 JPEG 文件。'
