@@ -20,7 +20,7 @@ jobs:
           ref: fix/ocr-runtime-isolation-and-diagnostics
           fetch-depth: 0
 
-      - name: Apply verified payload
+      - name: Apply verified source payload
         shell: bash
         run: |
           python - <<'PY'
@@ -32,6 +32,8 @@ jobs:
 
           root = Path('.').resolve()
           parts_root = root / '.ocr-fix-payload'
+          workflow_path = root / '.github/workflows/ocr-component-release-smoke.yml'
+          temporary_workflow = workflow_path.read_bytes()
           encoded = ''.join(
               path.read_text(encoding='utf-8').strip()
               for path in sorted(parts_root.glob('part*'))
@@ -66,10 +68,12 @@ jobs:
               if actual != expected:
                   raise SystemExit(f'extracted file sha mismatch: {relative}: {actual}')
 
+          # The GitHub Actions token cannot update workflow files. Restore this temporary workflow;
+          # the connector will replace it with the verified final workflow after the source commit.
+          workflow_path.write_bytes(temporary_workflow)
           for path in parts_root.glob('part*'):
               path.unlink()
           parts_root.rmdir()
-          (root / '.github/workflows/apply-ocr-fix-payload.yml').unlink()
           PY
 
           git config user.name 'github-actions[bot]'
@@ -80,12 +84,10 @@ jobs:
             src-tauri/src/lib.rs \
             scripts/test-ocr-app-runtime.ps1 \
             scripts/test-ocr-development-bootstrap.ps1 \
-            .github/workflows/ocr-component-release-smoke.yml \
             .ocr-fix-payload/part00 \
             .ocr-fix-payload/part01 \
             .ocr-fix-payload/part02 \
             .ocr-fix-payload/part03 \
-            .ocr-fix-payload/part04 \
-            .github/workflows/apply-ocr-fix-payload.yml
+            .ocr-fix-payload/part04
           git commit -m 'fix: isolate OCR runtime and add app diagnostics'
           git push origin HEAD:fix/ocr-runtime-isolation-and-diagnostics
