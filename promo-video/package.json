@@ -4,12 +4,10 @@
   "private": true,
   "description": "Programmatic promo video compositions for 课刻.",
   "scripts": {
-    "sync-assets": "node scripts/sync-assets.mjs",
-    "predev": "npm run sync-assets",
     "dev": "remotion studio src/index.ts",
     "check": "tsc --noEmit",
-    "render:logo": "npm run sync-assets && remotion render src/index.ts LogoFormation out/logo-formation.mp4 --codec=h264 --crf=16",
-    "still:logo": "npm run sync-assets && remotion still src/index.ts LogoFormation out/logo-formation.png --frame=132"
+    "render:logo": "remotion render src/index.ts LogoFormation out/logo-formation.mp4 --codec=h264 --crf=16",
+    "still:logo": "remotion still src/index.ts LogoFormation out/logo-formation.png --frame=132"
   },
   "dependencies": {
     "@remotion/cli": "4.0.468",
