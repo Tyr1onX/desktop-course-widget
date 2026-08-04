@@ -20,8 +20,9 @@ path = "src/bin/ocr_native_spike.rs"
 required-features = ["ocr-native-spike"]
 
 [features]
-default = []
-ocr-native-spike = ["dep:image", "dep:ocr-rs"]
+default = ["native-ocr"]
+native-ocr = ["dep:image", "dep:ocr-rs"]
+ocr-native-spike = ["native-ocr"]
 
 [build-dependencies]
 tauri-build = { version = "2.6.3", features = [] }
