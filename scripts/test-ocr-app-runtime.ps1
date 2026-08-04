@@ -126,12 +126,14 @@ function Add-IsolatedPythonEnvironment {
   $tmp = [Environment]::GetEnvironmentVariable('TMP')
   $profile = [Environment]::GetEnvironmentVariable('USERPROFILE')
   $local = [Environment]::GetEnvironmentVariable('LOCALAPPDATA')
+  $threads = [Math]::Max(2, [Math]::Min(8, [int][Math]::Floor([Environment]::ProcessorCount / 2)))
   $StartInfo.Environment['SystemRoot'] = $systemRoot
   $StartInfo.Environment['WINDIR'] = $systemRoot
   $StartInfo.Environment['TEMP'] = $temp
   $StartInfo.Environment['TMP'] = $tmp
   $StartInfo.Environment['USERPROFILE'] = $profile
   $StartInfo.Environment['LOCALAPPDATA'] = $local
+  $StartInfo.Environment['NUMBER_OF_PROCESSORS'] = [string][Environment]::ProcessorCount
   $StartInfo.Environment['PATH'] = "$PythonRoot;$systemRoot\System32"
   $StartInfo.Environment['PYTHONNOUSERSITE'] = '1'
   $StartInfo.Environment['PYTHONDONTWRITEBYTECODE'] = '1'
@@ -144,11 +146,9 @@ function Add-IsolatedPythonEnvironment {
   $StartInfo.Environment['PADDLE_PDX_DISABLE_TELEMETRY'] = 'True'
   $StartInfo.Environment['FLAGS_enable_pir_api'] = '0'
   $StartInfo.Environment['FLAGS_use_mkldnn'] = '0'
-  $StartInfo.Environment['OMP_NUM_THREADS'] = '2'
-  $StartInfo.Environment['OPENBLAS_NUM_THREADS'] = '2'
-  $StartInfo.Environment['MKL_NUM_THREADS'] = '2'
-  $StartInfo.Environment['NUMEXPR_NUM_THREADS'] = '2'
-  $StartInfo.Environment['COURSE_WIDGET_OCR_CPU_THREADS'] = '2'
+  foreach ($name in @('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS', 'NUMEXPR_NUM_THREADS', 'COURSE_WIDGET_OCR_CPU_THREADS')) {
+    $StartInfo.Environment[$name] = [string]$threads
+  }
 }
 
 function Invoke-IsolatedPortableSmoke {
@@ -170,9 +170,7 @@ function Invoke-IsolatedPortableSmoke {
   } else {
     $arguments += '--inference'
   }
-  foreach ($argument in $arguments) {
-    [void]$startInfo.ArgumentList.Add($argument)
-  }
+  foreach ($argument in $arguments) { [void]$startInfo.ArgumentList.Add($argument) }
   $process = [Diagnostics.Process]::Start($startInfo)
   if (-not $process) { throw 'Could not start isolated portable Python smoke.' }
   $process.WaitForExit()
@@ -191,6 +189,31 @@ function Get-DirectPythonChildren {
   }
 }
 
+function Assert-AppPerformance {
+  param(
+    [Parameter(Mandatory = $true)]$Result,
+    [Parameter(Mandatory = $true)][int]$Runs
+  )
+  if ([int]$Result.workerStartCount -ne 1) {
+    throw "Expected one reusable OCR worker, got $($Result.workerStartCount)."
+  }
+  $durations = @($Result.runDurationsMs | ForEach-Object { [int64]$_ })
+  if ($durations.Count -ne $Runs) {
+    throw "Expected $Runs OCR duration measurements, got $($durations.Count)."
+  }
+  if ($durations | Where-Object { $_ -gt 90000 }) {
+    throw "An application OCR run exceeded the 90-second end-to-end ceiling: $($durations -join ', ') ms."
+  }
+  if ($Runs -ge 2) {
+    if ($durations[1] -gt 30000) {
+      throw "The warm OCR run exceeded 30 seconds: $($durations[1]) ms."
+    }
+    if ($durations[1] -ge $durations[0]) {
+      throw "The reusable worker did not improve the second run: $($durations -join ', ') ms."
+    }
+  }
+}
+
 function Invoke-AppOcrSmoke {
   param(
     [Parameter(Mandatory = $true)][string]$Application,
@@ -199,7 +222,7 @@ function Invoke-AppOcrSmoke {
     [Parameter(Mandatory = $true)][int]$Runs,
     [bool]$Initialize = $false,
     [bool]$ExpectSuccess = $true,
-    [int]$TimeoutSeconds = 420
+    [int]$TimeoutSeconds = 240
   )
   $fakeRoot = Join-Path (Split-Path -Parent $ResultPath) '污染 环境'
   New-Item -ItemType Directory -Force -Path $fakeRoot | Out-Null
@@ -256,9 +279,7 @@ function Invoke-AppOcrSmoke {
     $process.Kill($true)
     throw "Installed application OCR smoke timed out after $TimeoutSeconds seconds."
   }
-  if ($visibleConsole) {
-    throw 'The installed application created a visible Python/CMD console window.'
-  }
+  if ($visibleConsole) { throw 'The installed application created a visible Python/CMD console window.' }
   if (-not (Test-Path -LiteralPath $ResultPath -PathType Leaf)) {
     throw "Installed application exited without writing the smoke result: $ResultPath"
   }
@@ -279,6 +300,7 @@ function Invoke-AppOcrSmoke {
     if ($Initialize -and $result.probe.ok -ne $true) {
       throw 'Application initialization probe did not succeed.'
     }
+    Assert-AppPerformance -Result $result -Runs $Runs
   } else {
     if ($result.ok -eq $true) { throw 'Expected the application OCR smoke to fail.' }
     if (-not $result.diagnosticId) { throw 'Failed application OCR smoke did not retain a diagnostic ID.' }
@@ -302,9 +324,7 @@ $uninstallCompleted = $false
 
 try {
   $existing = Get-RegisteredInstallRoot
-  if ($existing) {
-    throw "Application-level OCR smoke requires a clean runner; found $existing"
-  }
+  if ($existing) { throw "Application-level OCR smoke requires a clean runner; found $existing" }
   Remove-Item -LiteralPath $WorkingRoot -Recurse -Force -ErrorAction SilentlyContinue
   New-Item -ItemType Directory -Force -Path $requestedInstallRoot, $smokeRoot | Out-Null
 
@@ -316,6 +336,17 @@ try {
 
   $portablePython = Join-Path $resourceRoot $manifest.pythonRelativePath
   $modelsRoot = Join-Path $resourceRoot $manifest.modelCacheRelativePath
+  $moduleRoot = Join-Path $resourceRoot $manifest.moduleRootRelativePath
+  $runtimePackage = Join-Path $moduleRoot 'experiments/screenshot_import'
+  if (-not (Test-Path -LiteralPath (Join-Path $runtimePackage 'worker.py') -PathType Leaf)) {
+    throw 'Installed OCR component is missing the production worker.'
+  }
+  foreach ($unused in @('cli.py', 'corpus.py', 'corpus_benchmark.py', 'synthetic.py', 'synthetic_chinese_corpus.py', 'pipeline.py')) {
+    if (Test-Path -LiteralPath (Join-Path $runtimePackage $unused)) {
+      throw "Installed OCR component still contains development-only module: $unused"
+    }
+  }
+
   $appExecutable = Get-AppExecutable -InstallRoot $installRoot
   $smokeScript = Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts/ocr-component-smoke.py'
   $directSmokeRoot = Join-Path $smokeRoot '直接隔离运行'
@@ -344,7 +375,7 @@ try {
     -Initialize $false
 
   # Force a fast component-verification failure, then restore the exact file. This validates
-  # persistent, copyable and redacted diagnostics without recording any timetable image content.
+  # persistent, copyable and redacted diagnostics without recording timetable image content.
   $pythonItem = Get-Item -LiteralPath $portablePython
   $pythonItem.IsReadOnly = $false
   $disabledPython = "$portablePython.disabled"
@@ -394,8 +425,9 @@ try {
   $uninstallCompleted = $true
 
   Write-Host "Application executable: $appExecutable"
-  Write-Host "Application consecutive OCR runs: $($first.runCount)"
-  Write-Host "Application restart OCR runs: $($second.runCount)"
+  Write-Host "Consecutive OCR durations: $(@($first.runDurationsMs) -join ', ') ms"
+  Write-Host "Restart OCR duration: $(@($second.runDurationsMs) -join ', ') ms"
+  Write-Host "Reusable worker starts: $($first.workerStartCount)"
   Write-Host "Diagnostic ID: $($failureResult.diagnosticId)"
   Write-Host 'Polluted Python/Conda/CUDA variables did not alter the bundled runtime.'
   Write-Host 'No visible Python/CMD console was observed.'
