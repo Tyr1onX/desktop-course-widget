@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - fix/ocr-performance-and-busy-state
+  pull_request:
+    branches:
+      - feat/release-ocr-component-foundation
 
 permissions:
   contents: write
@@ -67,6 +70,7 @@ jobs:
             src-tauri/src/lib.rs \
             src-tauri/src/ocr_component.rs \
             src-tauri/src/ocr_worker.rs \
-            scripts/apply-ocr-performance-followup.py
+            scripts/apply-ocr-performance-followup.py \
+            .ocr-performance-trigger
           git commit -m 'perf: reuse lightweight OCR worker and lock busy UI'
           git push origin HEAD:fix/ocr-performance-and-busy-state
