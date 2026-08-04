@@ -6,32 +6,48 @@
     <title>Screenshot import DOM regression</title>
   </head>
   <body>
-    <main class="import-review-surface">
-      <div class="surface-intro">
-        <h3>从 Excel 创建独立课表</h3>
-        <p>先逐项检查识别结果，再创建新课表。</p>
-      </div>
-      <button class="import-picker" type="button" data-action="choose-excel">
-        <strong>选择一份 .xlsx 课表</strong>
-        <span>文件只在本机解析，不会上传</span>
-      </button>
-      <div class="import-summary">
-        <div><strong>0 项</strong></div>
-        <div><strong>0 周</strong></div>
-        <div><strong>0 项</strong></div>
-      </div>
-      <div class="import-review-heading"><div><h3>逐项检查</h3></div><span>0 项</span></div>
-      <div class="import-review-list">
-        <select data-import-field="startSection">
-          <option value="1">1</option><option value="2">2</option><option value="3">3</option>
-          <option value="4">4</option><option value="5">5</option><option value="6">6</option>
-          <option value="7">7</option><option value="8">8</option><option value="9">9</option>
-          <option value="10">10</option><option value="11">11</option><option value="12">12</option>
-        </select>
-      </div>
-      <p class="surface-message" role="status"></p>
-    </main>
-    <button type="button" data-action="create-imported-schedule" disabled>确认并创建课表</button>
+    <div class="settings-app">
+      <header class="schedule-toolbar">
+        <button type="button" data-test-background-action>切换课表</button>
+      </header>
+      <section class="schedule-stage">
+        <button type="button" data-test-course-card>底层课程</button>
+      </section>
+      <aside class="side-surface side-surface--wide">
+        <header class="surface-header">
+          <h2>检查并导入课表</h2>
+          <button class="surface-close" type="button" aria-label="关闭">×</button>
+        </header>
+        <main class="import-review-surface">
+          <div class="surface-intro">
+            <h3>从 Excel 创建独立课表</h3>
+            <p>先逐项检查识别结果，再创建新课表。</p>
+          </div>
+          <button class="import-picker" type="button" data-action="choose-excel">
+            <strong>选择一份 .xlsx 课表</strong>
+            <span>文件只在本机解析，不会上传</span>
+          </button>
+          <div class="import-summary">
+            <div><strong>0 项</strong></div>
+            <div><strong>0 周</strong></div>
+            <div><strong>0 项</strong></div>
+          </div>
+          <div class="import-review-heading"><div><h3>逐项检查</h3></div><span>0 项</span></div>
+          <div class="import-review-list">
+            <select data-import-field="startSection">
+              <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+              <option value="4">4</option><option value="5">5</option><option value="6">6</option>
+              <option value="7">7</option><option value="8">8</option><option value="9">9</option>
+              <option value="10">10</option><option value="11">11</option><option value="12">12</option>
+            </select>
+          </div>
+          <p class="surface-message" role="status"></p>
+        </main>
+        <footer class="surface-actions surface-actions--end">
+          <button type="button" data-action="create-imported-schedule" disabled>确认并创建课表</button>
+        </footer>
+      </aside>
+    </div>
     <pre id="result" data-status="pending">PENDING</pre>
     <script>
       window.__screenshotImportCommands = []
