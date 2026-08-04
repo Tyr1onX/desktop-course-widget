@@ -74,6 +74,15 @@ jobs:
       - name: Build unsigned Universal DMG
         run: npm run tauri:build:macos
 
+      - name: Upload Universal macOS DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: course-widget-macos-universal-${{ github.sha }}
+          path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
       - name: Inspect macOS application boundary
         shell: bash
         run: |
@@ -108,12 +117,3 @@ jobs:
           echo "dmg_path=$dmg_path" >> "$GITHUB_STEP_SUMMARY"
           echo "dmg_bytes=$(stat -f%z "$dmg_path")" >> "$GITHUB_STEP_SUMMARY"
           echo "$executable_info" | tee -a "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload Universal macOS DMG
-        uses: actions/upload-artifact@v4
-        with:
-          name: course-widget-macos-universal-${{ github.sha }}
-          path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
-          if-no-files-found: error
-          retention-days: 7
-          compression-level: 0
