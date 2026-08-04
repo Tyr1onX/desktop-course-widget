@@ -5,6 +5,7 @@ on:
   pull_request:
     branches:
       - main
+      - feat/release-ocr-component-foundation
     paths:
       - '.github/workflows/ocr-component-release-smoke.yml'
       - 'settings.html'
