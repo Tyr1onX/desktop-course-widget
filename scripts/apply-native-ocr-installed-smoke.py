@@ -141,10 +141,14 @@ fn schedule_native_ocr_smoke(app: AppHandle, image: PathBuf, result: PathBuf, ru
             fs::write(&result, rendered)
                 .map_err(|error| format!("could not write native OCR smoke report: {error}"))
         })();
-        if let Err(error) = write_result {
-            eprintln!("[native-ocr-smoke] {error}");
-        }
-        app.exit(if report.ok && write_result.is_ok() { 0 } else { 1 });
+        let write_ok = match write_result {
+            Ok(()) => true,
+            Err(error) => {
+                eprintln!("[native-ocr-smoke] {error}");
+                false
+            }
+        };
+        app.exit(if report.ok && write_ok { 0 } else { 1 });
     });
 }
 
