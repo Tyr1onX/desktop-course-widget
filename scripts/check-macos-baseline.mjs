@@ -13,7 +13,7 @@ const bootstrap = readFileSync('src/settings-platform-bootstrap.ts', 'utf8')
 const macController = readFileSync('src/macos-settings-controller.ts', 'utf8')
 const mainSource = readFileSync('src-tauri/src/main.rs', 'utf8')
 
-assert(macConfig.app?.macOSPrivateApi === true, 'macOS transparent widget support must be enabled')
+assert(baseConfig.app?.macOSPrivateApi === true, 'macOS transparent widget support must be enabled')
 assert(cargoToml.includes('macos-private-api'), 'Tauri must enable the matching macOS private API Cargo feature')
 assert(macConfig.bundle?.targets?.includes('dmg'), 'macOS config must build a DMG')
 assert(!('resources' in (macConfig.bundle ?? {})), 'macOS baseline must not add OCR resources')
