@@ -76,7 +76,7 @@ fn course_from_block(
     let candidates = block.iter().chain(std::iter::once(anchor));
     let (name_token, name) = find_course_name(candidates.clone())?;
     let teacher = find_fragment(candidates.clone(), is_teacher_text);
-    let location = find_fragment(candidates, is_location_text);
+    let location = find_location_fragment(candidates);
 
     let mut source_tokens = vec![anchor.clone()];
     source_tokens.extend(block.iter().cloned());

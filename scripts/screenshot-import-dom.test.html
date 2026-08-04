@@ -38,8 +38,12 @@
       window.__TAURI_INTERNALS__ = {
         invoke: async (command) => {
           window.__screenshotImportCommands.push(command)
-          if (command === 'choose_and_parse_screenshot') {
+          if (command === 'choose_screenshot') {
             await new Promise((resolve) => setTimeout(resolve, 80))
+            return 'C:\\课表 测试.png'
+          }
+          if (command === 'parse_screenshot') {
+            await new Promise((resolve) => setTimeout(resolve, 120))
             return {
               schemaVersion: 1,
               source: 'image',

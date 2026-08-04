@@ -68,14 +68,19 @@ async function run(): Promise<void> {
   document.body.append(unrelatedControl)
 
   picker.click()
-  assert(document.documentElement.classList.contains('screenshot-import-busy'), 'recognition should lock the complete settings surface')
+  assert(picker.textContent?.includes('正在选择课表截图'), 'file selection should have a distinct state')
+  assert(!picker.textContent?.includes('秒'), 'file selection time must not count as OCR time')
+  picker.click()
+  await waitFor(
+    () => document.documentElement.classList.contains('screenshot-import-busy'),
+    'recognition should start only after a file path is returned',
+  )
   assert(picker.disabled, 'screenshot picker must be disabled while OCR is running')
   assert(excelPicker.disabled, 'Excel picker must be disabled while OCR is running')
   assert(unrelatedControl.disabled, 'controls outside the import card must be disabled while OCR is running')
-  assert(picker.textContent?.includes('正在识别课表'), 'busy picker should state the current recognition task')
-  assert(picker.textContent?.includes('秒'), 'busy picker should show real elapsed time instead of fake progress')
+  assert(/正在识别课表 · \d+ 秒/.test(picker.textContent ?? ''), 'busy picker should show whole elapsed seconds')
+  assert(!picker.textContent?.includes('.'), 'busy picker should update in whole-second steps')
   assert(!picker.textContent?.includes('%'), 'busy picker must not show a fake percentage')
-  picker.click()
 
   await waitFor(
     () => document.querySelector<HTMLElement>('.import-review-surface')?.dataset.screenshotImportMode === 'review',
@@ -89,8 +94,10 @@ async function run(): Promise<void> {
   assert(!unrelatedControl.disabled, 'unrelated controls should restore their prior enabled state after OCR')
   unrelatedControl.remove()
 
-  const recognizeCalls = window.__screenshotImportCommands.filter((command) => command === 'choose_and_parse_screenshot')
-  assert(recognizeCalls.length === 1, 'rapid duplicate clicks must start only one recognizer')
+  const chooseCalls = window.__screenshotImportCommands.filter((command) => command === 'choose_screenshot')
+  const parseCalls = window.__screenshotImportCommands.filter((command) => command === 'parse_screenshot')
+  assert(chooseCalls.length === 1, 'rapid duplicate clicks must open only one file picker')
+  assert(parseCalls.length === 1, 'one selected image must start only one recognizer')
   assert(document.querySelectorAll('.import-review-toolbar').length === 1, 'shared review toolbar should remain singular')
   assert(document.body.textContent?.includes('通信原理'), 'recognized course should appear in the shared review list')
   assert(document.body.textContent?.includes('地点：南湖-第一教学楼-四阶'), 'collapsed summary should expose recognized location before bulk confirmation')

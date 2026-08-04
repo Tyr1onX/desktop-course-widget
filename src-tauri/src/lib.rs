@@ -349,9 +349,7 @@ fn save_lesson_times(
 }
 
 #[tauri::command]
-async fn choose_and_parse_screenshot(
-    app: AppHandle,
-) -> Result<Option<import_draft::ImportDraft>, String> {
+fn choose_screenshot(app: AppHandle) -> Result<Option<String>, String> {
     let selected = app
         .dialog()
         .file()
@@ -365,13 +363,21 @@ async fn choose_and_parse_screenshot(
     let path = selected
         .into_path()
         .map_err(|_| "无法读取所选课表截图路径".to_owned())?;
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+async fn parse_screenshot(
+    app: AppHandle,
+    path: String,
+) -> Result<import_draft::ImportDraft, String> {
+    let path = PathBuf::from(path);
     let recognition_app = app.clone();
-    let draft = tauri::async_runtime::spawn_blocking(move || {
+    tauri::async_runtime::spawn_blocking(move || {
         screenshot_import::recognize_screenshot(&recognition_app, &path)
     })
     .await
-    .map_err(|error| format!("截图识别任务异常结束：{error}"))??;
-    Ok(Some(draft))
+    .map_err(|error| format!("截图识别任务异常结束：{error}"))?
 }
 
 #[tauri::command]
@@ -662,7 +668,8 @@ pub fn run() {
             read_app_settings,
             save_lesson_times,
             choose_and_parse_excel,
-            choose_and_parse_screenshot,
+            choose_screenshot,
+            parse_screenshot,
             apply_imported_schedule,
         ])
         .run(tauri::generate_context!())

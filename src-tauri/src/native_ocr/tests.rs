@@ -28,6 +28,18 @@ mod tests {
     }
 
     #[test]
+    fn removes_schedule_metadata_from_locations() {
+        assert_eq!(
+            location_from_text("地点：节，南湖-第1教学楼-七阶").as_deref(),
+            Some("南湖-第1教学楼-七阶")
+        );
+        assert_eq!(
+            location_from_text("第3节-第4节，南湖-第1教学楼-四阶·老师").as_deref(),
+            Some("南湖-第1教学楼-四阶")
+        );
+    }
+
+    #[test]
     fn extracts_course_from_native_tokens() {
         let tokens = vec![
             token("周一", 190.0, 40.0),

@@ -108,6 +108,49 @@ fn find_fragment<'a>(
     None
 }
 
+fn find_location_fragment<'a>(
+    tokens: impl IntoIterator<Item = &'a Token>,
+) -> Option<(&'a Token, String)> {
+    for token in tokens {
+        for value in token.parts.iter().chain(std::iter::once(&token.text)) {
+            if let Some(location) = location_from_text(value) {
+                return Some((token, location));
+            }
+        }
+    }
+    None
+}
+
+fn location_from_text(value: &str) -> Option<String> {
+    let compact = compact_text(value);
+    if !is_location_text(&compact) {
+        return None;
+    }
+
+    let label = Regex::new(r"^地点[:：]?").unwrap();
+    let leading_metadata = Regex::new(
+        r"^(?:(?:周|星期)[一二三四五六日天])?(?:(?:第?\d{1,2}节(?:[-—~至]第?\d{1,2}节)?)|(?:第?\d{1,2}(?:[-—~至]第?\d{1,2})?节)|节)?(?:\d{1,2}(?:[-—~至]\d{1,2})?周(?:[（(][单双][)）])?)?[，,、;；:：·|\-]*",
+    )
+    .unwrap();
+    let mut candidate = label.replace(&compact, "").into_owned();
+    candidate = leading_metadata.replace(&candidate, "").into_owned();
+
+    if let Some(index) = ["老师", "教师", "教授"]
+        .iter()
+        .filter_map(|marker| candidate.find(marker))
+        .min()
+    {
+        candidate.truncate(index);
+    }
+    let candidate = candidate
+        .trim_matches(|character: char| {
+            character.is_ascii_punctuation()
+                || matches!(character, '，' | '。' | '：' | '；' | '、' | '·' | '（' | '）')
+        })
+        .to_owned();
+    (!candidate.is_empty() && is_location_text(&candidate)).then_some(candidate)
+}
+
 fn find_course_name<'a>(
     tokens: impl IntoIterator<Item = &'a Token>,
 ) -> Option<(&'a Token, String)> {
