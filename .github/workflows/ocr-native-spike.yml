@@ -2,9 +2,6 @@ name: Validate Rust-native OCR
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - spike/rust-native-ocr
   pull_request:
     branches:
       - main
@@ -198,7 +195,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
           $tree = cargo tree --manifest-path src-tauri/Cargo.toml --invert ocr-rs --depth 1 2>&1 | Tee-Object -FilePath '.tmp/cargo-tree.log'
-          if ($tree -notmatch '(?m)^ocr-rs v2\.4\.0') {
+          if (-not ($tree | Select-String -Quiet -Pattern '^ocr-rs v2\.4\.0$')) {
             throw 'Normal application dependency tree does not contain the pinned native OCR engine.'
           }
 
