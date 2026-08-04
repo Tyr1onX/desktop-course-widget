@@ -1,0 +1,39 @@
+name: Validate Rust-native OCR spike
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - spike/rust-native-ocr
+    paths:
+      - '.github/workflows/ocr-native-spike.yml'
+      - 'src-tauri/Cargo.toml'
+      - 'src-tauri/Cargo.lock'
+      - 'src-tauri/src/bin/ocr_native_spike.rs'
+      - 'docs/ocr-local-deployment-decision.md'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-native-ocr-spike-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build isolated native OCR CLI
+        run: cargo build --manifest-path src-tauri/Cargo.toml --release --features ocr-native-spike --bin ocr-native-spike
+      - name: Check that normal app build does not include OCR dependency
+        run: cargo check --manifest-path src-tauri/Cargo.toml --lib
+      - name: Upload spike executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: ocr-native-spike-${{ github.sha }}
+          path: src-tauri/target/release/ocr-native-spike.exe
+          if-no-files-found: error
+          retention-days: 7
