@@ -38,6 +38,8 @@ let activeSettings: AppSettings | null = null
 let importName = ''
 let firstWeekMonday = ''
 let recognitionPending = false
+let recognitionStartedAt = 0
+let recognitionTimer: number | null = null
 let createPending = false
 let requestId = ''
 let renderQueued = false
@@ -123,6 +125,11 @@ function enhanceImportSurface(): void {
   updatePickerState(surface)
 }
 
+function recognitionElapsedSeconds(): number {
+  if (!recognitionPending || recognitionStartedAt <= 0) return 0
+  return Math.max(0, (performance.now() - recognitionStartedAt) / 1000)
+}
+
 function updatePickerState(surface: HTMLElement): void {
   const excelPicker = surface.querySelector<HTMLButtonElement>('[data-action="choose-excel"]')
   const screenshotPicker = surface.querySelector<HTMLButtonElement>('[data-action="choose-screenshot"]')
@@ -130,21 +137,51 @@ function updatePickerState(surface: HTMLElement): void {
   if (!screenshotPicker) return
 
   screenshotPicker.disabled = recognitionPending
-  const state = `${recognitionPending}:${desktopRuntime}`
+  const elapsedSeconds = recognitionElapsedSeconds()
+  const elapsedTick = recognitionPending ? Math.floor(elapsedSeconds * 5) : 0
+  const state = `${recognitionPending}:${desktopRuntime}:${elapsedTick}`
   if (screenshotPicker.dataset.screenshotImportState === state) return
   screenshotPicker.dataset.screenshotImportState = state
   screenshotPicker.innerHTML = `
-    <strong>${recognitionPending ? '正在本机识别…' : '选择 PNG / JPG 课表截图'}</strong>
+    <strong>${recognitionPending
+      ? `正在识别课表 · ${elapsedSeconds.toFixed(1)} 秒`
+      : '选择 PNG / JPG 课表截图'}</strong>
     <span>${recognitionPending
-      ? '正在使用课刻内置的 Rust OCR，识别完成前其他操作已锁定'
+      ? '正在读取图片、识别文字并整理课程；完成前其他操作已锁定'
       : desktopRuntime
         ? '请使用完整单张截图，包含星期标题、节次和全部课程；暂不支持多图拼接'
         : '浏览器预览中不会读取本机图片'}</span>
   `
 }
 
+function stopRecognitionClock(): void {
+  if (recognitionTimer !== null) {
+    window.clearInterval(recognitionTimer)
+    recognitionTimer = null
+  }
+  recognitionStartedAt = 0
+}
+
+function startRecognitionClock(surface: HTMLElement): void {
+  stopRecognitionClock()
+  recognitionStartedAt = performance.now()
+  const tick = () => {
+    const currentSurface = document.querySelector<HTMLElement>('.import-review-surface')
+    if (!currentSurface || !recognitionPending) return
+    updatePickerState(currentSurface)
+    setMessage(
+      currentSurface,
+      `正在本机识别并整理课程，已用时 ${recognitionElapsedSeconds().toFixed(1)} 秒…`,
+    )
+  }
+  tick()
+  recognitionTimer = window.setInterval(tick, 200)
+}
+
 function setRecognitionBusy(surface: HTMLElement, busy: boolean): void {
   recognitionPending = busy
+  if (busy) startRecognitionClock(surface)
+  else stopRecognitionClock()
   document.documentElement.classList.toggle('screenshot-import-busy', busy)
   surface.toggleAttribute('aria-busy', busy)
   const controls = document.querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLSelectElement | HTMLTextAreaElement>(
@@ -177,7 +214,6 @@ async function chooseScreenshot(): Promise<void> {
   }
 
   setRecognitionBusy(surface, true)
-  setMessage(surface, '正在使用课刻内置的本地识别引擎读取课表，通常只需几秒…')
 
   try {
     const draft = await invoke<ImportDraft | null>('choose_and_parse_screenshot')
@@ -202,6 +238,7 @@ async function chooseScreenshot(): Promise<void> {
   } finally {
     const currentSurface = document.querySelector<HTMLElement>('.import-review-surface')
     if (currentSurface) setRecognitionBusy(currentSurface, false)
+    else stopRecognitionClock()
   }
 }
 
@@ -287,6 +324,7 @@ function resetScreenshotImport(): void {
   importName = ''
   firstWeekMonday = ''
   recognitionPending = false
+  stopRecognitionClock()
   createPending = false
   requestId = ''
   sessionStorage.setItem(reopenImportKey, 'true')
