@@ -15,8 +15,10 @@
     "check:import-review-dom": "node scripts/check-import-review-dom.mjs",
     "check:screenshot-import-dom": "node scripts/check-screenshot-import-dom.mjs",
     "check:presentation-clock": "node --experimental-strip-types scripts/check-presentation-clock.mjs",
+    "check:macos-baseline": "node scripts/check-macos-baseline.mjs",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
+    "tauri:build:macos": "tauri build --config src-tauri/tauri.macos.conf.json --target universal-apple-darwin",
     "preview": "vite preview"
   },
   "devDependencies": {
