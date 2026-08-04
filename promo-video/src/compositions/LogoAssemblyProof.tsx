@@ -100,14 +100,10 @@ const FINAL_LIGHTS: Point[] = [
 ];
 
 const RIBBON_SLICES: Slice[] = [
-  {startX: 0, endX: 72, frame: 24, dx: -92, dy: 42, rotation: -18},
-  {startX: 72, endX: 140, frame: 27, dx: -54, dy: -66, rotation: 13},
-  {startX: 140, endX: 208, frame: 30, dx: 18, dy: 88, rotation: -11},
-  {startX: 208, endX: 276, frame: 33, dx: -12, dy: -94, rotation: 9},
-  {startX: 276, endX: 344, frame: 36, dx: 46, dy: 82, rotation: -8},
-  {startX: 344, endX: 412, frame: 39, dx: 78, dy: -62, rotation: 11},
-  {startX: 412, endX: 466, frame: 42, dx: 96, dy: 38, rotation: -12},
-  {startX: 466, endX: 512, frame: 45, dx: 72, dy: -86, rotation: 16},
+  {startX: 0, endX: 154, frame: 26, dx: -46, dy: 28, rotation: -7},
+  {startX: 154, endX: 278, frame: 32, dx: -14, dy: 44, rotation: 4},
+  {startX: 278, endX: 402, frame: 38, dx: 28, dy: -34, rotation: -4},
+  {startX: 402, endX: 512, frame: 44, dx: 48, dy: -46, rotation: 6},
 ];
 
 const FullImage = ({src, opacity = 1}: {src: string; opacity?: number}) => (
@@ -124,40 +120,40 @@ const FullImage = ({src, opacity = 1}: {src: string; opacity?: number}) => (
 );
 
 const BasePlate = ({frame, opacity}: {frame: number; opacity: number}) => {
-  const panelProgress = progress(frame, 0, 28);
-  const offsets = [
-    {clipPath: 'inset(0 50% 50% 0)', x: -28, y: -22},
-    {clipPath: 'inset(0 0 50% 50%)', x: 28, y: -22},
-    {clipPath: 'inset(50% 50% 0 0)', x: -28, y: 22},
-    {clipPath: 'inset(50% 0 0 50%)', x: 28, y: 22},
-  ];
+  const plateProgress = progress(frame, 0, 27);
+  const halo = progress(frame, 0, 18) * (1 - progress(frame, 22, 34));
 
   return (
     <div style={{position: 'absolute', inset: 0, opacity}}>
-      {offsets.map((panel, index) => (
-        <div
-          key={panel.clipPath}
-          style={{
-            position: 'absolute',
-            inset: 18,
-            borderRadius: 104,
-            background:
-              'radial-gradient(circle at 72% 26%, rgba(255,255,255,0.82), rgba(255,255,255,0) 35%), linear-gradient(145deg, #E3E7F7 0%, #D5DCF2 52%, #C9D3EE 100%)',
-            boxShadow:
-              index === 3
-                ? '0 28px 50px rgba(77, 91, 132, 0.16), inset 0 1px 1px rgba(255,255,255,0.82)'
-                : 'inset 0 1px 1px rgba(255,255,255,0.82)',
-            clipPath: panel.clipPath,
-            filter: `blur(${mix(9, 0, panelProgress)}px)`,
-            opacity: progress(frame, index * 2, 11 + index * 2),
-            transform: `translate(${mix(panel.x, 0, panelProgress)}px, ${mix(
-              panel.y,
-              0,
-              panelProgress,
-            )}px) scale(${mix(0.93, 1, panelProgress)})`,
-          }}
-        />
-      ))}
+      <div
+        style={{
+          position: 'absolute',
+          inset: 38,
+          borderRadius: 132,
+          background: 'rgba(151, 169, 218, 0.24)',
+          filter: `blur(${mix(30, 48, plateProgress)}px)`,
+          opacity: halo,
+          transform: `scale(${mix(0.72, 1.08, plateProgress)})`,
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          inset: 18,
+          borderRadius: mix(138, 104, plateProgress),
+          background:
+            'radial-gradient(circle at 72% 26%, rgba(255,255,255,0.86), rgba(255,255,255,0) 35%), linear-gradient(145deg, #E3E7F7 0%, #D5DCF2 52%, #C9D3EE 100%)',
+          boxShadow:
+            '0 28px 50px rgba(77, 91, 132, 0.16), inset 0 1px 1px rgba(255,255,255,0.82)',
+          filter: `blur(${mix(12, 0, plateProgress)}px)`,
+          opacity: progress(frame, 0, 12),
+          transform: `translateY(${mix(20, 0, plateProgress)}px) scale(${mix(
+            0.78,
+            1,
+            plateProgress,
+          )})`,
+        }}
+      />
     </div>
   );
 };
@@ -266,7 +262,7 @@ const RibbonAssembly = ({frame, opacity}: {frame: number; opacity: number}) => {
   return (
     <div style={{position: 'absolute', inset: 0, opacity}}>
       {RIBBON_SLICES.map((slice, index) => {
-        const arrive = progress(frame, slice.frame, slice.frame + 24);
+        const arrive = progress(frame, slice.frame, slice.frame + 20);
         const appear = progress(frame, slice.frame, slice.frame + 6);
         const width = slice.endX - slice.startX;
 
@@ -281,13 +277,13 @@ const RibbonAssembly = ({frame, opacity}: {frame: number; opacity: number}) => {
               height: 512,
               overflow: 'hidden',
               opacity: appear,
-              filter: `blur(${mix(5.5, 0, arrive)}px)`,
+              filter: `blur(${mix(3.5, 0, arrive)}px)`,
               transform: `translate(${mix(slice.dx, 0, arrive)}px, ${mix(
                 slice.dy,
                 0,
                 arrive,
               )}px) rotate(${mix(slice.rotation, 0, arrive)}deg) scale(${mix(
-                0.86 + index * 0.008,
+                0.94 + index * 0.006,
                 1,
                 arrive,
               )})`,
