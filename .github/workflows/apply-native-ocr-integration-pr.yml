@@ -1,0 +1,86 @@
+name: Apply native OCR integration through PR
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/apply-native-ocr-integration-pr.yml'
+      - 'scripts/apply-native-ocr-app-integration.py'
+      - 'src-tauri/src/native_ocr.rs'
+      - 'src-tauri/src/screenshot_import.rs'
+      - 'src-tauri/Cargo.toml'
+      - 'scripts/download-native-ocr-models.ps1'
+      - 'src-tauri/resources/ocr-native/**'
+      - '.native-ocr-integration-trigger'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-native-ocr-integration-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  apply-validate-commit:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Apply exact integration patch
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python scripts/apply-native-ocr-app-integration.py
+          cargo fmt --manifest-path src-tauri/Cargo.toml
+
+      - name: Prepare hash-pinned native models
+        shell: pwsh
+        run: ./scripts/download-native-ocr-models.ps1
+
+      - name: Validate frontend and native backend
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          npm ci
+          npm run build
+          npm run check:screenshot-import
+          npm run check:screenshot-import-dom
+          cargo test --manifest-path src-tauri/Cargo.toml --lib
+          cargo check --manifest-path src-tauri/Cargo.toml
+
+      - name: Commit verified integration
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Remove-Item scripts/apply-native-ocr-app-integration.py
+          Remove-Item .native-ocr-integration-trigger -ErrorAction SilentlyContinue
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- `
+            src-tauri/src/lib.rs `
+            src-tauri/tauri.conf.json `
+            src/screenshot-import-controller.ts `
+            src/settings.css `
+            src-tauri/Cargo.lock `
+            scripts/apply-native-ocr-app-integration.py `
+            .native-ocr-integration-trigger
+          git commit -m 'feat: integrate Rust-native screenshot OCR into the app'
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
