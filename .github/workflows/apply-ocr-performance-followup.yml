@@ -34,7 +34,9 @@ jobs:
       - name: Apply follow-up patch
         shell: bash
         run: |
+          python scripts/fix-ocr-followup-generator.py
           python scripts/apply-ocr-performance-followup.py
+          rm scripts/fix-ocr-followup-generator.py
           rm scripts/apply-ocr-performance-followup.py
           cargo fmt --manifest-path src-tauri/Cargo.toml
 
@@ -76,6 +78,7 @@ jobs:
             src-tauri/src/lib.rs \
             src-tauri/src/ocr_component.rs \
             src-tauri/src/ocr_worker.rs \
+            scripts/fix-ocr-followup-generator.py \
             scripts/apply-ocr-performance-followup.py \
             .ocr-performance-trigger
           git commit -m 'perf: reuse lightweight OCR worker and lock busy UI'
