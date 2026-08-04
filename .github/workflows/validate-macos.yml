@@ -87,10 +87,16 @@ jobs:
             echo 'The stable macOS bundle unexpectedly contains OCR runtime files.' >&2
             exit 1
           fi
+          executable_path="$(find "$app_path/Contents/MacOS" -maxdepth 1 -type f -print -quit)"
+          test -n "$executable_path"
+          test -x "$executable_path"
+          executable_info="$(file "$executable_path")"
+          [[ "$executable_info" == *'arm64'* ]]
+          [[ "$executable_info" == *'x86_64'* ]]
           echo "app_path=$app_path" >> "$GITHUB_STEP_SUMMARY"
           echo "dmg_path=$dmg_path" >> "$GITHUB_STEP_SUMMARY"
           echo "dmg_bytes=$(stat -f%z "$dmg_path")" >> "$GITHUB_STEP_SUMMARY"
-          file "$app_path/Contents/MacOS/课刻" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "$executable_info" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Upload Universal macOS DMG
         uses: actions/upload-artifact@v4
