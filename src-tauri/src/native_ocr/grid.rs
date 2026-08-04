@@ -30,16 +30,19 @@ fn fallback_courses(
         column_tokens.sort_by(token_reading_order);
         let mut groups: Vec<Vec<Token>> = Vec::new();
         for token in column_tokens {
-            let starts_new = groups
-                .last()
-                .and_then(|group| group.last())
-                .is_some_and(|previous| {
-                    let vertical_gap = token.top - previous.bottom();
-                    let typical_height = previous.height.max(token.height).max(18.0);
-                    vertical_gap > typical_height * 1.15
-                        || nearest_section(sections, token.center_y())
-                            > nearest_section(sections, previous.center_y()).saturating_add(2)
-                });
+            let starts_named_card = token_starts_course_card(&token)
+                && groups.last().is_some_and(|group| group_has_card_body(group));
+            let starts_new = starts_named_card
+                || groups
+                    .last()
+                    .and_then(|group| group.last())
+                    .is_some_and(|previous| {
+                        let vertical_gap = token.top - previous.bottom();
+                        let typical_height = previous.height.max(token.height).max(18.0);
+                        vertical_gap > typical_height * 1.15
+                            || nearest_section(sections, token.center_y())
+                                > nearest_section(sections, previous.center_y()).saturating_add(2)
+                    });
             if starts_new || groups.is_empty() {
                 groups.push(vec![token]);
             } else if let Some(group) = groups.last_mut() {
@@ -48,21 +51,47 @@ fn fallback_courses(
         }
 
         for group in groups {
+            if !group_has_card_body(&group) {
+                continue;
+            }
             let combined = group
                 .iter()
                 .map(|token| token.text.as_str())
                 .collect::<Vec<_>>()
                 .join(" ");
+            let parsed_anchors = course_anchors(&group);
             let first_y = group.first().map(Token::center_y).unwrap_or_default();
             let last_y = group.last().map(Token::center_y).unwrap_or(first_y);
-            let start_section = nearest_section(sections, first_y);
-            let end_section = nearest_section(sections, last_y).max(start_section);
-            let (weeks, parity, used_default_weeks) = parse_weeks_and_parity(&combined);
-            let Some(anchor) = group.first() else {
-                continue;
-            };
+            let positional_start = nearest_section(sections, first_y);
+            let positional_end = nearest_section(sections, last_y).max(positional_start);
+            let fallback_weeks = parse_weeks_and_parity(&combined);
+            let (weekday, start_section, end_section, weeks, parity, used_default_weeks, anchor) =
+                if let Some(parsed) = parsed_anchors.first() {
+                    (
+                        parsed.weekday,
+                        parsed.start_section,
+                        parsed.end_section,
+                        parsed.weeks.clone(),
+                        parsed.parity.clone(),
+                        parsed.used_default_weeks,
+                        &group[parsed.token_index],
+                    )
+                } else {
+                    let Some(anchor) = group.first() else {
+                        continue;
+                    };
+                    (
+                        header.weekday,
+                        positional_start,
+                        positional_end,
+                        fallback_weeks.0,
+                        fallback_weeks.1,
+                        fallback_weeks.2,
+                        anchor,
+                    )
+                };
             if let Some(course) = course_from_block(
-                header.weekday,
+                weekday,
                 start_section,
                 end_section,
                 weeks,
@@ -78,6 +107,29 @@ fn fallback_courses(
         }
     }
     courses
+}
+
+fn token_starts_course_card(token: &Token) -> bool {
+    token
+        .parts
+        .iter()
+        .chain(std::iter::once(&token.text))
+        .filter_map(|value| course_name_from_text(value))
+        .any(|name| has_course_code(&name))
+}
+
+fn group_has_card_body(group: &[Token]) -> bool {
+    group.iter().any(|token| {
+        token
+            .parts
+            .iter()
+            .chain(std::iter::once(&token.text))
+            .any(|value| {
+                is_location_text(value)
+                    || looks_like_schedule_metadata(value)
+                    || course_name_from_text(value).is_some_and(|name| has_course_code(&name))
+            })
+    })
 }
 
 fn weekday_headers(tokens: &[Token]) -> Vec<WeekdayHeader> {
