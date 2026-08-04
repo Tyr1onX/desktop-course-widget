@@ -14,8 +14,8 @@ permissions:
 jobs:
   apply-and-validate:
     if: github.actor != 'github-actions[bot]'
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
+    runs-on: windows-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,26 +32,33 @@ jobs:
           python-version: '3.13'
 
       - name: Apply follow-up patch
+        shell: bash
         run: |
           python scripts/apply-ocr-performance-followup.py
           rm scripts/apply-ocr-performance-followup.py
           cargo fmt --manifest-path src-tauri/Cargo.toml
 
       - name: Validate pruned Python runtime closure
+        shell: bash
         run: |
-          python scripts/copy-ocr-runtime.py --source-root . --destination-root "$RUNNER_TEMP/ocr-runtime"
-          test -f "$RUNNER_TEMP/ocr-runtime/experiments/screenshot_import/worker.py"
-          test ! -e "$RUNNER_TEMP/ocr-runtime/experiments/screenshot_import/cli.py"
+          runtime_dir="$(pwd)/.tmp-pruned-ocr-runtime"
+          python scripts/copy-ocr-runtime.py --source-root . --destination-root "$runtime_dir"
+          test -f "$runtime_dir/experiments/screenshot_import/worker.py"
+          test ! -e "$runtime_dir/experiments/screenshot_import/cli.py"
           python -m compileall -q experiments/screenshot_import scripts/copy-ocr-runtime.py
+          rm -rf "$runtime_dir"
 
-      - name: Validate frontend and backend
+      - name: Validate frontend and Windows backend
+        shell: bash
         run: |
           npm ci
           npm run build
           npm run check:screenshot-import
+          npm run check:screenshot-import-dom
           cargo test --manifest-path src-tauri/Cargo.toml --lib
 
       - name: Commit verified follow-up
+        shell: bash
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
