@@ -38,11 +38,6 @@ config_path.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", 
 
 controller_path = Path("src/screenshot-import-controller.ts")
 controller = controller_path.read_text(encoding="utf-8")
-controller = controller.replace(
-    "let recognitionPending = false\nlet createPending = false",
-    "let recognitionPending = false\nlet recognitionStartedAt = 0\nlet recognitionTimer: number | null = null\nlet createPending = false",
-    1,
-)
 start = controller.index("function updatePickerState(surface: HTMLElement): void {")
 end = controller.index("\nasync function chooseScreenshot(): Promise<void> {", start)
 replacement = r'''function updatePickerState(surface: HTMLElement): void {
@@ -52,12 +47,9 @@ replacement = r'''function updatePickerState(surface: HTMLElement): void {
   if (!screenshotPicker) return
 
   screenshotPicker.disabled = recognitionPending
-  const elapsed = recognitionPending && recognitionStartedAt > 0
-    ? Math.max(0, Math.floor((Date.now() - recognitionStartedAt) / 1000))
-    : 0
-  screenshotPicker.dataset.screenshotImportState = `${recognitionPending}:${desktopRuntime}:${elapsed}`
+  screenshotPicker.dataset.screenshotImportState = `${recognitionPending}:${desktopRuntime}`
   screenshotPicker.innerHTML = `
-    <strong>${recognitionPending ? `正在本机识别 · ${elapsed} 秒` : '选择 PNG / JPG 课表截图'}</strong>
+    <strong>${recognitionPending ? '正在本机识别…' : '选择 PNG / JPG 课表截图'}</strong>
     <span>${recognitionPending
       ? '正在使用课刻内置的 Rust OCR，识别完成前其他操作已锁定'
       : desktopRuntime
@@ -87,19 +79,6 @@ function setRecognitionBusy(surface: HTMLElement, busy: boolean): void {
       delete control.dataset.screenshotOcrWasDisabled
     }
   })
-
-  if (busy) {
-    recognitionStartedAt = Date.now()
-    if (recognitionTimer !== null) window.clearInterval(recognitionTimer)
-    recognitionTimer = window.setInterval(() => {
-      const current = document.querySelector<HTMLElement>('.import-review-surface')
-      if (current && recognitionPending) updatePickerState(current)
-    }, 1000)
-  } else {
-    recognitionStartedAt = 0
-    if (recognitionTimer !== null) window.clearInterval(recognitionTimer)
-    recognitionTimer = null
-  }
   updatePickerState(surface)
 }
 '''
