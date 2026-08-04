@@ -5,11 +5,15 @@ on:
   push:
     branches:
       - spike/rust-native-ocr
+  pull_request:
+    branches:
+      - main
     paths:
       - '.github/workflows/ocr-native-spike.yml'
       - 'src-tauri/Cargo.toml'
       - 'src-tauri/Cargo.lock'
       - 'src-tauri/src/bin/ocr_native_spike.rs'
+      - 'experiments/screenshot_import/synthetic_chinese_corpus.py'
       - 'docs/ocr-local-deployment-decision.md'
 
 permissions:
@@ -19,21 +23,116 @@ concurrency:
   group: rust-native-ocr-spike-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  OCR_MODEL_COMMIT: 705052d551ac254f4b2925075f5a9695910305e9
+
 jobs:
-  windows-build:
+  windows-native-runtime:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+
       - uses: dtolnay/rust-toolchain@stable
-      - name: Build isolated native OCR CLI
-        run: cargo build --manifest-path src-tauri/Cargo.toml --release --features ocr-native-spike --bin ocr-native-spike
-      - name: Check that normal app build does not include OCR dependency
-        run: cargo check --manifest-path src-tauri/Cargo.toml --lib
-      - name: Upload spike executable
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Generate deterministic Chinese timetable image
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m pip install --disable-pip-version-check pillow
+          @'
+          from experiments.screenshot_import.synthetic_chinese_corpus import generate_chinese_timetable_sample
+          generated = generate_chinese_timetable_sample('.tmp/native-ocr-input', 'mobile_cards_12')
+          print(generated['image'])
+          '@ | python -
+          if (-not (Test-Path '.tmp/native-ocr-input/mobile_cards_12.png')) {
+            throw 'Chinese timetable fixture was not generated.'
+          }
+
+      - name: Download pinned FP16 MNN models
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $modelRoot = '.tmp/native-ocr-models'
+          New-Item -ItemType Directory -Force -Path $modelRoot | Out-Null
+          $base = "https://raw.githubusercontent.com/zibo-chen/rust-paddle-ocr/$env:OCR_MODEL_COMMIT/models"
+          $files = @(
+            'PP-OCRv5_mobile_det_fp16.mnn',
+            'PP-OCRv5_mobile_rec_fp16.mnn',
+            'ppocr_keys_v5.txt'
+          )
+          foreach ($file in $files) {
+            Invoke-WebRequest -Uri "$base/$file" -OutFile (Join-Path $modelRoot $file)
+          }
+          Get-ChildItem $modelRoot | ForEach-Object {
+            $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$($_.Name) $($_.Length) $hash" | Tee-Object -FilePath '.tmp/native-ocr-models.sha256' -Append
+          }
+
+      - name: Build isolated in-process OCR CLI
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          cargo build --manifest-path src-tauri/Cargo.toml --release --features ocr-native-spike --bin ocr-native-spike
+
+      - name: Run cold and warm OCR gates
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $binary = 'src-tauri/target/release/ocr-native-spike.exe'
+          $image = '.tmp/native-ocr-input/mobile_cards_12.png'
+          $models = '.tmp/native-ocr-models'
+          & $binary `
+            --image $image `
+            --image $image `
+            --det-model (Join-Path $models 'PP-OCRv5_mobile_det_fp16.mnn') `
+            --rec-model (Join-Path $models 'PP-OCRv5_mobile_rec_fp16.mnn') `
+            --charset (Join-Path $models 'ppocr_keys_v5.txt') `
+            --max-side 1600 `
+            --max-cold-seconds 30 `
+            --max-warm-seconds 15 `
+            --minimum-expectations 2 `
+            --expect '通信原理' `
+            --expect '数字信号处理' `
+            --expect '单片机原理' `
+            --expect '通信与网络' | Tee-Object -FilePath '.tmp/native-ocr-report.json'
+
+          $report = Get-Content '.tmp/native-ocr-report.json' -Raw | ConvertFrom-Json
+          if (-not $report.allGatesPassed) { throw 'Native OCR gate did not pass.' }
+          if ($report.externalProcesses -ne 0) { throw 'Native OCR unexpectedly used an external process.' }
+          if ($report.runs.Count -ne 2) { throw 'Expected exactly two OCR runs in one process.' }
+          "engine_initialization_ms=$($report.engineInitializationMs)" >> $env:GITHUB_STEP_SUMMARY
+          "cold_total_ms=$($report.coldTotalMs)" >> $env:GITHUB_STEP_SUMMARY
+          "warm_total_ms=$($report.runs[1].runTotalMs)" >> $env:GITHUB_STEP_SUMMARY
+          "first_items=$($report.runs[0].itemCount)" >> $env:GITHUB_STEP_SUMMARY
+          "matched_terms=$($report.runs[0].matchedExpectedTerms -join ', ')" >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Verify the normal application excludes OCR
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          cargo check --manifest-path src-tauri/Cargo.toml --lib --no-default-features
+          $tree = cargo tree --manifest-path src-tauri/Cargo.toml --lib --no-default-features
+          if ($tree -match '(?m)^ocr-rs ') {
+            throw 'Normal application dependency tree unexpectedly contains ocr-rs.'
+          }
+
+      - name: Upload native spike evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ocr-native-spike-${{ github.sha }}
-          path: src-tauri/target/release/ocr-native-spike.exe
-          if-no-files-found: error
+          path: |
+            src-tauri/target/release/ocr-native-spike.exe
+            .tmp/native-ocr-report.json
+            .tmp/native-ocr-models.sha256
+            .tmp/native-ocr-input/mobile_cards_12.png
+          if-no-files-found: warn
           retention-days: 7
