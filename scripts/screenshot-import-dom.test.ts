@@ -59,9 +59,22 @@ async function run(): Promise<void> {
   )
 
   const picker = document.querySelector<HTMLButtonElement>('[data-action="choose-screenshot"]')
+  const excelPicker = document.querySelector<HTMLButtonElement>('[data-action="choose-excel"]')
   assert(picker, 'screenshot picker should be available after the Excel draft is cleared')
+  assert(excelPicker, 'Excel picker should be available before recognition')
+  const unrelatedControl = document.createElement('button')
+  unrelatedControl.type = 'button'
+  unrelatedControl.textContent = 'unrelated control'
+  document.body.append(unrelatedControl)
+
   picker.click()
+  assert(document.documentElement.classList.contains('screenshot-import-busy'), 'recognition should lock the complete settings surface')
+  assert(picker.disabled, 'screenshot picker must be disabled while OCR is running')
+  assert(excelPicker.disabled, 'Excel picker must be disabled while OCR is running')
+  assert(unrelatedControl.disabled, 'controls outside the import card must be disabled while OCR is running')
+  assert(picker.textContent?.includes('正在本机识别'), 'busy picker should show a real native recognition state')
   picker.click()
+
   await waitFor(
     () => document.querySelector<HTMLElement>('.import-review-surface')?.dataset.screenshotImportMode === 'review',
     'recognized screenshot should enter review mode',
@@ -70,6 +83,9 @@ async function run(): Promise<void> {
     () => document.querySelectorAll('.import-review-toolbar').length === 1,
     'shared review toolbar should render once',
   )
+  assert(!document.documentElement.classList.contains('screenshot-import-busy'), 'recognition lock should clear after OCR finishes')
+  assert(!unrelatedControl.disabled, 'unrelated controls should restore their prior enabled state after OCR')
+  unrelatedControl.remove()
 
   const recognizeCalls = window.__screenshotImportCommands.filter((command) => command === 'choose_and_parse_screenshot')
   assert(recognizeCalls.length === 1, 'rapid duplicate clicks must start only one recognizer')
