@@ -19,6 +19,13 @@ mod tests {
     }
 
     #[test]
+    fn parses_numeric_weekday_labels() {
+        assert_eq!(weekday_from_text("星期1"), Some(1));
+        assert_eq!(weekday_from_text("周6"), Some(6));
+        assert_eq!(weekday_from_text("星期7"), Some(7));
+    }
+
+    #[test]
     fn parses_compact_section_and_time_labels() {
         assert_eq!(section_number_from_text("1"), Some(1));
         assert_eq!(section_number_from_text("第10节"), Some(10));
@@ -77,8 +84,14 @@ mod tests {
 
     #[test]
     fn recognizes_two_character_plain_teacher_names() {
-        assert_eq!(bare_teacher_from_text("刘聪", "单片机原理及其应用[04]").as_deref(), Some("刘聪"));
-        assert_eq!(bare_teacher_from_text("孙吉", "现场总线技术[03]").as_deref(), Some("孙吉"));
+        assert_eq!(
+            bare_teacher_from_text("刘聪", "单片机原理及其应用[04]").as_deref(),
+            Some("刘聪")
+        );
+        assert_eq!(
+            bare_teacher_from_text("孙吉", "现场总线技术[03]").as_deref(),
+            Some("孙吉")
+        );
         assert_eq!(bare_teacher_from_text("信息论", "信息论").as_deref(), None);
     }
 
