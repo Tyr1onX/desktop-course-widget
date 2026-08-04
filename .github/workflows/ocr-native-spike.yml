@@ -84,26 +84,55 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $PSNativeCommandUseErrorActionPreference = $true
-          $binary = 'src-tauri/target/release/ocr-native-spike.exe'
-          $image = '.tmp/native-ocr-input/mobile_cards_12.png'
-          $models = '.tmp/native-ocr-models'
-          & $binary `
-            --image $image `
-            --image $image `
-            --det-model (Join-Path $models 'PP-OCRv5_mobile_det_fp16.mnn') `
-            --rec-model (Join-Path $models 'PP-OCRv5_mobile_rec_fp16.mnn') `
-            --charset (Join-Path $models 'ppocr_keys_v5.txt') `
-            --max-side 1600 `
-            --max-cold-seconds 30 `
-            --max-warm-seconds 15 `
-            --minimum-expectations 2 `
-            --expect '通信原理' `
-            --expect '数字信号处理' `
-            --expect '单片机原理' `
-            --expect '通信与网络' | Tee-Object -FilePath '.tmp/native-ocr-report.json'
+          $binary = [IO.Path]::GetFullPath('src-tauri/target/release/ocr-native-spike.exe')
+          $image = [IO.Path]::GetFullPath('.tmp/native-ocr-input/mobile_cards_12.png')
+          $models = [IO.Path]::GetFullPath('.tmp/native-ocr-models')
+          $reportPath = [IO.Path]::GetFullPath('.tmp/native-ocr-report.json')
+          $stderrPath = [IO.Path]::GetFullPath('.tmp/native-ocr-stderr.log')
 
-          $report = Get-Content '.tmp/native-ocr-report.json' -Raw | ConvertFrom-Json
+          $startInfo = [Diagnostics.ProcessStartInfo]::new()
+          $startInfo.FileName = $binary
+          $startInfo.UseShellExecute = $false
+          $startInfo.CreateNoWindow = $true
+          $startInfo.RedirectStandardOutput = $true
+          $startInfo.RedirectStandardError = $true
+          $arguments = @(
+            '--image', $image,
+            '--image', $image,
+            '--det-model', (Join-Path $models 'PP-OCRv5_mobile_det_fp16.mnn'),
+            '--rec-model', (Join-Path $models 'PP-OCRv5_mobile_rec_fp16.mnn'),
+            '--charset', (Join-Path $models 'ppocr_keys_v5.txt'),
+            '--max-side', '1600',
+            '--max-cold-seconds', '30',
+            '--max-warm-seconds', '15',
+            '--minimum-expectations', '2',
+            '--expect', '通信原理',
+            '--expect', '数字信号处理',
+            '--expect', '单片机原理',
+            '--expect', '通信与网络'
+          )
+          foreach ($argument in $arguments) {
+            [void]$startInfo.ArgumentList.Add([string]$argument)
+          }
+
+          $process = [Diagnostics.Process]::Start($startInfo)
+          if (-not $process) { throw 'Could not start native OCR spike.' }
+          $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+          $stderrTask = $process.StandardError.ReadToEndAsync()
+          $process.WaitForExit()
+          $stdout = $stdoutTask.GetAwaiter().GetResult()
+          $stderr = $stderrTask.GetAwaiter().GetResult()
+          [IO.File]::WriteAllText($reportPath, $stdout, [Text.UTF8Encoding]::new($false))
+          [IO.File]::WriteAllText($stderrPath, $stderr, [Text.UTF8Encoding]::new($false))
+          if ($stderr.Trim()) {
+            Write-Host 'Native OCR runtime diagnostics:'
+            Write-Host $stderr.Trim()
+          }
+          if ($process.ExitCode -ne 0) {
+            throw "Native OCR spike exited with code $($process.ExitCode)."
+          }
+
+          $report = $stdout | ConvertFrom-Json
           if (-not $report.allGatesPassed) { throw 'Native OCR gate did not pass.' }
           if ($report.externalProcesses -ne 0) { throw 'Native OCR unexpectedly used an external process.' }
           if ($report.runs.Count -ne 2) { throw 'Expected exactly two OCR runs in one process.' }
@@ -132,6 +161,7 @@ jobs:
           path: |
             src-tauri/target/release/ocr-native-spike.exe
             .tmp/native-ocr-report.json
+            .tmp/native-ocr-stderr.log
             .tmp/native-ocr-models.sha256
             .tmp/native-ocr-input/mobile_cards_12.png
           if-no-files-found: warn
