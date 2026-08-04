@@ -165,7 +165,6 @@ function startRecognitionClock(): void {
   const tick = () => {
     const currentSurface = document.querySelector<HTMLElement>('.import-review-surface')
     if (!currentSurface || !recognitionPending) return
-    const elapsedSeconds = recognitionElapsedSeconds()
     updatePickerState(currentSurface)
   }
   tick()
@@ -334,8 +333,8 @@ function resetScreenshotImport(): void {
 
 function hideTechnicalReviewEvidence(surface: HTMLElement): void {
   surface
-      .querySelectorAll('.import-evidence-copy, .surface-intro p, .import-review-heading p')
-      .forEach((element) => element.remove())
+    .querySelectorAll('.import-evidence-copy, .surface-intro p, .import-review-heading p')
+    .forEach((element) => element.remove())
 }
 
 async function createScreenshotSchedule(): Promise<void> {
