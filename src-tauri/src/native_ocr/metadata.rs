@@ -326,6 +326,12 @@ fn course_name_from_text(value: &str) -> Option<String> {
         candidate.truncate(index);
     }
 
+    if candidate.is_empty()
+        || weekday_from_text(&candidate).is_some()
+        || looks_like_schedule_metadata(&candidate)
+    {
+        return None;
+    }
     candidate = normalize_trailing_course_code(&candidate);
 
     let character_count = candidate.chars().count();
