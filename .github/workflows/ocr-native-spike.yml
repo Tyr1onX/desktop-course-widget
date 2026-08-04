@@ -43,7 +43,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          python -m pip install --disable-pip-version-check pillow
+          python -m pip install --disable-pip-version-check pillow numpy
           @'
           from experiments.screenshot_import.synthetic_chinese_corpus import generate_chinese_timetable_sample
           generated = generate_chinese_timetable_sample('.tmp/native-ocr-input', 'mobile_cards_12')
