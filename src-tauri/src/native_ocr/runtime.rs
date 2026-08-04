@@ -196,21 +196,28 @@ fn tokens_to_draft(
         )
     };
     let anchors = course_anchors(tokens);
+    let (anchored_courses, mut warnings) = anchor_courses(
+        tokens,
+        &anchors,
+        &headers,
+        working_width,
+        working_height,
+    );
+    let fallback = fallback_courses(
+        tokens,
+        &headers,
+        &sections,
+        working_width,
+        working_height,
+    );
+    let fallback_count = fallback.len();
+    let mut courses = merge_course_candidates(anchored_courses, fallback);
 
-    let (mut courses, mut warnings) = if anchors.is_empty() {
-        (Vec::new(), Vec::new())
-    } else {
-        anchor_courses(tokens, &anchors, &headers, working_width, working_height)
-    };
-
-    if courses.is_empty() {
-        courses = fallback_courses(tokens, &headers, &sections, working_width, working_height);
-        if !courses.is_empty() {
-            warnings.push("课程卡片没有提供完整锚点，已按课表网格生成待复核结果".into());
-        }
+    if fallback_count > 0 && anchors.len() < courses.len() {
+        warnings.push("部分课程通过课表卡片位置恢复，请在创建前核对摘要".into());
     }
     if sections_inferred && !courses.is_empty() {
-        warnings.push("没有可靠识别到左侧节次，课程节次已按纵向位置推算，请重点复核".into());
+        warnings.push("没有可靠识别到左侧节次，少数课程节次可能需要核对".into());
     }
     if courses.is_empty() {
         return Err(format!(
@@ -226,14 +233,11 @@ fn tokens_to_draft(
         left.weekday
             .cmp(&right.weekday)
             .then(left.start_section.cmp(&right.start_section))
+            .then(left.end_section.cmp(&right.end_section))
             .then(left.name.cmp(&right.name))
+            .then(left.weeks.first().cmp(&right.weeks.first()))
     });
-    courses.dedup_by(|left, right| {
-        left.weekday == right.weekday
-            && left.start_section == right.start_section
-            && left.end_section == right.end_section
-            && left.name == right.name
-    });
+    courses.dedup_by(|left, right| same_course_identity(left, right));
 
     let highest_week = courses
         .iter()
@@ -284,4 +288,40 @@ fn tokens_to_draft(
             recognizer_version: Some(RECOGNIZER_VERSION.into()),
         }),
     })
+}
+
+fn merge_course_candidates(
+    anchored: Vec<ImportCourse>,
+    fallback: Vec<ImportCourse>,
+) -> Vec<ImportCourse> {
+    let mut courses = anchored;
+    for candidate in fallback {
+        if let Some(existing) = courses
+            .iter_mut()
+            .find(|existing| same_course_identity(existing, &candidate))
+        {
+            if existing.teacher.as_deref().is_none_or(str::is_empty)
+                && candidate.teacher.as_deref().is_some_and(|value| !value.is_empty())
+            {
+                existing.teacher = candidate.teacher;
+            }
+            if existing.location.as_deref().is_none_or(str::is_empty)
+                && candidate.location.as_deref().is_some_and(|value| !value.is_empty())
+            {
+                existing.location = candidate.location;
+            }
+        } else {
+            courses.push(candidate);
+        }
+    }
+    courses
+}
+
+fn same_course_identity(left: &ImportCourse, right: &ImportCourse) -> bool {
+    left.weekday == right.weekday
+        && left.start_section == right.start_section
+        && left.end_section == right.end_section
+        && left.name == right.name
+        && left.weeks == right.weeks
+        && left.parity == right.parity
 }
