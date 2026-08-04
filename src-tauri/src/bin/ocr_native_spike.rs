@@ -154,7 +154,7 @@ fn run() -> Result<(SpikeReport, bool), Box<dyn std::error::Error>> {
     let logical_processors = std::thread::available_parallelism()
         .map(usize::from)
         .unwrap_or(4);
-    let threads = (logical_processors / 2).clamp(2, 8);
+    let threads = (logical_processors / 2).clamp(2, 8) as i32;
     let config = OcrEngineConfig::fast().with_threads(threads);
 
     let engine_started = Instant::now();
