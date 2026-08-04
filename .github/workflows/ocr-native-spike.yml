@@ -21,6 +21,7 @@ on:
       - 'src/settings.css'
       - 'scripts/screenshot-import-dom.test.ts'
       - 'scripts/download-native-ocr-models.ps1'
+      - 'scripts/test-native-ocr-installer.ps1'
       - 'src-tauri/resources/ocr-native/**'
       - 'experiments/screenshot_import/synthetic_chinese_corpus.py'
       - 'docs/ocr-local-deployment-decision.md'
@@ -38,7 +39,7 @@ env:
 jobs:
   windows-native-runtime:
     runs-on: windows-latest
-    timeout-minutes: 90
+    timeout-minutes: 100
     steps:
       - uses: actions/checkout@v4
 
@@ -167,7 +168,7 @@ jobs:
         run: |
           $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
           if (-not $installer) { throw 'Native OCR NSIS installer was not produced.' }
-          $models = Get-ChildItem 'src-tauri/resources/ocr-native' -File
+          $models = @(Get-ChildItem 'src-tauri/resources/ocr-native' -File)
           foreach ($required in @('PP-OCRv5_mobile_det_fp16.mnn', 'PP-OCRv5_mobile_rec_fp16.mnn', 'ppocr_keys_v5.txt', 'manifest.json')) {
             if ($required -notin $models.Name) { throw "Packaged OCR resource is missing: $required" }
           }
@@ -176,6 +177,16 @@ jobs:
           }
           "installer_bytes=$($installer.Length)" >> $env:GITHUB_STEP_SUMMARY
           "native_model_bytes=$((($models | Measure-Object Length -Sum).Sum))" >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Install and run OCR through the actual Tauri application
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'Native OCR NSIS installer was not produced.' }
+          ./scripts/test-native-ocr-installer.ps1 `
+            -Installer $installer.FullName `
+            -Image '.tmp/native-ocr-input/mobile_cards_12.png' `
+            -WorkingRoot '.tmp/native-ocr-installed'
 
       - name: Upload native OCR evidence
         if: always()
@@ -188,6 +199,7 @@ jobs:
             .tmp/native-ocr-stderr.log
             src-tauri/resources/ocr-native/manifest.json
             .tmp/native-ocr-input/mobile_cards_12.png
+            .tmp/native-ocr-installed/原生识别结果.json
           if-no-files-found: warn
           compression-level: 0
           retention-days: 7
