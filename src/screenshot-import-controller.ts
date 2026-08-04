@@ -162,7 +162,7 @@ function stopRecognitionClock(): void {
   recognitionStartedAt = 0
 }
 
-function startRecognitionClock(surface: HTMLElement): void {
+function startRecognitionClock(_surface: HTMLElement): void {
   stopRecognitionClock()
   recognitionStartedAt = performance.now()
   const tick = () => {
