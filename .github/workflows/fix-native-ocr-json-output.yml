@@ -1,0 +1,71 @@
+name: Fix native OCR JSON output
+
+on:
+  push:
+    branches:
+      - spike/rust-native-ocr
+    paths:
+      - '.github/workflows/fix-native-ocr-json-output.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-workflow:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: spike/rust-native-ocr
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Normalize JSON before PowerShell parsing
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/ocr-native-spike.yml')
+          text = path.read_text(encoding='utf-8')
+          old = """          $report = $stdout | ConvertFrom-Json
+          if (-not $report.allGatesPassed) { throw 'Native OCR gate did not pass.' }
+"""
+          new = """          @'
+          import json
+          import pathlib
+          import sys
+
+          path = pathlib.Path(sys.argv[1])
+          text = path.read_text(encoding=\"utf-8\").lstrip()
+          report, end = json.JSONDecoder().raw_decode(text)
+          trailing = text[end:].strip()
+          path.write_text(
+              json.dumps(report, ensure_ascii=False, indent=2) + \"\\n\",
+              encoding=\"utf-8\",
+          )
+          if trailing:
+              print(\"Native OCR stdout diagnostics:\")
+              print(trailing)
+          '@ | python - $reportPath
+          $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+          if (-not $report.allGatesPassed) { throw 'Native OCR gate did not pass.' }
+"""
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one JSON parse block, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+
+      - name: Commit verified workflow fix
+        shell: bash
+        run: |
+          rm .github/workflows/fix-native-ocr-json-output.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/ocr-native-spike.yml .github/workflows/fix-native-ocr-json-output.yml
+          git commit -m 'ci: parse native OCR JSON before runtime diagnostics'
+          git push origin HEAD:spike/rust-native-ocr
