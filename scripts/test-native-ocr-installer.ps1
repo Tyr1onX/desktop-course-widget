@@ -39,20 +39,27 @@ try {
   Invoke-Checked -FilePath ([IO.Path]::GetFullPath($Installer)) -ArgumentList @('/S', "/D=$installRoot")
   $application = Get-ChildItem -LiteralPath $installRoot -Recurse -Filter '*.exe' -File |
     Where-Object { $_.Name -notmatch '^(uninstall|unins)' } |
-    Sort-Object FullName |
+    Sort-Object @{ Expression = { if ($_.Name -eq '课刻.exe') { 0 } else { 1 } } }, FullName |
     Select-Object -First 1
   if (-not $application) { throw 'Installed application executable was not found.' }
 
-  $forbidden = Get-ChildItem -LiteralPath $installRoot -Recurse -File |
-    Where-Object { $_.Name -match '^python(w)?\.exe$' -or $_.FullName -match '(?i)paddle|site-packages' }
-  if ($forbidden) {
+  $forbidden = @(
+    Get-ChildItem -LiteralPath $installRoot -Recurse -File |
+      Where-Object { $_.Name -match '^python(w)?\.exe$' -or $_.FullName -match '(?i)paddle|site-packages' }
+  )
+  if ($forbidden.Count -gt 0) {
     throw "Installed native OCR package contains a forbidden Python/Paddle runtime: $($forbidden[0].FullName)"
   }
 
-  $models = Get-ChildItem -LiteralPath $installRoot -Recurse -File |
-    Where-Object { $_.Name -in @('PP-OCRv5_mobile_det_fp16.mnn', 'PP-OCRv5_mobile_rec_fp16.mnn', 'ppocr_keys_v5.txt') }
+  $models = @(
+    Get-ChildItem -LiteralPath $installRoot -Recurse -File |
+      Where-Object { $_.Name -in @('PP-OCRv5_mobile_det_fp16.mnn', 'PP-OCRv5_mobile_rec_fp16.mnn', 'ppocr_keys_v5.txt') }
+  )
   if ($models.Count -ne 3) { throw "Expected three installed native OCR model files, got $($models.Count)." }
   $modelRoot = $models[0].Directory.FullName
+  if (@($models | Where-Object { $_.Directory.FullName -ne $modelRoot }).Count -gt 0) {
+    throw 'Installed native OCR model files are split across multiple resource directories.'
+  }
   $before = Get-TreeFingerprint -Root $modelRoot
   $models | ForEach-Object { $_.IsReadOnly = $true }
 
@@ -91,8 +98,10 @@ try {
     if ($run.elapsedMs -gt 30000) { throw "Installed native OCR exceeded 30 seconds: $($run.elapsedMs) ms." }
   }
   $allNames = @($report.runs[0].names)
-  $matched = @('通信原理', '数字信号处理', '单片机原理', '通信与网络') |
-    Where-Object { $allNames -contains $_ }
+  $matched = @(
+    @('通信原理', '数字信号处理', '单片机原理', '通信与网络') |
+      Where-Object { $allNames -contains $_ }
+  )
   if ($matched.Count -lt 2) {
     throw "Installed application draft matched too few expected course names: $($allNames -join ', ')"
   }
