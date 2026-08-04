@@ -130,7 +130,9 @@ function updatePickerState(surface: HTMLElement): void {
   if (!screenshotPicker) return
 
   screenshotPicker.disabled = recognitionPending
-  screenshotPicker.dataset.screenshotImportState = `${recognitionPending}:${desktopRuntime}`
+  const state = `${recognitionPending}:${desktopRuntime}`
+  if (screenshotPicker.dataset.screenshotImportState === state) return
+  screenshotPicker.dataset.screenshotImportState = state
   screenshotPicker.innerHTML = `
     <strong>${recognitionPending ? '正在本机识别…' : '选择 PNG / JPG 课表截图'}</strong>
     <span>${recognitionPending
