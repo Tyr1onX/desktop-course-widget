@@ -497,3 +497,21 @@ button { color: inherit; }
 .import-course-review-grid input,
 .import-course-review-grid select { width: 100%; min-width: 0; }
 .import-course-issues { margin: -2px 13px 13px; padding: 9px 10px 9px 26px; border-radius: 8px; background: #fff3e2; color: #855917; }
+
+
+/* Native screenshot OCR busy state */
+.screenshot-import-busy,
+.screenshot-import-busy body { cursor: wait; }
+.screenshot-import-busy button:disabled,
+.screenshot-import-busy input:disabled,
+.screenshot-import-busy select:disabled,
+.screenshot-import-busy textarea:disabled { pointer-events: none; }
+.screenshot-import-busy .import-picker:disabled {
+  border-style: solid;
+  border-color: rgba(23, 105, 224, 0.32);
+  background: rgba(23, 105, 224, 0.055);
+  cursor: wait;
+  opacity: 1;
+}
+.screenshot-import-busy .import-picker:disabled strong { color: #1f5fae; }
+.screenshot-import-busy .import-picker:disabled span { color: #667382; }

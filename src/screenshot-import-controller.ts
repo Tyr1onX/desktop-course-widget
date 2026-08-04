@@ -129,16 +129,40 @@ function updatePickerState(surface: HTMLElement): void {
   if (excelPicker) excelPicker.disabled = recognitionPending
   if (!screenshotPicker) return
 
-  const state = `${recognitionPending}:${desktopRuntime}`
   screenshotPicker.disabled = recognitionPending
-  if (screenshotPicker.dataset.screenshotImportState === state) return
-  screenshotPicker.dataset.screenshotImportState = state
+  screenshotPicker.dataset.screenshotImportState = `${recognitionPending}:${desktopRuntime}`
   screenshotPicker.innerHTML = `
-    <strong>${recognitionPending ? '正在识别课表截图…' : '选择 PNG / JPG 课表截图'}</strong>
-    <span>${desktopRuntime
-      ? '请使用完整单张截图，包含星期标题、节次和全部课程；暂不支持多图拼接'
-      : '浏览器预览中不会读取本机图片'}</span>
+    <strong>${recognitionPending ? '正在本机识别…' : '选择 PNG / JPG 课表截图'}</strong>
+    <span>${recognitionPending
+      ? '正在使用课刻内置的 Rust OCR，识别完成前其他操作已锁定'
+      : desktopRuntime
+        ? '请使用完整单张截图，包含星期标题、节次和全部课程；暂不支持多图拼接'
+        : '浏览器预览中不会读取本机图片'}</span>
   `
+}
+
+function setRecognitionBusy(surface: HTMLElement, busy: boolean): void {
+  recognitionPending = busy
+  document.documentElement.classList.toggle('screenshot-import-busy', busy)
+  surface.toggleAttribute('aria-busy', busy)
+  const controls = document.querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLSelectElement | HTMLTextAreaElement>(
+    'button, input, select, textarea',
+  )
+  controls.forEach((control) => {
+    if (busy) {
+      if (!control.dataset.screenshotOcrWasDisabled) {
+        control.dataset.screenshotOcrWasDisabled = control.disabled ? 'true' : 'false'
+      }
+      control.disabled = true
+      return
+    }
+    const previous = control.dataset.screenshotOcrWasDisabled
+    if (previous !== undefined) {
+      control.disabled = previous === 'true'
+      delete control.dataset.screenshotOcrWasDisabled
+    }
+  })
+  updatePickerState(surface)
 }
 
 async function chooseScreenshot(): Promise<void> {
@@ -150,9 +174,8 @@ async function chooseScreenshot(): Promise<void> {
     return
   }
 
-  recognitionPending = true
-  setMessage(surface, '正在本机识别课表截图，首次准备 OCR 模型可能需要较长时间…')
-  updatePickerState(surface)
+  setRecognitionBusy(surface, true)
+  setMessage(surface, '正在使用课刻内置的本地识别引擎读取课表，通常只需几秒…')
 
   try {
     const draft = await invoke<ImportDraft | null>('choose_and_parse_screenshot')
@@ -175,9 +198,8 @@ async function chooseScreenshot(): Promise<void> {
   } catch (error) {
     setMessage(surface, screenshotImportErrorText(error))
   } finally {
-    recognitionPending = false
     const currentSurface = document.querySelector<HTMLElement>('.import-review-surface')
-    if (currentSurface && !activeDraft) updatePickerState(currentSurface)
+    if (currentSurface) setRecognitionBusy(currentSurface, false)
   }
 }
 

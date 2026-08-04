@@ -85,7 +85,9 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "publisher": "Tyr1onX",
     "copyright": "Copyright © 2026 Tyr1onX",
     "icon": [
@@ -98,11 +100,16 @@
     "windows": {
       "nsis": {
         "installMode": "currentUser",
-        "languages": ["SimpChinese"]
+        "languages": [
+          "SimpChinese"
+        ]
       }
     },
     "android": {
       "debugApplicationIdSuffix": ".debug"
-    }
+    },
+    "resources": [
+      "resources/ocr-native/*"
+    ]
   }
 }

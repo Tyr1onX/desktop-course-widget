@@ -2,6 +2,7 @@ mod app_settings;
 mod data_transaction;
 pub mod excel_import;
 mod import_draft;
+mod native_ocr;
 mod schedule_apply;
 mod schedule_catalog;
 mod schedule_store;
@@ -362,8 +363,9 @@ async fn choose_and_parse_screenshot(
     let path = selected
         .into_path()
         .map_err(|_| "无法读取所选课表截图路径".to_owned())?;
+    let recognition_app = app.clone();
     let draft = tauri::async_runtime::spawn_blocking(move || {
-        screenshot_import::recognize_screenshot(&path)
+        screenshot_import::recognize_screenshot(&recognition_app, &path)
     })
     .await
     .map_err(|error| format!("截图识别任务异常结束：{error}"))??;
