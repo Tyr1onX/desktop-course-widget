@@ -79,21 +79,32 @@ jobs:
         run: |
           set -euo pipefail
           bundle_root='src-tauri/target/universal-apple-darwin/release/bundle'
-          app_path="$(find "$bundle_root/macos" -maxdepth 1 -type d -name '*.app' -print -quit)"
           dmg_path="$(find "$bundle_root/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)"
-          test -n "$app_path"
           test -n "$dmg_path"
+
+          mount_dir="$(mktemp -d)"
+          cleanup() {
+            hdiutil detach "$mount_dir" -quiet >/dev/null 2>&1 || true
+            rm -rf "$mount_dir"
+          }
+          trap cleanup EXIT
+          hdiutil attach "$dmg_path" -nobrowse -readonly -mountpoint "$mount_dir" >/dev/null
+
+          app_path="$(find "$mount_dir" -maxdepth 1 -type d -name '*.app' -print -quit)"
+          test -n "$app_path"
           if find "$app_path" -type f \( -iname 'python*' -o -iname '*paddle*' -o -iname '*pp-ocr*' \) | grep -q .; then
             echo 'The stable macOS bundle unexpectedly contains OCR runtime files.' >&2
             exit 1
           fi
+
           executable_path="$(find "$app_path/Contents/MacOS" -maxdepth 1 -type f -print -quit)"
           test -n "$executable_path"
           test -x "$executable_path"
           executable_info="$(file "$executable_path")"
           [[ "$executable_info" == *'arm64'* ]]
           [[ "$executable_info" == *'x86_64'* ]]
-          echo "app_path=$app_path" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "app_name=$(basename "$app_path")" >> "$GITHUB_STEP_SUMMARY"
           echo "dmg_path=$dmg_path" >> "$GITHUB_STEP_SUMMARY"
           echo "dmg_bytes=$(stat -f%z "$dmg_path")" >> "$GITHUB_STEP_SUMMARY"
           echo "$executable_info" | tee -a "$GITHUB_STEP_SUMMARY"
