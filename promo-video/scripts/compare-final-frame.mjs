@@ -6,54 +6,40 @@ import pngjs from 'pngjs';
 const {PNG} = pngjs;
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDirectory, '..');
-const layerPath = path.join(
+const referencePath = path.join(
   projectRoot,
-  'public/logo-layers/ribbon-main.png',
+  'public/logo-source/icon-original.png',
 );
 const actualPath = path.resolve(
   projectRoot,
   process.argv[2] ?? 'out/ribbon-mesh-final.png',
 );
-const background = [244, 246, 248, 255];
 
-const [layerBytes, actualBytes] = await Promise.all([
-  readFile(layerPath),
+const [referenceBytes, actualBytes] = await Promise.all([
+  readFile(referencePath),
   readFile(actualPath),
 ]);
-const layer = PNG.sync.read(layerBytes);
+const reference = PNG.sync.read(referenceBytes);
 const actual = PNG.sync.read(actualBytes);
 
-if (layer.width !== actual.width || layer.height !== actual.height) {
+if (reference.width !== actual.width || reference.height !== actual.height) {
   throw new Error(
-    `Image size mismatch: expected ${layer.width}×${layer.height}, received ${actual.width}×${actual.height}.`,
+    `Image size mismatch: expected ${reference.width}×${reference.height}, received ${actual.width}×${actual.height}.`,
   );
 }
 
 let absoluteError = 0;
 let maximumChannelError = 0;
 let changedPixels = 0;
-const pixelCount = layer.width * layer.height;
+const pixelCount = reference.width * reference.height;
 
 for (let pixel = 0; pixel < pixelCount; pixel += 1) {
   const offset = pixel * 4;
-  const alpha = layer.data[offset + 3] / 255;
-  const expected = [
-    Math.round(
-      layer.data[offset] * alpha + background[0] * (1 - alpha),
-    ),
-    Math.round(
-      layer.data[offset + 1] * alpha + background[1] * (1 - alpha),
-    ),
-    Math.round(
-      layer.data[offset + 2] * alpha + background[2] * (1 - alpha),
-    ),
-    255,
-  ];
   let pixelMaximum = 0;
 
   for (let channel = 0; channel < 4; channel += 1) {
     const difference = Math.abs(
-      expected[channel] - actual.data[offset + channel],
+      reference.data[offset + channel] - actual.data[offset + channel],
     );
     absoluteError += difference;
     pixelMaximum = Math.max(pixelMaximum, difference);
@@ -68,6 +54,7 @@ for (let pixel = 0; pixel < pixelCount; pixel += 1) {
 const meanAbsoluteError = absoluteError / (pixelCount * 4 * 255);
 const changedPixelRatio = changedPixels / pixelCount;
 const result = {
+  reference: path.relative(projectRoot, referencePath),
   actual: path.relative(projectRoot, actualPath),
   meanAbsoluteError,
   changedPixelRatio,
