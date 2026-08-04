@@ -10,8 +10,8 @@
     "check": "tsc --noEmit",
     "render:logo": "remotion render src/index.ts LogoFormation out/logo-formation.mp4 --codec=h264 --crf=16",
     "still:logo": "remotion still src/index.ts LogoFormation out/logo-formation.png --frame=132",
-    "render:ribbon": "npm run assets:logo && remotion render src/index.ts RibbonMeshProof out/ribbon-mesh-proof.mp4 --codec=h264 --crf=14",
-    "still:ribbon-final": "npm run assets:logo && remotion still src/index.ts RibbonMeshProof out/ribbon-mesh-final.png --frame=89",
+    "render:ribbon": "npm run assets:logo && remotion render src/index.ts LogoAssemblyProof out/ribbon-mesh-proof.mp4 --codec=h264 --crf=14",
+    "still:ribbon-final": "npm run assets:logo && remotion still src/index.ts LogoAssemblyProof out/ribbon-mesh-final.png --frame=89",
     "verify:ribbon-final": "npm run still:ribbon-final && node scripts/compare-final-frame.mjs"
   },
   "dependencies": {
