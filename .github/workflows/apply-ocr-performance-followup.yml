@@ -1,0 +1,72 @@
+name: Apply OCR performance follow-up
+
+on:
+  push:
+    branches:
+      - fix/ocr-performance-and-busy-state
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/ocr-performance-and-busy-state
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Apply follow-up patch
+        run: |
+          python scripts/apply-ocr-performance-followup.py
+          rm scripts/apply-ocr-performance-followup.py
+          cargo fmt --manifest-path src-tauri/Cargo.toml
+
+      - name: Validate pruned Python runtime closure
+        run: |
+          python scripts/copy-ocr-runtime.py --source-root . --destination-root "$RUNNER_TEMP/ocr-runtime"
+          test -f "$RUNNER_TEMP/ocr-runtime/experiments/screenshot_import/worker.py"
+          test ! -e "$RUNNER_TEMP/ocr-runtime/experiments/screenshot_import/cli.py"
+          python -m compileall -q experiments/screenshot_import scripts/copy-ocr-runtime.py
+
+      - name: Validate frontend and backend
+        run: |
+          npm ci
+          npm run build
+          npm run check:screenshot-import
+          npm run check:screenshot-import-dom
+          cargo test --manifest-path src-tauri/Cargo.toml --lib
+
+      - name: Commit verified follow-up
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- \
+            experiments/screenshot_import/paddle_cpu.py \
+            experiments/screenshot_import/preprocess.py \
+            experiments/screenshot_import/ocr_first_pipeline.py \
+            experiments/screenshot_import/ocr_first_output.py \
+            experiments/screenshot_import/worker.py \
+            scripts/copy-ocr-runtime.py \
+            scripts/build-ocr-component.ps1 \
+            src/screenshot-import-controller.ts \
+            src/screenshot-ocr-events.ts \
+            src/settings.css \
+            src-tauri/src/lib.rs \
+            src-tauri/src/ocr_component.rs \
+            src-tauri/src/ocr_worker.rs \
+            scripts/apply-ocr-performance-followup.py
+          git commit -m 'perf: reuse lightweight OCR worker and lock busy UI'
+          git push origin HEAD:fix/ocr-performance-and-busy-state
