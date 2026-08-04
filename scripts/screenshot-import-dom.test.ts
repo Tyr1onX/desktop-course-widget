@@ -72,7 +72,9 @@ async function run(): Promise<void> {
   assert(picker.disabled, 'screenshot picker must be disabled while OCR is running')
   assert(excelPicker.disabled, 'Excel picker must be disabled while OCR is running')
   assert(unrelatedControl.disabled, 'controls outside the import card must be disabled while OCR is running')
-  assert(picker.textContent?.includes('正在本机识别'), 'busy picker should show a real native recognition state')
+  assert(picker.textContent?.includes('正在识别课表'), 'busy picker should state the current recognition task')
+  assert(picker.textContent?.includes('秒'), 'busy picker should show real elapsed time instead of fake progress')
+  assert(!picker.textContent?.includes('%'), 'busy picker must not show a fake percentage')
   picker.click()
 
   await waitFor(
