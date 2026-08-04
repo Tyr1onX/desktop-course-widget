@@ -1,0 +1,71 @@
+name: Apply native OCR application integration
+
+on:
+  push:
+    branches:
+      - spike/rust-native-ocr
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: spike/rust-native-ocr
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Apply integration patch
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python scripts/apply-native-ocr-app-integration.py
+          cargo fmt --manifest-path src-tauri/Cargo.toml
+
+      - name: Prepare pinned native models
+        shell: pwsh
+        run: ./scripts/download-native-ocr-models.ps1
+
+      - name: Validate frontend and native backend
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          npm ci
+          npm run build
+          npm run check:screenshot-import
+          npm run check:screenshot-import-dom
+          cargo test --manifest-path src-tauri/Cargo.toml --lib
+          cargo check --manifest-path src-tauri/Cargo.toml
+
+      - name: Commit verified application integration
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Remove-Item scripts/apply-native-ocr-app-integration.py
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- `
+            src-tauri/src/lib.rs `
+            src-tauri/tauri.conf.json `
+            src/screenshot-import-controller.ts `
+            src/settings.css `
+            src-tauri/Cargo.lock `
+            scripts/apply-native-ocr-app-integration.py
+          git commit -m 'feat: integrate Rust-native screenshot OCR into the app'
+          git push origin HEAD:spike/rust-native-ocr
