@@ -10,17 +10,48 @@ fn anchor_courses(
     for anchor in anchors {
         let anchor_token = &tokens[anchor.token_index];
         let column_bounds = weekday_column_bounds(headers, anchor.weekday, image_width as f32);
-        let next_top = anchors
+        let previous_anchor = anchors
             .iter()
             .filter(|candidate| {
                 candidate.weekday == anchor.weekday
-                    && tokens[candidate.token_index].top > anchor_token.top
+                    && tokens[candidate.token_index].center_y() < anchor_token.center_y()
             })
-            .map(|candidate| tokens[candidate.token_index].top)
-            .min_by(|left, right| left.partial_cmp(right).unwrap_or(Ordering::Equal));
-        let lower_bound = next_top
-            .map(|top| top - 2.0)
-            .unwrap_or(anchor_token.bottom() + anchor_token.height.max(28.0) * 5.5);
+            .max_by(|left, right| {
+                tokens[left.token_index]
+                    .center_y()
+                    .partial_cmp(&tokens[right.token_index].center_y())
+                    .unwrap_or(Ordering::Equal)
+            });
+        let next_anchor = anchors
+            .iter()
+            .filter(|candidate| {
+                candidate.weekday == anchor.weekday
+                    && tokens[candidate.token_index].center_y() > anchor_token.center_y()
+            })
+            .min_by(|left, right| {
+                tokens[left.token_index]
+                    .center_y()
+                    .partial_cmp(&tokens[right.token_index].center_y())
+                    .unwrap_or(Ordering::Equal)
+            });
+        let header_bottom = headers
+            .iter()
+            .find(|header| header.weekday == anchor.weekday)
+            .map(|header| header.bottom)
+            .unwrap_or(0.0);
+        let upper_bound = previous_anchor
+            .map(|candidate| {
+                (tokens[candidate.token_index].center_y() + anchor_token.center_y()) / 2.0
+            })
+            .unwrap_or_else(|| {
+                (anchor_token.center_y() - anchor_token.height.max(24.0) * 4.5)
+                    .max(header_bottom)
+            });
+        let lower_bound = next_anchor
+            .map(|candidate| {
+                (anchor_token.center_y() + tokens[candidate.token_index].center_y()) / 2.0
+            })
+            .unwrap_or(anchor_token.center_y() + anchor_token.height.max(24.0) * 4.5);
         let mut block = tokens
             .iter()
             .enumerate()
@@ -28,8 +59,8 @@ fn anchor_courses(
                 *index != anchor.token_index
                     && token.center_x() >= column_bounds.0
                     && token.center_x() < column_bounds.1
-                    && token.center_y() >= anchor_token.center_y() - anchor_token.height
-                    && token.top < lower_bound
+                    && token.center_y() >= upper_bound
+                    && token.center_y() < lower_bound
                     && !is_weekday_header(&token.text)
                     && section_number_from_text(&token.text).is_none()
             })
@@ -73,10 +104,11 @@ fn course_from_block(
     image_width: u32,
     image_height: u32,
 ) -> Option<ImportCourse> {
-    let candidates = block.iter().chain(std::iter::once(anchor));
-    let (name_token, name) = find_course_name(candidates.clone())?;
-    let teacher = find_teacher_fragment(candidates.clone(), name_token, &name);
-    let location = find_location_fragment(candidates);
+    let mut candidates = block.iter().chain(std::iter::once(anchor)).collect::<Vec<_>>();
+    candidates.sort_by(|left, right| token_reading_order(left, right));
+    let (name_token, name) = find_course_name(candidates.iter().copied())?;
+    let teacher = find_teacher_fragment(candidates.iter().copied(), name_token, &name, anchor);
+    let location = find_location_fragment(candidates.iter().copied());
 
     let mut source_tokens = vec![anchor.clone()];
     source_tokens.extend(block.iter().cloned());
