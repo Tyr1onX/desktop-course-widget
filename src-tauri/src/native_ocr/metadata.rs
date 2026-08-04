@@ -296,7 +296,10 @@ fn course_name_from_text(value: &str) -> Option<String> {
         })
         .to_owned();
     if candidate.is_empty()
-        || is_weekday_header(&candidate)
+        || weekday_from_text(&candidate).is_some()
+        || Regex::new(r"^(?:周|星期)[一二三四五六日天1-7]$")
+            .unwrap()
+            .is_match(&candidate)
         || section_number_from_text(&candidate).is_some()
         || is_time_text(&candidate)
         || is_teacher_text(&candidate)
