@@ -14,6 +14,7 @@ const actualPath = path.resolve(
   projectRoot,
   process.argv[2] ?? 'out/ribbon-mesh-final.png',
 );
+const background = [244, 246, 248, 255];
 
 const [referenceBytes, actualBytes] = await Promise.all([
   readFile(referencePath),
@@ -35,11 +36,18 @@ const pixelCount = reference.width * reference.height;
 
 for (let pixel = 0; pixel < pixelCount; pixel += 1) {
   const offset = pixel * 4;
+  const alpha = reference.data[offset + 3] / 255;
+  const expected = [
+    Math.round(reference.data[offset] * alpha + background[0] * (1 - alpha)),
+    Math.round(reference.data[offset + 1] * alpha + background[1] * (1 - alpha)),
+    Math.round(reference.data[offset + 2] * alpha + background[2] * (1 - alpha)),
+    255,
+  ];
   let pixelMaximum = 0;
 
   for (let channel = 0; channel < 4; channel += 1) {
     const difference = Math.abs(
-      reference.data[offset + channel] - actual.data[offset + channel],
+      expected[channel] - actual.data[offset + channel],
     );
     absoluteError += difference;
     pixelMaximum = Math.max(pixelMaximum, difference);
