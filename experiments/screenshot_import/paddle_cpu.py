@@ -8,16 +8,33 @@ from typing import Any
 
 from .ocr import OcrError, PaddleOcrEngine
 
+MOBILE_DETECTION_MODEL = "PP-OCRv5_mobile_det"
+MOBILE_RECOGNITION_MODEL = "PP-OCRv5_mobile_rec"
+DEFAULT_DETECTION_LIMIT = 1600
+
+
+def _default_cpu_threads() -> int:
+    configured = os.environ.get("COURSE_WIDGET_OCR_CPU_THREADS", "").strip()
+    if configured:
+        try:
+            return max(1, min(8, int(configured)))
+        except ValueError:
+            pass
+    logical = os.cpu_count() or 4
+    if logical <= 2:
+        return logical
+    return max(2, min(8, logical // 2))
+
 
 class WindowsCpuPaddleOcrEngine(PaddleOcrEngine):
-    """PaddleOCR adapter for the evidenced Paddle 3.3.1 Windows CPU path."""
+    """PaddleOCR adapter tuned for an offline Windows desktop application."""
 
     def __init__(
         self,
         *,
         language: str = "ch",
         device: str = "cpu",
-        cpu_threads: int = 2,
+        cpu_threads: int | None = None,
     ) -> None:
         try:
             from paddleocr import PaddleOCR
@@ -26,15 +43,21 @@ class WindowsCpuPaddleOcrEngine(PaddleOcrEngine):
                 "PaddleOCR is not installed. Install PaddlePaddle CPU and paddleocr first."
             ) from error
 
+        resolved_threads = cpu_threads or _default_cpu_threads()
         options: dict[str, Any] = {
             "use_doc_orientation_classify": False,
             "use_doc_unwarping": False,
             "use_textline_orientation": False,
+            "text_detection_model_name": MOBILE_DETECTION_MODEL,
+            "text_recognition_model_name": MOBILE_RECOGNITION_MODEL,
+            "text_recognition_batch_size": 8,
+            "text_det_limit_side_len": DEFAULT_DETECTION_LIMIT,
+            "text_det_limit_type": "max",
             "engine": "paddle",
             "lang": language,
             "device": device,
             "enable_mkldnn": False,
-            "cpu_threads": cpu_threads,
+            "cpu_threads": resolved_threads,
         }
         started = time.perf_counter()
         try:
@@ -58,7 +81,7 @@ class WindowsCpuPaddleOcrEngine(PaddleOcrEngine):
         self._last_result_structure: dict[str, Any] | None = None
         self._language = language
         self._device = device
-        self._cpu_threads = cpu_threads
+        self._cpu_threads = resolved_threads
         self._write_stage_marker()
 
     def _write_stage_marker(self) -> None:
@@ -74,6 +97,9 @@ class WindowsCpuPaddleOcrEngine(PaddleOcrEngine):
                     {
                         "stage": "model-ready",
                         "initializationSeconds": self._initialization_seconds,
+                        "cpuThreads": self._cpu_threads,
+                        "detectionModel": MOBILE_DETECTION_MODEL,
+                        "recognitionModel": MOBILE_RECOGNITION_MODEL,
                     },
                     ensure_ascii=False,
                 ),
@@ -81,7 +107,7 @@ class WindowsCpuPaddleOcrEngine(PaddleOcrEngine):
             )
             temporary.replace(path)
         except OSError:
-            # Progress reporting must never turn a successful OCR initialization into a failure.
+            # Progress reporting must never turn successful initialization into failure.
             pass
 
     def version_info(self) -> dict[str, str]:
@@ -89,4 +115,7 @@ class WindowsCpuPaddleOcrEngine(PaddleOcrEngine):
         values["cpuBackend"] = "paddle-no-mkldnn"
         values["enableMkldnn"] = "false"
         values["cpuThreads"] = str(self._cpu_threads)
+        values["detectionModel"] = MOBILE_DETECTION_MODEL
+        values["recognitionModel"] = MOBILE_RECOGNITION_MODEL
+        values["detectionLimit"] = str(DEFAULT_DETECTION_LIMIT)
         return values
