@@ -1,0 +1,80 @@
+name: Apply installed native OCR smoke path
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/apply-native-ocr-installed-smoke.yml'
+      - 'scripts/apply-native-ocr-installed-smoke.py'
+      - 'scripts/test-native-ocr-installer.ps1'
+      - 'src-tauri/src/lib.rs'
+      - 'src-tauri/src/native_ocr.rs'
+      - 'src-tauri/Cargo.toml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-native-ocr-installed-smoke-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  apply-validate-commit:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Apply exact installed-app smoke patch
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python scripts/apply-native-ocr-installed-smoke.py
+          cargo fmt --manifest-path src-tauri/Cargo.toml
+
+      - name: Prepare hash-pinned native models
+        shell: pwsh
+        run: ./scripts/download-native-ocr-models.ps1
+
+      - name: Validate patched application
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          npm ci
+          npm run build
+          npm run check:screenshot-import
+          npm run check:screenshot-import-dom
+          cargo test --manifest-path src-tauri/Cargo.toml --lib
+          cargo check --manifest-path src-tauri/Cargo.toml
+
+      - name: Commit verified smoke path
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Remove-Item scripts/apply-native-ocr-installed-smoke.py
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- `
+            src-tauri/src/lib.rs `
+            src-tauri/src/native_ocr.rs `
+            src-tauri/Cargo.lock `
+            scripts/apply-native-ocr-installed-smoke.py
+          git commit -m 'test: exercise native OCR through installed Tauri app'
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
