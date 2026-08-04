@@ -1,6 +1,6 @@
 fn course_anchors(tokens: &[Token]) -> Vec<CourseAnchor> {
     let anchor = Regex::new(
-        r"(?:周|星期)([一二三四五六日天]).*?第?\s*(\d{1,2})\s*(?:节\s*)?[-—~至]\s*第?\s*(\d{1,2})\s*节",
+        r"(?:周|星期)([一二三四五六日天1-7]).*?第?\s*(\d{1,2})\s*(?:节\s*)?(?:[-—~]+|至|到)\s*第?\s*(\d{1,2})\s*节",
     )
     .unwrap();
     let mut anchors = tokens
@@ -35,7 +35,7 @@ fn course_anchors(tokens: &[Token]) -> Vec<CourseAnchor> {
 }
 
 fn parse_weeks_and_parity(text: &str) -> (Vec<u8>, String, bool) {
-    let range = Regex::new(r"(\d{1,2})\s*[-—~至]\s*(\d{1,2})\s*周").unwrap();
+    let range = Regex::new(r"(\d{1,2})\s*(?:[-—~]+|至|到)\s*(\d{1,2})\s*周").unwrap();
     let single = Regex::new(r"(?:第)?\s*(\d{1,2})\s*周").unwrap();
     let weeks = range
         .captures(text)
@@ -108,6 +108,88 @@ fn find_fragment<'a>(
     None
 }
 
+fn find_teacher_fragment<'a>(
+    tokens: impl IntoIterator<Item = &'a Token>,
+    name_token: &'a Token,
+    course_name: &str,
+) -> Option<(&'a Token, String)> {
+    let tokens = tokens.into_iter().collect::<Vec<_>>();
+
+    for token in &tokens {
+        for value in token.parts.iter().chain(std::iter::once(&token.text)) {
+            if let Some(teacher) = explicit_teacher_from_text(value) {
+                return Some((*token, teacher));
+            }
+        }
+    }
+
+    let name_part = name_token.parts.iter().position(|value| {
+        course_name_from_text(value).as_deref() == Some(course_name)
+    });
+    for value in name_token.parts.iter().skip(name_part.map_or(0, |index| index + 1)) {
+        if is_location_text(value) || looks_like_schedule_metadata(value) {
+            break;
+        }
+        if let Some(teacher) = bare_teacher_from_text(value, course_name) {
+            return Some((name_token, teacher));
+        }
+    }
+
+    let mut nearby = tokens
+        .into_iter()
+        .filter(|token| !std::ptr::eq(*token, name_token))
+        .filter(|token| token.top >= name_token.top - 2.0)
+        .collect::<Vec<_>>();
+    nearby.sort_by(|left, right| token_reading_order(left, right));
+    for token in nearby {
+        if token.top > name_token.bottom() + name_token.height.max(28.0) * 3.0 {
+            break;
+        }
+        for value in &token.parts {
+            if let Some(teacher) = bare_teacher_from_text(value, course_name) {
+                return Some((token, teacher));
+            }
+        }
+    }
+    None
+}
+
+fn explicit_teacher_from_text(value: &str) -> Option<String> {
+    let compact = compact_text(value);
+    if !is_teacher_text(&compact) {
+        return None;
+    }
+    let prefix = Regex::new(r"^(?:老师|教师)[:：]?").unwrap();
+    let suffix = Regex::new(r"(?:老师|教师|教授)$").unwrap();
+    let mut candidate = prefix.replace(&compact, "").into_owned();
+    candidate = suffix.replace(&candidate, "").into_owned();
+    let candidate = candidate.trim_matches([':', '：', '，', ',', '·']).to_owned();
+    if is_bare_teacher_name(&candidate) {
+        Some(candidate)
+    } else if compact.chars().count() <= 12 {
+        Some(compact)
+    } else {
+        None
+    }
+}
+
+fn bare_teacher_from_text(value: &str, course_name: &str) -> Option<String> {
+    let candidate = compact_text(value)
+        .trim_matches([':', '：', '，', ',', '·'])
+        .to_owned();
+    (candidate != course_name && is_bare_teacher_name(&candidate)).then_some(candidate)
+}
+
+fn is_bare_teacher_name(value: &str) -> bool {
+    let count = value.chars().count();
+    (2..=4).contains(&count)
+        && value.chars().all(|character| ('\u{4e00}'..='\u{9fff}').contains(&character))
+        && !matches!(value, "未识别" | "待确认" | "未知教师" | "暂无教师")
+        && !is_common_header(value)
+        && !is_location_text(value)
+        && !looks_like_schedule_metadata(value)
+}
+
 fn find_location_fragment<'a>(
     tokens: impl IntoIterator<Item = &'a Token>,
 ) -> Option<(&'a Token, String)> {
@@ -129,7 +211,7 @@ fn location_from_text(value: &str) -> Option<String> {
 
     let label = Regex::new(r"^地点[:：]?").unwrap();
     let leading_metadata = Regex::new(
-        r"^(?:(?:周|星期)[一二三四五六日天])?(?:(?:第?\d{1,2}节(?:[-—~至]第?\d{1,2}节)?)|(?:第?\d{1,2}(?:[-—~至]第?\d{1,2})?节)|节)?(?:\d{1,2}(?:[-—~至]\d{1,2})?周(?:[（(][单双][)）])?)?[，,、;；:：·|\-]*",
+        r"^(?:(?:周|星期)[一二三四五六日天1-7])?(?:(?:第?\d{1,2}节(?:[-—~至]第?\d{1,2}节)?)|(?:第?\d{1,2}(?:[-—~至]第?\d{1,2})?节)|节)?(?:\d{1,2}(?:[-—~至]\d{1,2})?周(?:[（(][单双][)）])?)?[，,、;；:：·|\-]*",
     )
     .unwrap();
     let mut candidate = label.replace(&compact, "").into_owned();
@@ -162,6 +244,20 @@ fn find_course_name<'a>(
         }
     }
     None
+}
+
+fn normalize_trailing_course_code(value: &str) -> String {
+    let pattern = Regex::new(r"^(.*[\u{4e00}-\u{9fff}].*?)[|丨Il](\d{2})[\]|丨Il]?$" ).unwrap();
+    let Some(captures) = pattern.captures(value) else {
+        return value.to_owned();
+    };
+    let base = captures.get(1).map(|value| value.as_str().trim()).unwrap_or_default();
+    let code = captures.get(2).map(|value| value.as_str()).unwrap_or_default();
+    if base.is_empty() || code.is_empty() {
+        value.to_owned()
+    } else {
+        format!("{base}[{code}]")
+    }
 }
 
 fn course_name_from_text(value: &str) -> Option<String> {
@@ -197,6 +293,8 @@ fn course_name_from_text(value: &str) -> Option<String> {
     {
         candidate.truncate(index);
     }
+
+    candidate = normalize_trailing_course_code(&candidate);
 
     let character_count = candidate.chars().count();
     let has_name_character = candidate

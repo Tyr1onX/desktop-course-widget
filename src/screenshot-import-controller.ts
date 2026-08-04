@@ -30,7 +30,6 @@ type ActiveSchedule = {
 const desktopRuntime = '__TAURI_INTERNALS__' in window
 const plugin = (command: string) => `plugin:schedule-catalog|${command}`
 const importTitle = '从文件创建独立课表'
-const importDescription = '选择 Excel 或完整单张课表截图，识别结果会进入同一套复核流程；已有课表不会被覆盖。'
 const reopenImportKey = 'screenshot-import:reopen-after-reset'
 
 let activeDraft: ImportDraft | null = null
@@ -109,7 +108,7 @@ function enhanceImportSurface(): void {
   const introTitle = surface.querySelector<HTMLElement>('.surface-intro h3')
   const introCopy = surface.querySelector<HTMLElement>('.surface-intro p')
   if (introTitle && introTitle.textContent !== importTitle) introTitle.textContent = importTitle
-  if (introCopy && introCopy.textContent !== importDescription) introCopy.textContent = importDescription
+  introCopy?.remove()
 
   let screenshotPicker = existingScreenshotPicker
   if (!screenshotPicker) {
@@ -148,14 +147,7 @@ function updatePickerState(surface: HTMLElement): void {
       ? '正在选择课表截图'
       : recognitionPending
         ? `正在识别课表 · ${elapsedSeconds} 秒`
-        : '选择 PNG / JPG 课表截图'}</strong>
-    <span>${selectionPending
-      ? '选择完成后才开始计算识别时间'
-      : recognitionPending
-        ? '正在读取图片、识别文字并整理课程；完成前其他操作已锁定'
-        : desktopRuntime
-          ? '请使用完整单张截图，包含星期标题、节次和全部课程；暂不支持多图拼接'
-          : '浏览器预览中不会读取本机图片'}</span>
+        : '选择课表截图'}</strong>
   `
 }
 
@@ -175,7 +167,6 @@ function startRecognitionClock(): void {
     if (!currentSurface || !recognitionPending) return
     const elapsedSeconds = recognitionElapsedSeconds()
     updatePickerState(currentSurface)
-    setMessage(currentSurface, `正在本机识别并整理课程，已用时 ${elapsedSeconds} 秒…`)
   }
   tick()
   recognitionTimer = window.setInterval(tick, 1000)
@@ -268,7 +259,6 @@ function renderReviewSurface(surface: HTMLElement): void {
   surface.innerHTML = `
     <div class="surface-intro">
       <h3>检查截图识别结果</h3>
-      <p>${escapeHtml(draft.sourceName)} 已在本机完成识别。请先核对课程数量和摘要；可以随时放弃本次结果并重新选择图片。</p>
     </div>
     <div class="import-summary">
       <div><span>课程安排</span><strong>${draft.summary.arrangements} 项</strong></div>
@@ -280,7 +270,7 @@ function renderReviewSurface(surface: HTMLElement): void {
       <label class="field field--full"><span>第一周星期一</span><input id="screenshot-import-first-week" type="date" value="${escapeHtml(firstWeekMonday)}" /></label>
     </div>
     <div class="import-review-heading">
-      <div><h3>逐项检查</h3><p>先浏览课程摘要；整体无误可一次确认全部，只有异常项需要展开修改。</p></div>
+      <div><h3>逐项检查</h3></div>
       <span>${draft.courses.length} 项</span>
     </div>
     <div class="import-review-list">
@@ -343,7 +333,9 @@ function resetScreenshotImport(): void {
 }
 
 function hideTechnicalReviewEvidence(surface: HTMLElement): void {
-  surface.querySelectorAll('.import-evidence-copy').forEach((element) => element.remove())
+  surface
+      .querySelectorAll('.import-evidence-copy, .surface-intro p, .import-review-heading p')
+      .forEach((element) => element.remove())
 }
 
 async function createScreenshotSchedule(): Promise<void> {

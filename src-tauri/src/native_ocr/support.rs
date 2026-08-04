@@ -163,13 +163,13 @@ fn weekday_from_text(value: &str) -> Option<u8> {
 
 fn weekday_character(value: char) -> Option<u8> {
     match value {
-        '一' => Some(1),
-        '二' => Some(2),
-        '三' => Some(3),
-        '四' => Some(4),
-        '五' => Some(5),
-        '六' => Some(6),
-        '日' | '天' => Some(7),
+        '一' | '1' => Some(1),
+        '二' | '2' => Some(2),
+        '三' | '3' => Some(3),
+        '四' | '4' => Some(4),
+        '五' | '5' => Some(5),
+        '六' | '6' => Some(6),
+        '日' | '天' | '7' => Some(7),
         _ => None,
     }
 }

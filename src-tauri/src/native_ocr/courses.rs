@@ -75,7 +75,7 @@ fn course_from_block(
 ) -> Option<ImportCourse> {
     let candidates = block.iter().chain(std::iter::once(anchor));
     let (name_token, name) = find_course_name(candidates.clone())?;
-    let teacher = find_fragment(candidates.clone(), is_teacher_text);
+    let teacher = find_teacher_fragment(candidates.clone(), name_token, &name);
     let location = find_location_fragment(candidates);
 
     let mut source_tokens = vec![anchor.clone()];

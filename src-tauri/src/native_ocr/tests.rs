@@ -44,6 +44,45 @@ mod tests {
     }
 
     #[test]
+    fn parses_dense_numeric_weekday_cards_and_plain_teacher_names() {
+        let tokens = vec![
+            token("星期一", 190.0, 40.0),
+            token("星期二", 390.0, 40.0),
+            token("星期三", 590.0, 40.0),
+            token(
+                "通信与网络|03\n李启豪\n3-8周,星期1,第1节--第2节\n南湖-第1教学楼-四阶",
+                130.0,
+                110.0,
+            ),
+            token(
+                "通信与网络|03\n顾海军\n9-14周,星期1,第1节--第2节\n南湖-第1教学楼-四阶",
+                130.0,
+                210.0,
+            ),
+        ];
+        let headers = weekday_headers(&tokens);
+        let anchors = course_anchors(&tokens);
+        let (courses, warnings) = anchor_courses(&tokens, &anchors, &headers, 800, 600);
+        assert!(warnings.is_empty());
+        assert_eq!(anchors.len(), 2);
+        assert_eq!(courses.len(), 2);
+        assert_eq!(courses[0].name, "通信与网络[03]");
+        assert_eq!(courses[0].teacher.as_deref(), Some("李启豪"));
+        assert_eq!(courses[0].start_section, 1);
+        assert_eq!(courses[0].end_section, 2);
+        assert_eq!(courses[0].weeks, (3..=8).collect::<Vec<_>>());
+        assert_eq!(courses[1].teacher.as_deref(), Some("顾海军"));
+        assert_eq!(courses[1].weeks, (9..=14).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn recognizes_two_character_plain_teacher_names() {
+        assert_eq!(bare_teacher_from_text("刘聪", "单片机原理及其应用[04]").as_deref(), Some("刘聪"));
+        assert_eq!(bare_teacher_from_text("孙吉", "现场总线技术[03]").as_deref(), Some("孙吉"));
+        assert_eq!(bare_teacher_from_text("信息论", "信息论").as_deref(), None);
+    }
+
+    #[test]
     fn extracts_course_from_native_tokens() {
         let tokens = vec![
             token("周一", 190.0, 40.0),
