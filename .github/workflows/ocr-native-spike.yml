@@ -119,7 +119,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
           cargo check --manifest-path src-tauri/Cargo.toml --lib --no-default-features
-          $tree = cargo tree --manifest-path src-tauri/Cargo.toml --lib --no-default-features
+          $tree = cargo tree --manifest-path src-tauri/Cargo.toml --no-default-features
           if ($tree -match '(?m)^ocr-rs ') {
             throw 'Normal application dependency tree unexpectedly contains ocr-rs.'
           }
