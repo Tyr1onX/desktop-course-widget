@@ -136,7 +136,24 @@ jobs:
             throw "Native OCR spike exited with code $($process.ExitCode)."
           }
 
-          $report = $stdout | ConvertFrom-Json
+          @'
+          import json
+          import pathlib
+          import sys
+
+          path = pathlib.Path(sys.argv[1])
+          text = path.read_text(encoding="utf-8").lstrip()
+          report, end = json.JSONDecoder().raw_decode(text)
+          trailing = text[end:].strip()
+          path.write_text(
+              json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          if trailing:
+              print("Native OCR stdout diagnostics:")
+              print(trailing)
+          '@ | python - $reportPath
+          $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
           if (-not $report.allGatesPassed) { throw 'Native OCR gate did not pass.' }
           if ($report.externalProcesses -ne 0) { throw 'Native OCR unexpectedly used an external process.' }
           if ($report.runs.Count -ne 2) { throw 'Expected exactly two OCR runs in one process.' }
