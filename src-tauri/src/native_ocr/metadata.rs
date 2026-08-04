@@ -30,6 +30,12 @@ fn course_anchors(tokens: &[Token]) -> Vec<CourseAnchor> {
         left.weekday
             .cmp(&right.weekday)
             .then(left.start_section.cmp(&right.start_section))
+            .then_with(|| {
+                tokens[left.token_index]
+                    .top
+                    .partial_cmp(&tokens[right.token_index].top)
+                    .unwrap_or(Ordering::Equal)
+            })
     });
     anchors
 }
@@ -94,26 +100,14 @@ fn nearest_section(sections: &[(u8, f32)], y: f32) -> u8 {
         .unwrap_or(1)
 }
 
-fn find_fragment<'a>(
-    tokens: impl IntoIterator<Item = &'a Token>,
-    predicate: impl Fn(&str) -> bool,
-) -> Option<(&'a Token, String)> {
-    for token in tokens {
-        for value in token.parts.iter().chain(std::iter::once(&token.text)) {
-            if predicate(value) {
-                return Some((token, value.clone()));
-            }
-        }
-    }
-    None
-}
-
 fn find_teacher_fragment<'a>(
     tokens: impl IntoIterator<Item = &'a Token>,
     name_token: &'a Token,
     course_name: &str,
+    anchor: &'a Token,
 ) -> Option<(&'a Token, String)> {
-    let tokens = tokens.into_iter().collect::<Vec<_>>();
+    let mut tokens = tokens.into_iter().collect::<Vec<_>>();
+    tokens.sort_by(|left, right| token_reading_order(left, right));
 
     for token in &tokens {
         for value in token.parts.iter().chain(std::iter::once(&token.text)) {
@@ -126,26 +120,36 @@ fn find_teacher_fragment<'a>(
     let name_part = name_token.parts.iter().position(|value| {
         course_name_from_text(value).as_deref() == Some(course_name)
     });
-    for value in name_token.parts.iter().skip(name_part.map_or(0, |index| index + 1)) {
-        if is_location_text(value) || looks_like_schedule_metadata(value) {
-            break;
-        }
-        if let Some(teacher) = bare_teacher_from_text(value, course_name) {
-            return Some((name_token, teacher));
+    if let Some(name_part) = name_part {
+        for value in name_token.parts.iter().skip(name_part + 1) {
+            if is_location_text(value) || looks_like_schedule_metadata(value) {
+                break;
+            }
+            if let Some(teacher) = bare_teacher_from_text(value, course_name) {
+                return Some((name_token, teacher));
+            }
         }
     }
 
-    let mut nearby = tokens
-        .into_iter()
-        .filter(|token| !std::ptr::eq(*token, name_token))
-        .filter(|token| token.top >= name_token.top - 2.0)
-        .collect::<Vec<_>>();
-    nearby.sort_by(|left, right| token_reading_order(left, right));
-    for token in nearby {
-        if token.top > name_token.bottom() + name_token.height.max(28.0) * 3.0 {
+    let mut passed_name = false;
+    for token in tokens {
+        if std::ptr::eq(token, name_token) {
+            passed_name = true;
+            continue;
+        }
+        if !passed_name || token.top + 2.0 < name_token.top {
+            continue;
+        }
+        if token.top > anchor.top + 2.0 {
+            break;
+        }
+        if token.top - name_token.bottom() > name_token.height.max(token.height).max(18.0) * 1.8 {
             break;
         }
         for value in &token.parts {
+            if is_location_text(value) || looks_like_schedule_metadata(value) {
+                return None;
+            }
             if let Some(teacher) = bare_teacher_from_text(value, course_name) {
                 return Some((token, teacher));
             }
@@ -211,7 +215,7 @@ fn location_from_text(value: &str) -> Option<String> {
 
     let label = Regex::new(r"^地点[:：]?").unwrap();
     let leading_metadata = Regex::new(
-        r"^(?:(?:周|星期)[一二三四五六日天1-7])?(?:(?:第?\d{1,2}节(?:[-—~至]第?\d{1,2}节)?)|(?:第?\d{1,2}(?:[-—~至]第?\d{1,2})?节)|节)?(?:\d{1,2}(?:[-—~至]\d{1,2})?周(?:[（(][单双][)）])?)?[，,、;；:：·|\-]*",
+        r"^(?:(?:周|星期)[一二三四五六日天1-7])?(?:(?:第?\d{1,2}节(?:(?:[-—~]+|至|到)第?\d{1,2}节)?)|(?:第?\d{1,2}(?:(?:[-—~]+|至|到)第?\d{1,2})?节)|节)?(?:\d{1,2}(?:(?:[-—~]+|至|到)\d{1,2})?周(?:[（(][单双][)）])?)?[，,、;；:：·|\-]*",
     )
     .unwrap();
     let mut candidate = label.replace(&compact, "").into_owned();
@@ -236,6 +240,26 @@ fn location_from_text(value: &str) -> Option<String> {
 fn find_course_name<'a>(
     tokens: impl IntoIterator<Item = &'a Token>,
 ) -> Option<(&'a Token, String)> {
+    let tokens = tokens.into_iter().collect::<Vec<_>>();
+
+    for token in &tokens {
+        for value in token.parts.iter().chain(std::iter::once(&token.text)) {
+            if let Some(name) = course_name_from_text(value) {
+                if has_course_code(&name) {
+                    return Some((*token, name));
+                }
+            }
+        }
+    }
+    for token in &tokens {
+        for value in token.parts.iter().chain(std::iter::once(&token.text)) {
+            if let Some(name) = course_name_from_text(value) {
+                if !is_bare_teacher_name(&name) {
+                    return Some((*token, name));
+                }
+            }
+        }
+    }
     for token in tokens {
         for value in token.parts.iter().chain(std::iter::once(&token.text)) {
             if let Some(name) = course_name_from_text(value) {
@@ -244,6 +268,10 @@ fn find_course_name<'a>(
         }
     }
     None
+}
+
+fn has_course_code(value: &str) -> bool {
+    Regex::new(r"\[\d{2}\]$").unwrap().is_match(value)
 }
 
 fn normalize_trailing_course_code(value: &str) -> String {
@@ -280,7 +308,8 @@ fn course_name_from_text(value: &str) -> Option<String> {
 
     let schedule_markers = [
         "星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日",
-        "星期天", "周一", "周二", "周三", "周四", "周五", "周六", "周日", "周天",
+        "星期天", "星期1", "星期2", "星期3", "星期4", "星期5", "星期6", "星期7",
+        "周一", "周二", "周三", "周四", "周五", "周六", "周日", "周天",
         "第1节", "第2节", "第3节", "第4节", "第5节", "第6节", "第7节", "第8节",
         "第9节", "第10节", "第11节", "第12节", "老师", "教师", "教授", "教学楼",
         "教室", "校区", "南湖", "南岭",
