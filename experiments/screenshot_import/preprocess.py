@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageOps
 
-from .models import PreprocessedImage
+from .models import OcrToken, PixelBox, PreprocessedImage, transform_points
 
 
 class ImageReadError(RuntimeError):
@@ -17,8 +17,8 @@ class ImageReadError(RuntimeError):
 @dataclass(frozen=True)
 class PreprocessConfig:
     scale: float = 1.0
-    max_dimension: int | None = 2200
-    deskew: bool = True
+    max_dimension: int | None = 1600
+    deskew: bool = False
     max_skew_degrees: float = 5.0
     adaptive_block_size: int = 31
     adaptive_c: int = 11
@@ -149,3 +149,37 @@ def preprocess_image(path: str | Path, config: PreprocessConfig | None = None) -
         deskew_angle=angle,
         warnings=warnings,
     )
+
+
+def map_box_to_original(box: PixelBox, image: PreprocessedImage) -> PixelBox:
+    corners = np.asarray(
+        [
+            [box.x, box.y],
+            [box.right, box.y],
+            [box.right, box.bottom],
+            [box.x, box.bottom],
+        ],
+        dtype=np.float64,
+    )
+    mapped = transform_points(corners, image.inverse_transform)
+    x1, y1 = mapped.min(axis=0)
+    x2, y2 = mapped.max(axis=0)
+    return PixelBox(
+        x=float(x1),
+        y=float(y1),
+        width=max(1.0, float(x2 - x1)),
+        height=max(1.0, float(y2 - y1)),
+    ).clipped(image.original_width, image.original_height)
+
+
+def map_tokens_to_original(
+    tokens: list[OcrToken], image: PreprocessedImage
+) -> list[OcrToken]:
+    return [
+        OcrToken(
+            text=token.text,
+            confidence=token.confidence,
+            box=map_box_to_original(token.box, image),
+        )
+        for token in tokens
+    ]
