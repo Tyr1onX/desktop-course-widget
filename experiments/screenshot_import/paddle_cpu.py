@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import json
 import os
 import time
-from pathlib import Path
 from typing import Any
 
 from .ocr import OcrError, PaddleOcrEngine
@@ -82,33 +80,6 @@ class WindowsCpuPaddleOcrEngine(PaddleOcrEngine):
         self._language = language
         self._device = device
         self._cpu_threads = resolved_threads
-        self._write_stage_marker()
-
-    def _write_stage_marker(self) -> None:
-        configured = os.environ.get("COURSE_WIDGET_OCR_STAGE_FILE", "").strip()
-        if not configured:
-            return
-        path = Path(configured)
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            temporary = path.with_suffix(path.suffix + ".tmp")
-            temporary.write_text(
-                json.dumps(
-                    {
-                        "stage": "model-ready",
-                        "initializationSeconds": self._initialization_seconds,
-                        "cpuThreads": self._cpu_threads,
-                        "detectionModel": MOBILE_DETECTION_MODEL,
-                        "recognitionModel": MOBILE_RECOGNITION_MODEL,
-                    },
-                    ensure_ascii=False,
-                ),
-                encoding="utf-8",
-            )
-            temporary.replace(path)
-        except OSError:
-            # Progress reporting must never turn successful initialization into failure.
-            pass
 
     def version_info(self) -> dict[str, str]:
         values = super().version_info()

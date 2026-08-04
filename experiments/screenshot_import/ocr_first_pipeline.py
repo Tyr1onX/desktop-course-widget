@@ -83,6 +83,7 @@ def recognize_ocr_first_image(
     assignment_overlap_threshold: float = 0.35,
     ground_truth_path: str | Path | None = None,
     stage_callback: StageCallback | None = None,
+    write_diagnostics: bool = True,
 ) -> dict[str, Any]:
     parser_config = parser_config or FieldParserConfig()
     output = Path(output_dir)
@@ -223,6 +224,7 @@ def recognize_ocr_first_image(
         engine=engine,
         structure=structure,
         draft=draft,
+        write_diagnostics=write_diagnostics,
     )
     rust = validate_with_rust(outputs["draft"], repo_root)
     if rust.get("available") is not False and not rust.get("structuralValid", False):

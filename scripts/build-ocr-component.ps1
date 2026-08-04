@@ -2,7 +2,7 @@
 param(
   [string]$Output = 'src-tauri/resources/ocr-component',
   [string]$BuildPython = 'python',
-  [string]$ComponentVersion = 'windows-py31314-paddle331-ocr370-v1',
+  [string]$ComponentVersion = 'windows-py31314-paddle331-ocr370-mobile-worker-v2',
   [switch]$WarmModels
 )
 
@@ -22,6 +22,7 @@ $Requirements = Join-Path $RepoRoot 'experiments/screenshot_import/requirements-
 $LockVerifier = Join-Path $RepoRoot 'scripts/verify-ocr-component-lock.py'
 $NoticeWriter = Join-Path $RepoRoot 'scripts/write-ocr-third-party-notices.py'
 $SmokeScript = Join-Path $RepoRoot 'scripts/ocr-component-smoke.py'
+$RuntimeCopier = Join-Path $RepoRoot 'scripts/copy-ocr-runtime.py'
 $BuildTemp = Join-Path ([IO.Path]::GetTempPath()) "course-widget-ocr-component-$PID-$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())"
 $PythonRoot = Join-Path $OutputRoot 'python'
 $SitePackages = Join-Path $PythonRoot 'Lib/site-packages'
@@ -69,7 +70,7 @@ function Get-DirectoryFingerprint {
 if (-not $IsWindows) {
   throw 'The OCR component can only be built on Windows.'
 }
-foreach ($requiredFile in @($Requirements, $LockVerifier, $NoticeWriter, $SmokeScript)) {
+foreach ($requiredFile in @($Requirements, $LockVerifier, $NoticeWriter, $SmokeScript, $RuntimeCopier)) {
   if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
     throw "Missing OCR component build input: $requiredFile"
   }
@@ -132,15 +133,14 @@ try {
     '--site-packages', $SitePackages
   )
 
-  $experimentsTarget = Join-Path $AppRoot 'experiments'
-  New-Item -ItemType Directory -Force -Path $experimentsTarget | Out-Null
-  Copy-Item -LiteralPath (Join-Path $RepoRoot 'experiments/__init__.py') -Destination $experimentsTarget
-  Copy-Item -LiteralPath (Join-Path $RepoRoot 'experiments/screenshot_import') -Destination $experimentsTarget -Recurse
-  Remove-Item -LiteralPath (Join-Path $experimentsTarget 'screenshot_import/tests') -Recurse -Force -ErrorAction SilentlyContinue
-  Get-ChildItem -LiteralPath $AppRoot -Recurse -Directory -Filter '__pycache__' |
-    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-  Get-ChildItem -LiteralPath $AppRoot -Recurse -File -Include '*.pyc', '*.pyo' |
-    Remove-Item -Force -ErrorAction SilentlyContinue
+  Invoke-Checked -FilePath $BuildPython -ArgumentList @(
+    $RuntimeCopier,
+    '--source-root', $RepoRoot,
+    '--destination-root', $AppRoot
+  )
+  if (Test-Path -LiteralPath (Join-Path $AppRoot 'experiments/screenshot_import/cli.py')) {
+    throw 'Development CLI leaked into the production OCR component.'
+  }
 
   Invoke-Checked -FilePath $BuildPython -ArgumentList @(
     $NoticeWriter,

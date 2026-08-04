@@ -654,6 +654,18 @@ fn wait_for_probe(
     }
 }
 
+fn isolated_cpu_threads(inherited: &BTreeMap<OsString, OsString>) -> usize {
+    let logical = lookup_env(inherited, "NUMBER_OF_PROCESSORS")
+        .and_then(|value| value.to_string_lossy().parse::<usize>().ok())
+        .unwrap_or(4)
+        .max(1);
+    if logical <= 2 {
+        logical
+    } else {
+        (logical / 2).clamp(2, 8)
+    }
+}
+
 fn build_isolated_environment(
     runtime: &RecognizerRuntime,
     effective_model_cache: &Path,
@@ -728,7 +740,16 @@ fn build_isolated_environment(
         OsString::from("PADDLE_PDX_CACHE_HOME"),
         effective_model_cache.join("paddlex").into_os_string(),
     );
-    values.insert(OsString::from("OMP_NUM_THREADS"), OsString::from("2"));
+    let cpu_threads = isolated_cpu_threads(inherited).to_string();
+    for name in [
+        "COURSE_WIDGET_OCR_CPU_THREADS",
+        "OMP_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "NUMEXPR_NUM_THREADS",
+    ] {
+        values.insert(OsString::from(name), OsString::from(&cpu_threads));
+    }
     values.insert(
         OsString::from("HTTP_PROXY"),
         OsString::from("http://127.0.0.1:9"),

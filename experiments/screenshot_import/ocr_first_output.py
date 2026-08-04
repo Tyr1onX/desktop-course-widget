@@ -21,6 +21,7 @@ def write_ocr_first_outputs(
     engine: dict[str, str],
     structure: dict[str, Any],
     draft: dict[str, Any],
+    write_diagnostics: bool = True,
 ) -> dict[str, str]:
     draft_path = output / "draft.json"
     grid_path = output / "grid.json"
@@ -28,6 +29,11 @@ def write_ocr_first_outputs(
     overlay_path = output / "overlay.png"
     report_path = output / "report.json"
     draft_path.write_text(json.dumps(draft, ensure_ascii=False, indent=2), encoding="utf-8")
+    if not write_diagnostics:
+        return {
+            "draft": str(draft_path),
+            "report": str(report_path),
+        }
     grid_path.write_text(json.dumps(structure, ensure_ascii=False, indent=2), encoding="utf-8")
     ocr_path.write_text(
         json.dumps(

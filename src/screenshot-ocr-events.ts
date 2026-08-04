@@ -86,7 +86,7 @@ function enhanceDiagnosticActions(): void {
     existing?.remove()
     const button = document.createElement('button')
     button.type = 'button'
-    button.className = 'screenshot-import-progress__cancel'
+    button.className = 'secondary-button screenshot-ocr-diagnostic-copy'
     button.dataset.screenshotOcrCopyDiagnostic = 'true'
     button.dataset.diagnosticId = diagnosticId
     button.textContent = '复制诊断信息'

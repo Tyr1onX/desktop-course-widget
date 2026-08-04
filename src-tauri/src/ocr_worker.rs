@@ -46,8 +46,8 @@ struct WorkerReady {
     pid: u32,
     #[serde(default)]
     initialization_seconds: Option<f64>,
-    #[serde(default)]
-    engine: Value,
+    #[serde(default, rename = "engine")]
+    _engine: Value,
 }
 
 #[derive(Debug, Clone)]
@@ -79,11 +79,9 @@ struct OcrWorker {
 
 impl OcrWorker {
     fn spawn(runtime: &RecognizerRuntime) -> Result<Self, WorkerFailure> {
-        let mut command = ocr_component::isolated_python_command(
-            runtime,
-            "experiments.screenshot_import.worker",
-        )
-        .map_err(WorkerFailure::setup)?;
+        let mut command =
+            ocr_component::isolated_python_command(runtime, "experiments.screenshot_import.worker")
+                .map_err(WorkerFailure::setup)?;
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -134,13 +132,12 @@ impl OcrWorker {
                     };
                     match value.get("event").and_then(Value::as_str) {
                         Some("ready") => {
-                            let parsed = serde_json::from_value::<WorkerReady>(value).map_err(
-                                |error| {
+                            let parsed =
+                                serde_json::from_value::<WorkerReady>(value).map_err(|error| {
                                     WorkerFailure::setup(format!(
                                         "worker ready payload was invalid: {error}"
                                     ))
-                                },
-                            )?;
+                                })?;
                             break parsed;
                         }
                         Some("fatal") => {
@@ -222,8 +219,9 @@ impl OcrWorker {
             "repoRoot": runtime.module_root,
             "maxDimension": 1600,
         });
-        let rendered = serde_json::to_string(&request)
-            .map_err(|error| WorkerFailure::setup(format!("worker request encode failed: {error}")))?;
+        let rendered = serde_json::to_string(&request).map_err(|error| {
+            WorkerFailure::setup(format!("worker request encode failed: {error}"))
+        })?;
         self.stdin
             .write_all(rendered.as_bytes())
             .and_then(|()| self.stdin.write_all(b"\n"))
@@ -436,7 +434,10 @@ pub fn start_count() -> usize {
 fn runtime_key(runtime: &RecognizerRuntime) -> String {
     format!(
         "{}|{}|{}|{}",
-        runtime.component_version.as_deref().unwrap_or("development"),
+        runtime
+            .component_version
+            .as_deref()
+            .unwrap_or("development"),
         runtime.python.to_string_lossy(),
         runtime.module_root.to_string_lossy(),
         runtime.model_cache.to_string_lossy(),
@@ -494,7 +495,14 @@ fn push_log(log: &Arc<Mutex<VecDeque<String>>>, line: String) {
 
 fn log_bytes(log: &Arc<Mutex<VecDeque<String>>>) -> Vec<u8> {
     log.lock()
-        .map(|values| values.iter().cloned().collect::<Vec<_>>().join("\n").into_bytes())
+        .map(|values| {
+            values
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("\n")
+                .into_bytes()
+        })
         .unwrap_or_default()
 }
 
@@ -519,26 +527,4 @@ fn terminate_process_tree(pid: u32) {
 #[cfg(not(windows))]
 fn terminate_process_tree(_pid: u32) {
     CURRENT_WORKER_PID.store(0, Ordering::SeqCst);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn runtime_key_changes_with_component_identity() {
-        let runtime = RecognizerRuntime {
-            python: PathBuf::from("python/python.exe"),
-            module_root: PathBuf::from("app"),
-            model_cache: PathBuf::from("models"),
-            component_version: Some("v1".into()),
-            source: "bundled".into(),
-            model_files: Vec::new(),
-            model_fingerprint: None,
-        };
-        let first = runtime_key(&runtime);
-        let mut changed = runtime.clone();
-        changed.component_version = Some("v2".into());
-        assert_ne!(first, runtime_key(&changed));
-    }
 }

@@ -4,6 +4,7 @@ pub mod excel_import;
 mod import_draft;
 mod ocr_component;
 mod ocr_diagnostics;
+mod ocr_worker;
 mod schedule_apply;
 mod schedule_catalog;
 mod schedule_store;
@@ -13,7 +14,7 @@ use std::{
     env, fs,
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use tauri::{
@@ -67,6 +68,8 @@ struct HeadlessOcrSmokeResult {
     ok: bool,
     run_count: usize,
     course_count: usize,
+    worker_start_count: usize,
+    run_durations_ms: Vec<u64>,
     error: Option<String>,
     diagnostic_id: Option<String>,
     diagnostic_summary: Option<String>,
@@ -189,6 +192,7 @@ fn quit_application(app: &AppHandle) {
     app.state::<RuntimeState>()
         .quitting
         .store(true, Ordering::SeqCst);
+    screenshot_import::shutdown_worker();
     app.exit(0);
 }
 
@@ -363,15 +367,11 @@ fn save_lesson_times(
 }
 
 #[tauri::command]
-async fn read_screenshot_ocr_component_status(
-    app: AppHandle,
-) -> ocr_component::OcrComponentStatus {
+async fn read_screenshot_ocr_component_status(app: AppHandle) -> ocr_component::OcrComponentStatus {
     tauri::async_runtime::spawn_blocking(move || ocr_component::read_status(&app))
         .await
         .unwrap_or_else(|error| {
-            ocr_component::unavailable_status(format!(
-                "本地识别运行时检查任务异常结束：{error}"
-            ))
+            ocr_component::unavailable_status(format!("本地识别运行时检查任务异常结束：{error}"))
         })
 }
 
@@ -394,10 +394,7 @@ async fn prepare_screenshot_ocr_component(
 }
 
 #[tauri::command]
-fn read_screenshot_ocr_diagnostic(
-    app: AppHandle,
-    diagnostic_id: String,
-) -> Result<String, String> {
+fn read_screenshot_ocr_diagnostic(app: AppHandle, diagnostic_id: String) -> Result<String, String> {
     ocr_diagnostics::read_summary(&app, &diagnostic_id)
 }
 
@@ -571,6 +568,8 @@ fn schedule_headless_ocr_smoke(
                     ok: false,
                     run_count: 0,
                     course_count: 0,
+                    worker_start_count: screenshot_import::worker_start_count(),
+                    run_durations_ms: Vec::new(),
                     error: Some(status.message.clone()),
                     diagnostic_id: status.diagnostic_id.clone(),
                     diagnostic_summary: status
@@ -589,6 +588,8 @@ fn schedule_headless_ocr_smoke(
                     ok: false,
                     run_count: 0,
                     course_count: 0,
+                    worker_start_count: screenshot_import::worker_start_count(),
+                    run_durations_ms: Vec::new(),
                     diagnostic_id: None,
                     diagnostic_summary: None,
                     component_status: None,
@@ -615,6 +616,8 @@ fn schedule_headless_ocr_smoke(
                         ok: false,
                         run_count: 0,
                         course_count: 0,
+                        worker_start_count: screenshot_import::worker_start_count(),
+                        run_durations_ms: Vec::new(),
                         diagnostic_summary: diagnostic_id
                             .as_deref()
                             .and_then(|id| ocr_diagnostics::read_summary(&app_handle, id).ok()),
@@ -632,6 +635,8 @@ fn schedule_headless_ocr_smoke(
                         ok: false,
                         run_count: 0,
                         course_count: 0,
+                        worker_start_count: screenshot_import::worker_start_count(),
+                        run_durations_ms: Vec::new(),
                         diagnostic_id: None,
                         diagnostic_summary: None,
                         error: Some(format!("initialization probe join failed: {error}")),
@@ -650,7 +655,9 @@ fn schedule_headless_ocr_smoke(
         let mut completed_runs = 0;
         let mut last_course_count = 0;
         let mut failure = None;
+        let mut run_durations_ms = Vec::new();
         for _ in 0..runs {
+            let run_started = Instant::now();
             match parse_screenshot_path(app_handle.clone(), image.clone()).await {
                 Ok(draft) => {
                     completed_runs += 1;
@@ -658,8 +665,12 @@ fn schedule_headless_ocr_smoke(
                 }
                 Err(error) => {
                     failure = Some(error);
-                    break;
                 }
+            }
+            run_durations_ms
+                .push(run_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64);
+            if failure.is_some() {
+                break;
             }
         }
 
@@ -669,6 +680,8 @@ fn schedule_headless_ocr_smoke(
                 ok: false,
                 run_count: completed_runs,
                 course_count: last_course_count,
+                worker_start_count: screenshot_import::worker_start_count(),
+                run_durations_ms: run_durations_ms.clone(),
                 diagnostic_summary: diagnostic_id
                     .as_deref()
                     .and_then(|id| ocr_diagnostics::read_summary(&app_handle, id).ok()),
@@ -682,6 +695,8 @@ fn schedule_headless_ocr_smoke(
                 ok: completed_runs == runs && last_course_count > 0,
                 run_count: completed_runs,
                 course_count: last_course_count,
+                worker_start_count: screenshot_import::worker_start_count(),
+                run_durations_ms: run_durations_ms.clone(),
                 error: None,
                 diagnostic_id: None,
                 diagnostic_summary: None,
@@ -691,6 +706,7 @@ fn schedule_headless_ocr_smoke(
         };
         let exit_code = if result.ok { 0 } else { 2 };
         write_headless_result(&result_path, &result);
+        screenshot_import::shutdown_worker();
         app_handle.exit(exit_code);
     });
 }
@@ -752,6 +768,7 @@ fn intercept_settings_close(app: &AppHandle, event: &WindowEvent) {
     if let WindowEvent::CloseRequested { api, .. } = event {
         if !app.state::<RuntimeState>().quitting.load(Ordering::SeqCst) {
             api.prevent_close();
+            screenshot_import::cancel_recognition();
             if let Err(error) = app.emit("settings:close-requested", ()) {
                 eprintln!("[settings] close request emit failed: {error}");
             }

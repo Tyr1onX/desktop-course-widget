@@ -502,10 +502,10 @@ button { color: inherit; }
   display: grid;
   gap: 10px;
   margin-top: 12px;
-  padding: 13px 14px;
-  border: 1px solid var(--line);
+  padding: 14px;
+  border: 1px solid #c9d7ea;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.72);
+  background: #f8fbff;
 }
 .screenshot-import-progress__heading {
   display: flex;
@@ -513,40 +513,27 @@ button { color: inherit; }
   justify-content: space-between;
   gap: 14px;
 }
-.screenshot-import-progress__heading strong { font-size: 12px; font-weight: 650; }
+.screenshot-import-progress__heading > div { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.screenshot-import-progress__heading strong { overflow: hidden; font-size: 13px; font-weight: 680; text-overflow: ellipsis; white-space: nowrap; }
+.screenshot-import-progress__heading span { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .screenshot-import-progress__cancel {
   flex: none;
-  padding: 4px 8px;
-  border: 0;
-  border-radius: 7px;
-  color: var(--muted);
-  background: transparent;
-  font-size: 11px;
+  min-width: 86px;
+  height: 34px;
+  padding: 0 13px;
+  border: 1px solid #d65b5b;
+  border-radius: 8px;
+  color: #a52f2f;
+  background: #fff;
+  font-size: 12px;
+  font-weight: 620;
   cursor: pointer;
 }
-.screenshot-import-progress__cancel:hover:not(:disabled) { background: rgba(31, 35, 40, 0.06); color: #1f2328; }
-.screenshot-import-progress__cancel:disabled { cursor: default; opacity: 0.55; }
-.screenshot-import-progress__track {
-  position: relative;
-  height: 4px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: rgba(23, 105, 224, 0.13);
-}
-.screenshot-import-progress__track span {
-  position: absolute;
-  inset: 0 auto 0 -38%;
-  width: 38%;
-  border-radius: inherit;
-  background: var(--blue);
-  animation: screenshot-import-progress-slide 1.25s ease-in-out infinite;
-}
-.screenshot-import-progress p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
-@keyframes screenshot-import-progress-slide {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(365%); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .screenshot-import-progress__track span { left: 0; width: 100%; animation: screenshot-import-progress-pulse 1.4s ease-in-out infinite; }
-  @keyframes screenshot-import-progress-pulse { 50% { opacity: 0.35; } }
-}
+.screenshot-import-progress__cancel:hover:not(:disabled) { background: #fff1f1; }
+.screenshot-import-progress__cancel:disabled { cursor: wait; opacity: 0.62; }
+.screenshot-import-progress p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+body.is-screenshot-ocr-busy .schedule-toolbar,
+body.is-screenshot-ocr-busy .schedule-stage { pointer-events: none; user-select: none; }
+body.is-screenshot-ocr-busy .surface-close { opacity: 0.35; }
+body.is-screenshot-ocr-busy .import-review-surface [data-screenshot-import-cancel] { pointer-events: auto; }
+.screenshot-ocr-diagnostic-copy { margin-top: 8px; }

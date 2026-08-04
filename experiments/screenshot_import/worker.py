@@ -72,6 +72,7 @@ def _recognize(
         parser_config=FieldParserConfig(),
         repo_root=repo_root,
         stage_callback=stage_callback,
+        write_diagnostics=False,
     )
     return {
         "event": "result",
