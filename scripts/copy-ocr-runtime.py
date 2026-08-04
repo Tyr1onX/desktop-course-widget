@@ -40,8 +40,7 @@ def local_imports(path: Path, module: str) -> set[str]:
             if target.startswith(PACKAGE):
                 if node.module is None:
                     for alias in node.names:
-                        candidate = f"{target}.{alias.name}"
-                        discovered.add(candidate)
+                        discovered.add(f"{target}.{alias.name}")
                 else:
                     discovered.add(target)
         elif isinstance(node, ast.Import):
@@ -86,14 +85,14 @@ def copy_runtime(source_root: Path, destination_root: Path) -> list[str]:
         source = package_init_path(source_root, package)
         if not source.is_file():
             continue
-        destination = destination_root.join(source.relative_to(source_root))
+        destination = destination_root / source.relative_to(source_root)
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
         copied.append(destination.relative_to(destination_root).as_posix())
 
     for module in modules:
         source = module_path(source_root, module)
-        destination = destination_root.join(source.relative_to(source_root))
+        destination = destination_root / source.relative_to(source_root)
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
         copied.append(destination.relative_to(destination_root).as_posix())
