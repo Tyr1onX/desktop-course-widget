@@ -83,6 +83,54 @@ mod tests {
     }
 
     #[test]
+    fn anchor_block_keeps_title_two_lines_above_schedule() {
+        let tokens = vec![
+            token("星期一", 190.0, 40.0),
+            token("星期二", 390.0, 40.0),
+            token("星期三", 590.0, 40.0),
+            token("通信与网络|03", 130.0, 100.0),
+            token("李启豪", 130.0, 130.0),
+            token("3-8周,星期1,第1节--第2节", 130.0, 160.0),
+            token("南湖-第1教学楼-四阶", 130.0, 190.0),
+        ];
+        let headers = weekday_headers(&tokens);
+        let anchors = course_anchors(&tokens);
+        let (courses, _) = anchor_courses(&tokens, &anchors, &headers, 800, 600);
+        assert_eq!(courses.len(), 1);
+        assert_eq!(courses[0].name, "通信与网络[03]");
+        assert_eq!(courses[0].teacher.as_deref(), Some("李启豪"));
+    }
+
+    #[test]
+    fn fallback_splits_dense_cards_in_the_same_slot() {
+        let tokens = vec![
+            token("星期一", 190.0, 40.0),
+            token("星期二", 390.0, 40.0),
+            token("星期三", 590.0, 40.0),
+            token("1", 20.0, 120.0),
+            token("2", 20.0, 300.0),
+            token("通信与网络|03", 130.0, 90.0),
+            token("李启豪", 130.0, 118.0),
+            token("3-8周,星期1,第1节--第2节", 130.0, 146.0),
+            token("南湖-第1教学楼-四阶", 130.0, 174.0),
+            token("通信与网络|03", 130.0, 204.0),
+            token("顾海军", 130.0, 232.0),
+            token("9-14周,星期1,第1节--第2节", 130.0, 260.0),
+            token("南湖-第1教学楼-四阶", 130.0, 288.0),
+        ];
+        let headers = weekday_headers(&tokens);
+        let sections = section_markers(&tokens, 800);
+        let courses = fallback_courses(&tokens, &headers, &sections, 800, 600);
+        assert_eq!(courses.len(), 2);
+        assert_eq!(courses[0].name, "通信与网络[03]");
+        assert_eq!(courses[0].teacher.as_deref(), Some("李启豪"));
+        assert_eq!(courses[0].weeks, (3..=8).collect::<Vec<_>>());
+        assert_eq!(courses[1].name, "通信与网络[03]");
+        assert_eq!(courses[1].teacher.as_deref(), Some("顾海军"));
+        assert_eq!(courses[1].weeks, (9..=14).collect::<Vec<_>>());
+    }
+
+    #[test]
     fn recognizes_two_character_plain_teacher_names() {
         assert_eq!(
             bare_teacher_from_text("刘聪", "单片机原理及其应用[04]").as_deref(),
