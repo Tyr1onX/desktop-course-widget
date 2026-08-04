@@ -59,30 +59,64 @@ async function run(): Promise<void> {
   )
 
   const picker = document.querySelector<HTMLButtonElement>('[data-action="choose-screenshot"]')
+  const excelPicker = document.querySelector<HTMLButtonElement>('[data-action="choose-excel"]')
+  const backgroundAction = document.querySelector<HTMLButtonElement>('[data-test-background-action]')
+  const courseCard = document.querySelector<HTMLButtonElement>('[data-test-course-card]')
+  const closeButton = document.querySelector<HTMLButtonElement>('.surface-close')
+  const sectionSelect = document.querySelector<HTMLSelectElement>('[data-import-field="startSection"]')
+  const createButton = document.querySelector<HTMLButtonElement>('[data-action="create-imported-schedule"]')
   assert(picker, 'screenshot picker should be available after the Excel draft is cleared')
+  assert(excelPicker && backgroundAction && courseCard && closeButton && sectionSelect && createButton, 'busy-state fixture controls should exist')
   assert(
     window.__screenshotImportCommands.filter((command) => command === 'read_screenshot_ocr_component_status').length === 1,
     'desktop import should check the local OCR component once',
   )
+
   picker.click()
   await waitFor(
     () => document.querySelector('[data-screenshot-import-progress]') !== null,
-    'recognition should show an indeterminate progress panel',
+    'recognition should show a progress panel',
   )
-  assert(document.querySelector('.screenshot-import-progress__track'), 'recognition should show a moving progress track')
+  assert(document.body.classList.contains('is-screenshot-ocr-busy'), 'recognition should lock the full settings surface')
+  assert(
+    document.querySelector<HTMLElement>('.import-review-surface')?.dataset.screenshotOcrBusy === 'true',
+    'recognition surface should expose its busy state',
+  )
+  assert(document.querySelector('.screenshot-import-progress__track') === null, 'recognition should not show a fake progress bar')
+  assert(
+    document.querySelector('[data-screenshot-import-elapsed]')?.textContent?.includes('已用时 00:'),
+    'recognition should display real elapsed time',
+  )
   const cancelButton = document.querySelector<HTMLButtonElement>('[data-screenshot-import-cancel]')
-  assert(cancelButton, 'recognition progress should provide a cancel action')
+  assert(cancelButton, 'recognition progress should provide a stop action')
+  assert(cancelButton.textContent?.includes('停止识别'), 'stop action should be clearly labelled')
+  assert(cancelButton.disabled === false, 'stop action should remain usable while the rest of the surface is locked')
+  assert(excelPicker.disabled, 'Excel picker should be locked during screenshot recognition')
+  assert(picker.disabled, 'screenshot picker should be locked during recognition')
+  assert(backgroundAction.disabled, 'background toolbar actions should be locked during recognition')
+  assert(courseCard.disabled, 'background course interactions should be locked during recognition')
+  assert(closeButton.disabled, 'surface close action should be locked during recognition')
+  assert(sectionSelect.disabled, 'review fields should be locked during recognition')
+  assert(createButton.disabled, 'schedule creation should be locked during recognition')
+
   cancelButton.click()
   await waitFor(
-    () => document.querySelector('.surface-message')?.textContent?.includes('已取消识别') === true,
-    'cancelled recognition should show a concise result',
+    () => document.querySelector('.surface-message')?.textContent?.includes('已停止识别') === true,
+    'stopped recognition should show a concise result',
   )
-  assert(document.querySelector('[data-screenshot-import-progress]') === null, 'cancelled recognition should remove progress UI')
+  assert(document.querySelector('[data-screenshot-import-progress]') === null, 'stopped recognition should remove progress UI')
+  assert(!document.body.classList.contains('is-screenshot-ocr-busy'), 'stopping recognition should release the full busy lock')
   assert(
     window.__screenshotImportCommands.filter((command) => command === 'cancel_screenshot_recognition').length === 1,
-    'cancel action should reach the desktop command once',
+    'stop action should reach the desktop command once',
   )
   await waitFor(() => picker.disabled === false, 'picker should become available again after cancellation')
+  assert(excelPicker.disabled === false, 'Excel picker should be restored after cancellation')
+  assert(backgroundAction.disabled === false, 'background toolbar action should be restored after cancellation')
+  assert(courseCard.disabled === false, 'background course interaction should be restored after cancellation')
+  assert(closeButton.disabled === false, 'surface close action should be restored after cancellation')
+  assert(sectionSelect.disabled === false, 'review field should be restored after cancellation')
+  assert(createButton.disabled, 'originally disabled create action should remain disabled after cancellation')
 
   const recognizeCallsBeforeSuccess = window.__screenshotImportCommands
     .filter((command) => command === 'choose_and_parse_screenshot').length
@@ -103,6 +137,7 @@ async function run(): Promise<void> {
     'rapid duplicate clicks must start only one additional recognizer',
   )
   assert(document.querySelector('[data-screenshot-import-progress]') === null, 'successful recognition should remove progress UI')
+  assert(!document.body.classList.contains('is-screenshot-ocr-busy'), 'successful recognition should release the full busy lock')
   assert(document.querySelectorAll('.import-review-toolbar').length === 1, 'shared review toolbar should remain singular')
   assert(document.body.textContent?.includes('通信原理'), 'recognized course should appear in the shared review list')
   assert(document.body.textContent?.includes('地点：南湖-第一教学楼-四阶'), 'collapsed summary should expose recognized location before bulk confirmation')
@@ -121,13 +156,13 @@ async function run(): Promise<void> {
   assert(resetButton, 'review footer should provide a restart action without creating a schedule')
   assert(resetButton.textContent?.includes('重新选择图片'), 'restart action should be clear to users')
 
-  const createButton = document.querySelector<HTMLButtonElement>('[data-action="create-imported-schedule"]')
-  assert(createButton?.disabled, 'unconfirmed OCR fields must block schedule creation')
+  const reviewCreateButton = document.querySelector<HTMLButtonElement>('[data-action="create-imported-schedule"]')
+  assert(reviewCreateButton?.disabled, 'unconfirmed OCR fields must block schedule creation')
 
   const confirmAll = document.querySelector<HTMLButtonElement>('[data-import-v2-confirm-all]')
   assert(confirmAll, 'bulk confirmation should be available for screenshot drafts')
   confirmAll.click()
-  await waitFor(() => createButton.disabled === false, 'bulk-confirmed review should allow schedule creation')
+  await waitFor(() => reviewCreateButton.disabled === false, 'bulk-confirmed review should allow schedule creation')
 
   assert(document.querySelectorAll('.import-review-toolbar').length === 1, 'review rerender must not duplicate toolbar')
   assert(document.querySelector('[data-import-v2-confirm-all]') === null, 'bulk confirmation should disappear after completion')
@@ -137,7 +172,7 @@ async function run(): Promise<void> {
   const createCallsBeforeCancel = window.__screenshotImportCommands
     .filter((command) => command.includes('create_schedule_from_import')).length
   window.confirm = () => false
-  createButton.click()
+  reviewCreateButton.click()
   await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
   const createCallsAfterCancel = window.__screenshotImportCommands
     .filter((command) => command.includes('create_schedule_from_import')).length
@@ -145,7 +180,7 @@ async function run(): Promise<void> {
     createCallsAfterCancel === createCallsBeforeCancel,
     'cancelling a non-blocking warning must prevent screenshot schedule creation',
   )
-  assert(createButton.disabled === false, 'cancelled warning confirmation should leave creation available')
+  assert(reviewCreateButton.disabled === false, 'cancelled warning confirmation should leave creation available')
 }
 
 try {
