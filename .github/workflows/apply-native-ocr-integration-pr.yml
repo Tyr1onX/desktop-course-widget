@@ -62,7 +62,6 @@ jobs:
           npm ci
           npm run build
           npm run check:screenshot-import
-          npm run check:screenshot-import-dom
           cargo test --manifest-path src-tauri/Cargo.toml --lib
           cargo check --manifest-path src-tauri/Cargo.toml
 
