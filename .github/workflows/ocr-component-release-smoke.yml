@@ -9,6 +9,7 @@ on:
       - '.github/workflows/ocr-component-release-smoke.yml'
       - 'settings.html'
       - 'scripts/build-ocr-component.ps1'
+      - 'scripts/copy-ocr-runtime.py'
       - 'scripts/ocr-component-smoke.py'
       - 'scripts/screenshot-import-dom.test.html'
       - 'scripts/screenshot-import-dom.test.ts'
@@ -26,6 +27,7 @@ on:
       - 'src-tauri/src/lib.rs'
       - 'src-tauri/src/ocr_component.rs'
       - 'src-tauri/src/ocr_diagnostics.rs'
+      - 'src-tauri/src/ocr_worker.rs'
       - 'src-tauri/src/screenshot_import.rs'
       - 'src-tauri/tauri.conf.json'
 
@@ -66,25 +68,35 @@ jobs:
         shell: pwsh
         run: ./scripts/test-ocr-development-bootstrap.ps1 -Python python
 
-      - name: Build portable OCR component and warm models
+      - name: Build pruned portable OCR component and warm mobile models
         shell: pwsh
         run: ./scripts/build-ocr-component.ps1 -WarmModels
 
-      - name: Inspect generated component
+      - name: Inspect generated production component
         shell: pwsh
         run: |
           $root = 'src-tauri/resources/ocr-component'
+          $runtime = Join-Path $root 'app/experiments/screenshot_import'
           $manifestPath = Join-Path $root 'component.json'
           $noticePath = Join-Path $root 'THIRD_PARTY_NOTICES.txt'
           $inventoryPath = Join-Path $root 'third-party-packages.json'
           $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
           if ($manifest.available -ne $true) { throw 'Generated OCR component is not available' }
           if ($manifest.platform -ne 'windows-x86_64') { throw 'Generated OCR component platform is incorrect' }
+          if ($manifest.componentVersion -notmatch 'mobile-worker') { throw "Unexpected component version: $($manifest.componentVersion)" }
           if ($manifest.files.Count -lt 100) { throw "Generated OCR component contains too few files: $($manifest.files.Count)" }
           if (-not (Test-Path (Join-Path $root 'python/python.exe'))) { throw 'Portable Python is missing' }
           if (-not (Test-Path (Join-Path $root 'models'))) { throw 'Bundled model cache is missing' }
-          if (-not (Test-Path (Join-Path $root 'app/experiments/screenshot_import/runtime_probe.py'))) { throw 'Runtime probe is missing' }
-          if (-not (Test-Path (Join-Path $root 'app/experiments/screenshot_import/bootstrap_probe.py'))) { throw 'Development bootstrap probe is missing' }
+          foreach ($required in @('worker.py', 'runtime_probe.py', 'bootstrap_probe.py', 'paddle_cpu.py', 'ocr_first_pipeline.py')) {
+            if (-not (Test-Path (Join-Path $runtime $required) -PathType Leaf)) {
+              throw "Production OCR runtime is missing $required"
+            }
+          }
+          foreach ($unused in @('cli.py', 'corpus.py', 'corpus_benchmark.py', 'synthetic.py', 'synthetic_chinese_corpus.py', 'pipeline.py')) {
+            if (Test-Path (Join-Path $runtime $unused)) {
+              throw "Development-only OCR module leaked into the installer: $unused"
+            }
+          }
           if (-not (Test-Path $noticePath -PathType Leaf)) { throw 'Third-party notices are missing' }
           if (-not (Test-Path $inventoryPath -PathType Leaf)) { throw 'Third-party package inventory is missing' }
 
@@ -102,15 +114,21 @@ jobs:
           "component_version=$($manifest.componentVersion)" >> $env:GITHUB_STEP_SUMMARY
           "component_files=$($manifest.files.Count)" >> $env:GITHUB_STEP_SUMMARY
           "component_bytes=$bytes" >> $env:GITHUB_STEP_SUMMARY
+          "runtime_python_files=$((Get-ChildItem $runtime -Recurse -File -Filter '*.py').Count)" >> $env:GITHUB_STEP_SUMMARY
           "third_party_packages=$($inventory.packageCount)" >> $env:GITHUB_STEP_SUMMARY
 
-      - name: Run Rust OCR backend tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+      - name: Run frontend busy-state and Rust OCR tests
+        shell: pwsh
+        run: |
+          npm run build
+          npm run check:screenshot-import
+          npm run check:screenshot-import-dom
+          cargo test --manifest-path src-tauri/Cargo.toml --lib
 
       - name: Build installer with bundled OCR component
         run: npm run tauri:build
 
-      - name: Install app and run Tauri OCR path under polluted environment
+      - name: Install app and validate reusable Tauri OCR worker
         shell: pwsh
         run: |
           $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
