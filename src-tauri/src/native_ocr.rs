@@ -1,4 +1,8 @@
-use std::{cmp::Ordering, path::{Path, PathBuf}, time::Instant};
+use std::{
+    cmp::Ordering,
+    path::{Path, PathBuf},
+    time::Instant,
+};
 
 use image::DynamicImage;
 use ocr_rs::{OcrEngine, OcrEngineConfig};
@@ -68,7 +72,12 @@ pub fn recognize_screenshot(app: &AppHandle, image_path: &Path) -> Result<Import
     let charset = model_root.join("ppocr_keys_v5.txt");
     for path in [&det_model, &rec_model, &charset] {
         if !path.is_file() {
-            return Err(format!("本地文字识别模型缺失：{}", path.file_name().and_then(|name| name.to_str()).unwrap_or("model")));
+            return Err(format!(
+                "本地文字识别模型缺失：{}",
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("model")
+            ));
         }
     }
 
@@ -115,7 +124,7 @@ pub fn recognize_screenshot(app: &AppHandle, image_path: &Path) -> Result<Import
         return Err("没有从图片中识别到文字，请确认截图清晰且包含完整课表".into());
     }
 
-    let mut draft = tokens_to_draft(
+    let draft = tokens_to_draft(
         image_path,
         original_width,
         original_height,
@@ -123,9 +132,10 @@ pub fn recognize_screenshot(app: &AppHandle, image_path: &Path) -> Result<Import
         working.height(),
         &tokens,
     )?;
-    draft.warnings.push(format!(
-        "本地识别耗时：读图 {decode_ms} ms，引擎准备 {engine_ms} ms，文字识别 {recognition_ms} ms"
-    ));
+    eprintln!(
+        "[native-ocr] decode_ms={decode_ms} engine_ms={engine_ms} recognition_ms={recognition_ms} courses={}",
+        draft.courses.len()
+    );
     Ok(draft)
 }
 
@@ -150,13 +160,7 @@ fn tokens_to_draft(
             vec!["未识别到完整周次锚点，已按课表网格生成待复核结果".into()],
         )
     } else {
-        anchor_courses(
-            tokens,
-            &anchors,
-            &headers,
-            working_width,
-            working_height,
-        )
+        anchor_courses(tokens, &anchors, &headers, working_width, working_height)
     };
     if courses.is_empty() {
         return Err("识别到了课表文字，但没有整理出可复核的课程安排".into());
@@ -169,7 +173,12 @@ fn tokens_to_draft(
         .unwrap_or(DEFAULT_LAST_WEEK);
     let location_count = courses
         .iter()
-        .filter(|course| course.location.as_deref().is_some_and(|value| !value.trim().is_empty()))
+        .filter(|course| {
+            course
+                .location
+                .as_deref()
+                .is_some_and(|value| !value.trim().is_empty())
+        })
         .count();
     warnings.dedup();
     let source_name = image_path
@@ -202,10 +211,7 @@ fn tokens_to_draft(
             width: original_width,
             height: original_height,
             weekday_columns: Some(headers.len().min(7) as u8),
-            section_rows: sections
-                .iter()
-                .map(|(section, _)| *section)
-                .max(),
+            section_rows: sections.iter().map(|(section, _)| *section).max(),
             recognizer_version: Some(RECOGNIZER_VERSION.into()),
         }),
     })
@@ -262,7 +268,10 @@ fn anchor_courses(
             image_height,
         ) {
             if anchor.used_default_weeks {
-                warnings.push(format!("{} 的周次未完整识别，已暂按 1～{DEFAULT_LAST_WEEK} 周填写", course.name));
+                warnings.push(format!(
+                    "{} 的周次未完整识别，已暂按 1～{DEFAULT_LAST_WEEK} 周填写",
+                    course.name
+                ));
             }
             courses.push(course);
         }
@@ -289,7 +298,10 @@ fn course_from_block(
         !is_teacher_text(&token.text)
             && !is_location_text(&token.text)
             && !looks_like_schedule_metadata(&token.text)
-            && token.text.chars().any(|character| !character.is_ascii_digit())
+            && token
+                .text
+                .chars()
+                .any(|character| !character.is_ascii_digit())
     })?;
     let mut source_tokens = vec![anchor.clone()];
     source_tokens.extend(block.iter().cloned());
@@ -383,9 +395,13 @@ fn fallback_courses(
         column_tokens.sort_by(token_reading_order);
         let mut groups: Vec<Vec<Token>> = Vec::new();
         for token in column_tokens {
-            let starts_new = groups.last().and_then(|group| group.last()).is_some_and(|previous| {
-                token.top - previous.bottom() > previous.height.max(token.height).max(18.0) * 1.3
-            });
+            let starts_new = groups
+                .last()
+                .and_then(|group| group.last())
+                .is_some_and(|previous| {
+                    token.top - previous.bottom()
+                        > previous.height.max(token.height).max(18.0) * 1.3
+                });
             if starts_new || groups.is_empty() {
                 groups.push(vec![token]);
             } else if let Some(group) = groups.last_mut() {
@@ -394,7 +410,11 @@ fn fallback_courses(
         }
 
         for group in groups {
-            let combined = group.iter().map(|token| token.text.as_str()).collect::<Vec<_>>().join(" ");
+            let combined = group
+                .iter()
+                .map(|token| token.text.as_str())
+                .collect::<Vec<_>>()
+                .join(" ");
             let Some(name_token) = group.iter().find(|token| {
                 !is_teacher_text(&token.text)
                     && !is_location_text(&token.text)
@@ -430,13 +450,19 @@ fn fallback_courses(
 fn weekday_headers(tokens: &[Token]) -> Vec<WeekdayHeader> {
     let mut headers = tokens
         .iter()
-        .filter_map(|token| weekday_from_text(&token.text).map(|weekday| WeekdayHeader {
-            weekday,
-            center_x: token.center_x(),
-            bottom: token.bottom(),
-        }))
+        .filter_map(|token| {
+            weekday_from_text(&token.text).map(|weekday| WeekdayHeader {
+                weekday,
+                center_x: token.center_x(),
+                bottom: token.bottom(),
+            })
+        })
         .collect::<Vec<_>>();
-    headers.sort_by(|left, right| left.center_x.partial_cmp(&right.center_x).unwrap_or(Ordering::Equal));
+    headers.sort_by(|left, right| {
+        left.center_x
+            .partial_cmp(&right.center_x)
+            .unwrap_or(Ordering::Equal)
+    });
     headers.dedup_by_key(|header| header.weekday);
     headers
 }
@@ -445,7 +471,13 @@ fn section_markers(tokens: &[Token], image_width: u32) -> Vec<(u8, f32)> {
     let mut markers = tokens
         .iter()
         .filter(|token| token.center_x() < image_width as f32 * 0.12)
-        .filter_map(|token| token.text.parse::<u8>().ok().map(|section| (section, token.center_y())))
+        .filter_map(|token| {
+            token
+                .text
+                .parse::<u8>()
+                .ok()
+                .map(|section| (section, token.center_y()))
+        })
         .filter(|(section, _)| (1..=20).contains(section))
         .collect::<Vec<_>>();
     markers.sort_by_key(|(section, _)| *section);
@@ -454,7 +486,10 @@ fn section_markers(tokens: &[Token], image_width: u32) -> Vec<(u8, f32)> {
 }
 
 fn course_anchors(tokens: &[Token]) -> Vec<CourseAnchor> {
-    let anchor = Regex::new(r"(?:周|星期)([一二三四五六日天]).*?第?\s*(\d{1,2})\s*节\s*[-—~至]\s*第?\s*(\d{1,2})\s*节").unwrap();
+    let anchor = Regex::new(
+        r"(?:周|星期)([一二三四五六日天]).*?第?\s*(\d{1,2})\s*节\s*[-—~至]\s*第?\s*(\d{1,2})\s*节",
+    )
+    .unwrap();
     let mut anchors = tokens
         .iter()
         .enumerate()
@@ -591,7 +626,11 @@ fn field_evidence(
     }
 }
 
-fn normalized_box(token: &Token, image_width: u32, image_height: u32) -> Option<NormalizedImageBox> {
+fn normalized_box(
+    token: &Token,
+    image_width: u32,
+    image_height: u32,
+) -> Option<NormalizedImageBox> {
     if image_width == 0 || image_height == 0 {
         return None;
     }
@@ -603,12 +642,22 @@ fn normalized_box(token: &Token, image_width: u32, image_height: u32) -> Option<
     })
 }
 
-fn normalized_union(tokens: &[Token], image_width: u32, image_height: u32) -> Option<NormalizedImageBox> {
+fn normalized_union(
+    tokens: &[Token],
+    image_width: u32,
+    image_height: u32,
+) -> Option<NormalizedImageBox> {
     if tokens.is_empty() || image_width == 0 || image_height == 0 {
         return None;
     }
-    let left = tokens.iter().map(|token| token.left).fold(f32::MAX, f32::min);
-    let top = tokens.iter().map(|token| token.top).fold(f32::MAX, f32::min);
+    let left = tokens
+        .iter()
+        .map(|token| token.left)
+        .fold(f32::MAX, f32::min);
+    let top = tokens
+        .iter()
+        .map(|token| token.top)
+        .fold(f32::MAX, f32::min);
     let right = tokens.iter().map(Token::right).fold(0.0_f32, f32::max);
     let bottom = tokens.iter().map(Token::bottom).fold(0.0_f32, f32::max);
     Some(NormalizedImageBox {
@@ -632,9 +681,13 @@ fn resolve_model_root(app: &AppHandle) -> Result<PathBuf, String> {
         .path()
         .resource_dir()
         .map_err(|error| format!("无法定位应用资源目录：{error}"))?;
-    let bundled = resource_dir.join("ocr-native");
-    if bundled.is_dir() {
-        return Ok(bundled);
+    for bundled in [
+        resource_dir.join("ocr-native"),
+        resource_dir.join("resources/ocr-native"),
+    ] {
+        if bundled.is_dir() {
+            return Ok(bundled);
+        }
     }
     Err("当前安装包没有包含本地文字识别模型".into())
 }
@@ -665,7 +718,11 @@ fn token_reading_order(left: &Token, right: &Token) -> Ordering {
     left.top
         .partial_cmp(&right.top)
         .unwrap_or(Ordering::Equal)
-        .then_with(|| left.left.partial_cmp(&right.left).unwrap_or(Ordering::Equal))
+        .then_with(|| {
+            left.left
+                .partial_cmp(&right.left)
+                .unwrap_or(Ordering::Equal)
+        })
 }
 
 fn compact_text(value: &str) -> String {
@@ -678,7 +735,9 @@ fn is_weekday_header(value: &str) -> bool {
 
 fn weekday_from_text(value: &str) -> Option<u8> {
     let compact = compact_text(value);
-    let suffix = compact.strip_prefix("星期").or_else(|| compact.strip_prefix('周'))?;
+    let suffix = compact
+        .strip_prefix("星期")
+        .or_else(|| compact.strip_prefix('周'))?;
     if suffix.chars().count() != 1 {
         return None;
     }
@@ -699,7 +758,9 @@ fn weekday_character(value: char) -> Option<u8> {
 }
 
 fn is_section_number(value: &str) -> bool {
-    value.parse::<u8>().is_ok_and(|number| (1..=20).contains(&number))
+    value
+        .parse::<u8>()
+        .is_ok_and(|number| (1..=20).contains(&number))
 }
 
 fn is_teacher_text(value: &str) -> bool {
@@ -707,13 +768,25 @@ fn is_teacher_text(value: &str) -> bool {
 }
 
 fn is_location_text(value: &str) -> bool {
-    ["教学楼", "教室", "校区", "楼", "室", "阶", "馆", "南湖", "南岭", "中心"]
-        .iter()
-        .any(|marker| value.contains(marker))
+    [
+        "教学楼",
+        "教室",
+        "校区",
+        "楼",
+        "室",
+        "阶",
+        "馆",
+        "南湖",
+        "南岭",
+        "中心",
+    ]
+    .iter()
+    .any(|marker| value.contains(marker))
 }
 
 fn looks_like_schedule_metadata(value: &str) -> bool {
-    value.contains('周') && (value.contains('节') || value.chars().any(|character| character.is_ascii_digit()))
+    value.contains('周')
+        && (value.contains('节') || value.chars().any(|character| character.is_ascii_digit()))
 }
 
 #[cfg(test)]
