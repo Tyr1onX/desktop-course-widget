@@ -119,17 +119,22 @@ fn token_starts_course_card(token: &Token) -> bool {
 }
 
 fn group_has_card_body(group: &[Token]) -> bool {
-    group.iter().any(|token| {
-        token
-            .parts
-            .iter()
-            .chain(std::iter::once(&token.text))
-            .any(|value| {
-                is_location_text(value)
-                    || looks_like_schedule_metadata(value)
-                    || course_name_from_text(value).is_some_and(|name| has_course_code(&name))
-            })
-    })
+    let mut has_name = false;
+    let mut has_supporting_field = false;
+    for token in group {
+        for value in token.parts.iter().chain(std::iter::once(&token.text)) {
+            if course_name_from_text(value).is_some() {
+                has_name = true;
+            }
+            if is_teacher_text(value)
+                || is_location_text(value)
+                || looks_like_schedule_metadata(value)
+            {
+                has_supporting_field = true;
+            }
+        }
+    }
+    has_name && (has_supporting_field || group.len() >= 2)
 }
 
 fn weekday_headers(tokens: &[Token]) -> Vec<WeekdayHeader> {
