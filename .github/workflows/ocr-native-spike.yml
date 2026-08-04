@@ -1,4 +1,4 @@
-name: Validate Rust-native OCR spike
+name: Validate Rust-native OCR
 
 on:
   workflow_dispatch:
@@ -13,6 +13,15 @@ on:
       - 'src-tauri/Cargo.toml'
       - 'src-tauri/Cargo.lock'
       - 'src-tauri/src/bin/ocr_native_spike.rs'
+      - 'src-tauri/src/native_ocr.rs'
+      - 'src-tauri/src/screenshot_import.rs'
+      - 'src-tauri/src/lib.rs'
+      - 'src-tauri/tauri.conf.json'
+      - 'src/screenshot-import-controller.ts'
+      - 'src/settings.css'
+      - 'scripts/screenshot-import-dom.test.ts'
+      - 'scripts/download-native-ocr-models.ps1'
+      - 'src-tauri/resources/ocr-native/**'
       - 'experiments/screenshot_import/synthetic_chinese_corpus.py'
       - 'docs/ocr-local-deployment-decision.md'
 
@@ -20,7 +29,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: rust-native-ocr-spike-${{ github.ref }}
+  group: rust-native-ocr-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -29,15 +38,23 @@ env:
 jobs:
   windows-native-runtime:
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+
+      - name: Install web dependencies
+        run: npm ci
 
       - name: Generate deterministic Chinese timetable image
         shell: pwsh
@@ -53,25 +70,11 @@ jobs:
             throw 'Chinese timetable fixture was not generated.'
           }
 
-      - name: Download pinned FP16 MNN models
+      - name: Prepare hash-pinned native models
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-          $modelRoot = '.tmp/native-ocr-models'
-          New-Item -ItemType Directory -Force -Path $modelRoot | Out-Null
-          $base = "https://raw.githubusercontent.com/zibo-chen/rust-paddle-ocr/$env:OCR_MODEL_COMMIT/models"
-          $files = @(
-            'PP-OCRv5_mobile_det_fp16.mnn',
-            'PP-OCRv5_mobile_rec_fp16.mnn',
-            'ppocr_keys_v5.txt'
-          )
-          foreach ($file in $files) {
-            Invoke-WebRequest -Uri "$base/$file" -OutFile (Join-Path $modelRoot $file)
-          }
-          Get-ChildItem $modelRoot | ForEach-Object {
-            $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-            "$($_.Name) $($_.Length) $hash" | Tee-Object -FilePath '.tmp/native-ocr-models.sha256' -Append
-          }
+          ./scripts/download-native-ocr-models.ps1 -OutputRoot '.tmp/native-ocr-models'
+          ./scripts/download-native-ocr-models.ps1
 
       - name: Build isolated in-process OCR CLI
         shell: pwsh
@@ -142,27 +145,49 @@ jobs:
           "first_items=$($report.runs[0].itemCount)" >> $env:GITHUB_STEP_SUMMARY
           "matched_terms=$($report.runs[0].matchedExpectedTerms -join ', ')" >> $env:GITHUB_STEP_SUMMARY
 
-      - name: Verify the normal application excludes OCR
+      - name: Validate integrated native backend and busy-state UI
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
-          cargo check --manifest-path src-tauri/Cargo.toml --lib --no-default-features
-          $tree = cargo tree --manifest-path src-tauri/Cargo.toml --no-default-features
-          if ($tree -match '(?m)^ocr-rs ') {
-            throw 'Normal application dependency tree unexpectedly contains ocr-rs.'
+          npm run build
+          npm run check:screenshot-import
+          npm run check:screenshot-import-dom
+          cargo test --manifest-path src-tauri/Cargo.toml --lib
+          $tree = cargo tree --manifest-path src-tauri/Cargo.toml
+          if ($tree -notmatch '(?m)^ocr-rs ') {
+            throw 'Normal application dependency tree does not contain the native OCR engine.'
           }
 
-      - name: Upload native spike evidence
+      - name: Build normal NSIS installer with native OCR
+        run: npm run tauri:build
+
+      - name: Inspect packaged native OCR boundary
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'Native OCR NSIS installer was not produced.' }
+          $models = Get-ChildItem 'src-tauri/resources/ocr-native' -File
+          foreach ($required in @('PP-OCRv5_mobile_det_fp16.mnn', 'PP-OCRv5_mobile_rec_fp16.mnn', 'ppocr_keys_v5.txt', 'manifest.json')) {
+            if ($required -notin $models.Name) { throw "Packaged OCR resource is missing: $required" }
+          }
+          if (Get-ChildItem 'src-tauri/resources' -Recurse -File | Where-Object { $_.Name -match '^python(w)?\.exe$|paddle' }) {
+            throw 'Native OCR resources unexpectedly contain Python or Paddle runtime files.'
+          }
+          "installer_bytes=$($installer.Length)" >> $env:GITHUB_STEP_SUMMARY
+          "native_model_bytes=$((($models | Measure-Object Length -Sum).Sum))" >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload native OCR evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ocr-native-spike-${{ github.sha }}
+          name: course-widget-native-ocr-${{ github.sha }}
           path: |
-            src-tauri/target/release/ocr-native-spike.exe
+            src-tauri/target/release/bundle/nsis/*.exe
             .tmp/native-ocr-report.json
             .tmp/native-ocr-stderr.log
-            .tmp/native-ocr-models.sha256
+            src-tauri/resources/ocr-native/manifest.json
             .tmp/native-ocr-input/mobile_cards_12.png
           if-no-files-found: warn
+          compression-level: 0
           retention-days: 7
