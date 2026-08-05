@@ -11,6 +11,7 @@ import {
 } from './presentation-events'
 import type { ReplayConfig } from './presentation-clock'
 import type { ScheduleSource } from './widget'
+import { hidePresentationWindowOnClose } from './window-close-behavior'
 
 const app = document.querySelector<HTMLElement>('#app')!
 const controllerWindow = getCurrentWindow()
@@ -235,10 +236,10 @@ document.addEventListener('keydown', (event) => {
 })
 
 await listen<PresentationStatus>(PRESENTATION_STATUS_EVENT, ({ payload }) => updateStatus(payload))
-await controllerWindow.onCloseRequested(async (event) => {
-  event.preventDefault()
-  await controllerWindow.hide()
-})
+await controllerWindow.onCloseRequested((event) => hidePresentationWindowOnClose(
+  event,
+  () => invoke('hide_presentation_window'),
+))
 await controllerWindow.onFocusChanged(({ payload }) => {
   if (payload) void emit(PRESENTATION_STATUS_REQUEST_EVENT)
 })
