@@ -15,7 +15,7 @@
     "check:import-review-dom": "node scripts/check-import-review-dom.mjs",
     "check:screenshot-import-dom": "node scripts/check-screenshot-import-dom.mjs",
     "check:presentation-clock": "node --experimental-strip-types scripts/check-presentation-clock.mjs",
-    "check:security-boundary": "node --test scripts/tauri-security-policy.test.mjs",
+    "check:security-boundary": "node --experimental-strip-types --test scripts/tauri-security-policy.test.mjs",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "preview": "vite preview"
