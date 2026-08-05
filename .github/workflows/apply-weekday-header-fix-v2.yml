@@ -1,0 +1,44 @@
+name: Apply weekday header row fix v2
+
+on:
+  push:
+    branches:
+      - fix/weekday-header-row-detection
+    paths:
+      - .github/workflows/apply-weekday-header-fix-v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout patch branch
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: fix/weekday-header-row-detection
+          fetch-depth: 0
+
+      - name: Apply patch
+        run: python scripts/apply_weekday_header_fix.py
+
+      - name: Format Rust
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml
+
+      - name: Remove one-time files and commit
+        shell: pwsh
+        run: |
+          Remove-Item 'scripts/apply_weekday_header_fix.py' -Force
+          Remove-Item '.github/workflows/apply-weekday-header-fix.yml' -Force
+          Remove-Item '.github/workflows/apply-weekday-header-fix-v2.yml' -Force
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src-tauri/src/native_ocr/grid.rs src-tauri/src/native_ocr/runtime.rs src-tauri/src/native_ocr.rs src-tauri/src/native_ocr/weekday_header_tests.rs .github/workflows/release-build.yml scripts/apply_weekday_header_fix.py .github/workflows/apply-weekday-header-fix.yml .github/workflows/apply-weekday-header-fix-v2.yml
+          git diff --cached --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git commit -m 'fix: detect weekday headers below page chrome'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git push origin HEAD:fix/weekday-header-row-detection
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
