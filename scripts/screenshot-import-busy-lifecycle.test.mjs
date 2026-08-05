@@ -6,14 +6,21 @@ const source = readFileSync(new URL('../src/screenshot-import-controller.ts', im
 
 test('file-dialog waiting is distinct from OCR recognition time', () => {
   const chooseStart = source.indexOf('async function chooseScreenshot')
-  const invokeIndex = source.indexOf("invoke<ImportDraft | null>('choose_and_parse_screenshot')", chooseStart)
-  const watchIndex = source.indexOf('watchNativeDialog(surface)', chooseStart)
-  const recognitionStart = source.indexOf('setRecognitionBusy(surface, true)', chooseStart)
+  const chooseEnd = source.indexOf('function renderReviewSurface', chooseStart)
+  const chooseSource = source.slice(chooseStart, chooseEnd)
+  const watchStart = source.indexOf('function watchNativeDialog')
+  const watchEnd = source.indexOf('async function chooseScreenshot', watchStart)
+  const watchSource = source.slice(watchStart, watchEnd)
 
   assert.ok(chooseStart >= 0)
-  assert.ok(watchIndex > chooseStart && watchIndex < invokeIndex)
-  assert.ok(recognitionStart > invokeIndex, 'recognition busy state must begin only after the native dialog returns focus')
-  assert.match(source, /if \(!selectionPending \|\| !focusLeftWindow\) return/)
+  assert.ok(chooseSource.indexOf('watchNativeDialog(surface)') < chooseSource.indexOf("invoke<ImportDraft | null>('choose_and_parse_screenshot')"))
+  assert.doesNotMatch(
+    chooseSource.slice(0, chooseSource.indexOf("invoke<ImportDraft | null>('choose_and_parse_screenshot')")),
+    /setRecognitionBusy\(surface, true\)/,
+    'opening the native file dialog must not start the OCR timer',
+  )
+  assert.match(watchSource, /if \(!selectionPending \|\| !focusLeftWindow\) return/)
+  assert.match(watchSource, /setRecognitionBusy\(surface, true\)/)
   assert.match(source, /recognitionStartedAt = performance\.now\(\)/)
   assert.match(source, /window\.setInterval\(tick, 1000\)/)
   assert.match(source, /正在识别课表 · \$\{elapsedSeconds\} 秒/)
