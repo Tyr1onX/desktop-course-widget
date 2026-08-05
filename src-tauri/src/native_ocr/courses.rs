@@ -107,8 +107,10 @@ fn course_from_block(
     let mut candidates = block.iter().chain(std::iter::once(anchor)).collect::<Vec<_>>();
     candidates.sort_by(|left, right| token_reading_order(left, right));
     let (name_token, name) = find_course_name(candidates.iter().copied(), anchor)?;
-    let teacher = find_teacher_fragment(candidates.iter().copied(), name_token, &name, anchor);
-    let location = find_location_fragment(candidates.iter().copied());
+    let teacher = find_teacher_fragment(candidates.iter().copied(), name_token, &name, anchor)
+        .or_else(|| find_teacher_after_schedule(candidates.iter().copied(), &name, anchor));
+    let location = find_location_fragment(candidates.iter().copied())
+        .or_else(|| find_compact_location(candidates.iter().copied()));
 
     let mut source_tokens = vec![anchor.clone()];
     source_tokens.extend(block.iter().cloned());
