@@ -1,0 +1,49 @@
+name: Update section grid regression
+
+on:
+  push:
+    branches:
+      - spike/rust-native-ocr
+    paths:
+      - '.github/workflows/update-section-grid-test.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: spike/rust-native-ocr
+      - name: Update interpolated-grid expectation
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('src-tauri/src/native_ocr/tests.rs')
+          text = path.read_text(encoding='utf-8')
+          marker = 'fn fallback_accepts_section_labels_joined_with_times()'
+          start = text.index(marker)
+          end = text.index('\n    #[test]', start)
+          block = text[start:end]
+          old = 'assert_eq!(sections.len(), 2);'
+          if old not in block:
+              raise SystemExit('old section marker expectation not found')
+          block = block.replace(
+              old,
+              'assert_eq!(sections.len(), 12);\n        assert_eq!(nearest_section(&sections, 170.0), 2);',
+              1,
+          )
+          path.write_text(text[:start] + block + text[end:], encoding='utf-8')
+          PY
+          cargo fmt --manifest-path src-tauri/Cargo.toml
+      - name: Commit regression update
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src-tauri/src/native_ocr/tests.rs
+          git commit -m "test: expect completed section grid"
+          git push origin HEAD:spike/rust-native-ocr
