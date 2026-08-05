@@ -5,6 +5,9 @@ use std::path::Path;
 
 use crate::import_draft::ImportDraft;
 
+pub const RELEASE_UNAVAILABLE_REASON: &str =
+    "当前运行环境无法使用本地课表截图识别";
+
 pub fn runtime_status() -> Result<(), String> {
     native_ocr::runtime_status()
 }
