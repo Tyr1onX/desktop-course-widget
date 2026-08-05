@@ -388,10 +388,13 @@ export function createWidget(options: WidgetOptions, onNavigate?: () => void) {
   widget.querySelector<HTMLButtonElement>('[data-hide]')?.addEventListener('click', () => {
     if (hideRequested || !isTauri()) return
     hideRequested = true
-    void invoke('hide_main_widget').catch((error: unknown) => {
-      hideRequested = false
-      console.error('[widget-close] hide failed', error)
-    })
+    void invoke('hide_main_widget')
+      .catch((error: unknown) => {
+        console.error('[widget-close] hide failed', error)
+      })
+      .finally(() => {
+        hideRequested = false
+      })
   })
 
   const dragSurface = widget.querySelector<HTMLElement>('.widget-drag-surface')
