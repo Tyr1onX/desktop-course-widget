@@ -200,7 +200,8 @@ mod tests {
         let headers = weekday_headers(&tokens);
         let sections = section_markers(&tokens, 800);
         let courses = fallback_courses(&tokens, &headers, &sections, 800, 600);
-        assert_eq!(sections.len(), 2);
+        assert_eq!(sections.len(), 12);
+        assert_eq!(nearest_section(&sections, 170.0), 2);
         assert_eq!(courses.len(), 1);
         assert_eq!(courses[0].name, "通信原理");
     }
