@@ -2,9 +2,8 @@ import './style.css'
 import './widget-page.css'
 import './course-handoff.css'
 import './time-flow.css'
-import { isTauri } from '@tauri-apps/api/core'
+import { invoke, isTauri } from '@tauri-apps/api/core'
 import { emit, listen } from '@tauri-apps/api/event'
-import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import {
   PRESENTATION_COMMAND_EVENT,
   PRESENTATION_STATUS_EVENT,
@@ -328,14 +327,12 @@ function handlePresentationCommand(command: PresentationCommand) {
 
 async function openPresentationController() {
   if (!desktopRuntime) return
-  const controller = await WebviewWindow.getByLabel('presentation')
-  if (!controller) {
-    console.error('[presentation] controller window is unavailable')
-    return
+  try {
+    await invoke('open_presentation_controller')
+    publishPresentationStatus(undefined, true)
+  } catch (error) {
+    console.error('[presentation] controller window is unavailable', error)
   }
-  await controller.show()
-  await controller.setFocus()
-  publishPresentationStatus(undefined, true)
 }
 
 function syncLiveWidget() {
@@ -364,10 +361,7 @@ type AppSettingsSnapshot = {
 }
 
 async function startDesktopWidget() {
-  const [{ invoke }, { startDesktopShell }] = await Promise.all([
-    import('@tauri-apps/api/core'),
-    import('./desktop-shell'),
-  ])
+  const { startDesktopShell } = await import('./desktop-shell')
   const refreshSchedule = async () => {
     try {
       setActiveSchedule(await invoke<ScheduleSource>('read_schedule'))

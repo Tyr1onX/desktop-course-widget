@@ -1,10 +1,18 @@
-import { emit } from '@tauri-apps/api/event'
-import { LogicalSize, getCurrentWindow } from '@tauri-apps/api/window'
+import { invoke } from '@tauri-apps/api/core'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 
 const VERTICAL_SAFE_AREA = 32
 const FIXED_LOGICAL_WIDTH = 392
-const MINIMUM_SIZE = new LogicalSize(FIXED_LOGICAL_WIDTH, 160)
-const MAXIMUM_SIZE = new LogicalSize(FIXED_LOGICAL_WIDTH, 740)
+const MINIMUM_HEIGHT = 160
+const MAXIMUM_HEIGHT = 740
+
+type MainWindowMetrics = {
+  logicalWidth: number
+  logicalHeight: number
+  physicalWidth: number
+  physicalHeight: number
+  scaleFactor: number
+}
 
 function roundDimension(value: number) {
   return Math.round(value * 10) / 10
@@ -12,7 +20,7 @@ function roundDimension(value: number) {
 
 function widgetWindowHeight(widget: HTMLElement) {
   const { height } = widget.getBoundingClientRect()
-  return roundDimension(height + VERTICAL_SAFE_AREA)
+  return roundDimension(Math.min(MAXIMUM_HEIGHT, Math.max(MINIMUM_HEIGHT, height + VERTICAL_SAFE_AREA)))
 }
 
 export async function startDesktopShell(app: HTMLDivElement) {
@@ -32,19 +40,18 @@ export async function startDesktopShell(app: HTMLDivElement) {
     }
     if (lastAppliedHeight !== undefined && Math.abs(lastAppliedHeight - height) < 0.5) return
 
-    await appWindow.setSize(new LogicalSize(FIXED_LOGICAL_WIDTH, height))
-    lastAppliedHeight = height
+    const metrics = await invoke<MainWindowMetrics>('resize_main_widget', { height })
+    lastAppliedHeight = metrics.logicalHeight
 
     const widget = app.querySelector<HTMLElement>('.course-widget')
-    const scaleFactor = await appWindow.scaleFactor()
     console.info('[desktop-shell] size applied', {
       widgetCss: widget?.getBoundingClientRect().toJSON(),
-      logical: { width: FIXED_LOGICAL_WIDTH, height },
+      logical: { width: metrics.logicalWidth, height: metrics.logicalHeight },
       physical: {
-        width: roundDimension(FIXED_LOGICAL_WIDTH * scaleFactor),
-        height: roundDimension(height * scaleFactor),
+        width: roundDimension(metrics.physicalWidth),
+        height: roundDimension(metrics.physicalHeight),
       },
-      scaleFactor,
+      scaleFactor: metrics.scaleFactor,
     })
   }
 
@@ -111,8 +118,7 @@ export async function startDesktopShell(app: HTMLDivElement) {
 
   const showWidget = async () => {
     try {
-      await appWindow.show()
-      await emit('widget:visibility-changed').catch((error: unknown) => console.error('[desktop-shell] tray visibility sync failed', error))
+      await invoke('show_main_widget')
       console.info('[desktop-shell] widget shown after initial render')
     } catch (error) {
       console.error('[desktop-shell] widget show failed', error)
@@ -120,8 +126,7 @@ export async function startDesktopShell(app: HTMLDivElement) {
   }
 
   try {
-    await appWindow.setMinSize(MINIMUM_SIZE).catch((error: unknown) => console.error('[desktop-shell] minimum-size setup failed', error))
-    await appWindow.setMaxSize(MAXIMUM_SIZE).catch((error: unknown) => console.error('[desktop-shell] maximum-size setup failed', error))
+    await invoke('configure_main_widget').catch((error: unknown) => console.error('[desktop-shell] window bounds setup failed', error))
     await document.fonts.ready.catch((error: unknown) => console.error('[desktop-shell] font readiness failed', error))
     await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
     await applySize().catch((error: unknown) => console.error('[desktop-shell] initial size update failed', error))

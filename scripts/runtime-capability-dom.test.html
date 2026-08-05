@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Runtime capability DOM regression</title>
+  </head>
+  <body>
+    <main class="import-review-surface">
+      <div class="surface-intro">
+        <h3>从 Excel 创建独立课表</h3>
+        <p>先逐项检查识别结果，再创建新课表。</p>
+      </div>
+      <button class="import-picker" type="button" data-action="choose-excel">
+        <strong>选择一份 .xlsx 课表</strong>
+        <span>文件只在本机解析，不会上传</span>
+      </button>
+      <p class="surface-message" role="status"></p>
+    </main>
+    <pre id="result" data-status="pending">PENDING</pre>
+    <script>
+      const mode = new URLSearchParams(location.search).get('mode')
+      window.__TAURI_INTERNALS__ = {
+        invoke: async (command) => {
+          if (command !== 'get_runtime_capabilities') throw new Error(`unexpected command: ${command}`)
+          if (mode === 'failure') throw new Error('capability IPC failed')
+          return {
+            platform: 'windows',
+            screenshotImport: {
+              available: false,
+              backend: 'none',
+              unavailableReason: 'release bundle has no OCR runtime'
+            }
+          }
+        }
+      }
+    </script>
+    <script type="module" src="/scripts/runtime-capability-dom.test.ts"></script>
+  </body>
+</html>
