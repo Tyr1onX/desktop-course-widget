@@ -1,20 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "settings",
-  "description": "Allows the settings window to manage schedules, imports, app settings, local data controls, and hide only its own window. File selection remains backend-owned.",
+  "description": "Allows the settings window to manage schedules, imports, app settings, local data controls, and hide only itself through a source-validated application command. File selection remains backend-owned.",
   "windows": [
     "settings"
   ],
   "permissions": [
     "core:event:default",
-    {
-      "identifier": "core:window:allow-hide",
-      "allow": [
-        {
-          "label": "settings"
-        }
-      ]
-    },
+    "allow-hide-settings-window",
     "allow-read-schedule",
     "allow-read-app-settings",
     "allow-get-runtime-capabilities",
