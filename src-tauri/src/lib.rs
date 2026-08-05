@@ -2,6 +2,7 @@ mod app_settings;
 mod data_transaction;
 pub mod excel_import;
 mod import_draft;
+mod runtime_capabilities;
 mod schedule_apply;
 mod schedule_catalog;
 mod schedule_store;
@@ -338,6 +339,11 @@ fn read_app_settings(app: AppHandle) -> Result<app_settings::AppSettings, String
 }
 
 #[tauri::command]
+fn get_runtime_capabilities() -> runtime_capabilities::RuntimeCapabilities {
+    runtime_capabilities::current()
+}
+
+#[tauri::command]
 fn save_lesson_times(
     app: AppHandle,
     request: SaveLessonTimesRequest,
@@ -349,6 +355,13 @@ fn save_lesson_times(
 async fn choose_and_parse_screenshot(
     app: AppHandle,
 ) -> Result<Option<import_draft::ImportDraft>, String> {
+    let capability = runtime_capabilities::current().screenshot_import;
+    if !capability.available {
+        return Err(capability
+            .unavailable_reason
+            .unwrap_or_else(|| screenshot_import::RELEASE_UNAVAILABLE_REASON.into()));
+    }
+
     let selected = app
         .dialog()
         .file()
@@ -574,6 +587,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             read_schedule,
             read_app_settings,
+            get_runtime_capabilities,
             save_lesson_times,
             choose_and_parse_excel,
             choose_and_parse_screenshot,
