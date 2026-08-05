@@ -1,6 +1,7 @@
 use tauri::{LogicalSize, Manager};
 
 const MAIN_WINDOW_LABEL: &str = "main";
+const SETTINGS_WINDOW_LABEL: &str = "settings";
 const PRESENTATION_WINDOW_LABEL: &str = "presentation";
 const MAIN_WINDOW_WIDTH: f64 = 392.0;
 const MAIN_WINDOW_MIN_HEIGHT: f64 = 160.0;
@@ -102,4 +103,16 @@ pub fn hide_main_widget(window: tauri::WebviewWindow) -> Result<(), String> {
 pub fn start_main_widget_drag(window: tauri::WebviewWindow) -> Result<(), String> {
     require_window_label(&window, MAIN_WINDOW_LABEL)?;
     window.start_dragging().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn hide_settings_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    require_window_label(&window, SETTINGS_WINDOW_LABEL)?;
+    window.hide().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn hide_presentation_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    require_window_label(&window, PRESENTATION_WINDOW_LABEL)?;
+    window.hide().map_err(|error| error.to_string())
 }
