@@ -41,6 +41,8 @@ mod table_structure_tests {
         let (courses, _) = anchor_courses(&table_tokens, &anchors, &basic_headers(), 800, 1000);
         assert_eq!(courses.len(), 1);
         assert_eq!(courses[0].name, "计算机问题求解：使用算法（混合式）");
+        assert_eq!(courses[0].teacher.as_deref(), Some("毛毅"));
+        assert_eq!(courses[0].location.as_deref(), Some("教3-201"));
         assert!(courses.iter().all(|course| !matches!(course.name.as_str(), "上课时间" | "学分" | "起止周")));
     }
 
@@ -57,6 +59,8 @@ mod table_structure_tests {
         let (courses, _) = anchor_courses(&tokens, &anchors, &basic_headers(), 800, 500);
         assert_eq!(courses.len(), 1);
         assert_eq!(courses[0].name, "人工智能导论及其Python应用实践");
+        assert_eq!(courses[0].teacher.as_deref(), Some("左益平"));
+        assert_eq!(courses[0].location.as_deref(), Some("教3-511"));
     }
 
     #[test]
@@ -71,6 +75,7 @@ mod table_structure_tests {
         let (courses, _) = anchor_courses(&tokens, &anchors, &basic_headers(), 800, 500);
         assert_eq!(courses.len(), 1);
         assert_eq!(courses[0].name, "男生网球");
+        assert_eq!(courses[0].teacher.as_deref(), Some("凌勇"));
         assert_eq!(courses[0].location.as_deref(), Some("操场A"));
     }
 
@@ -88,5 +93,12 @@ mod table_structure_tests {
             sized_token("起止周", 120.0, 148.0, 70.0, 22.0),
         ];
         assert!(!group_has_card_body(&group));
+    }
+
+    #[test]
+    fn compact_room_shorthand_is_a_location() {
+        assert_eq!(compact_location_from_text("教3-201").as_deref(), Some("教3-201"));
+        assert_eq!(compact_location_from_text("操场A").as_deref(), Some("操场A"));
+        assert!(compact_location_from_text("毛毅").is_none());
     }
 }
