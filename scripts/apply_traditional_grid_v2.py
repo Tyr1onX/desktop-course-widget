@@ -737,7 +737,7 @@ extra_tests = r'''
             parse_weeks_and_parity("周四第8,9节第1周，第3-17周");
         assert!(!used_default);
         assert_eq!(parity, "all");
-        assert_eq!(weeks, (1..=17).collect::<Vec<_>>());
+        assert_eq!(weeks, std::iter::once(1).chain(3..=17).collect::<Vec<_>>());
 
         let (weeks, parity, used_default) =
             parse_weeks_and_parity("周五第3,4节第2周，第6-16周双周");
