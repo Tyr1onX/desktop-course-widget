@@ -11,6 +11,11 @@ import {
   screenshotImportErrorText,
   screenshotImportLessonCount,
 } from './screenshot-import-policy'
+import {
+  canUseScreenshotImport,
+  readRuntimeCapabilities,
+  type RuntimeCapabilities,
+} from './runtime-capabilities'
 
 type LessonTime = {
   section: number
@@ -27,12 +32,12 @@ type ActiveSchedule = {
   semesterStart: string
 }
 
-const desktopRuntime = '__TAURI_INTERNALS__' in window
 const plugin = (command: string) => `plugin:schedule-catalog|${command}`
 const importTitle = '从文件创建独立课表'
 const importDescription = '选择 Excel 或完整单张课表截图，识别结果会进入同一套复核流程；已有课表不会被覆盖。'
 const reopenImportKey = 'screenshot-import:reopen-after-reset'
 
+let runtimeCapabilities: RuntimeCapabilities | null = null
 let activeDraft: ImportDraft | null = null
 let activeSettings: AppSettings | null = null
 let importName = ''
@@ -46,6 +51,12 @@ const observer = new MutationObserver(() => queueEnhance())
 observer.observe(document.body, { childList: true, subtree: true })
 queueEnhance()
 restoreImportSurfaceAfterReset()
+void loadRuntimeCapabilities()
+
+async function loadRuntimeCapabilities(): Promise<void> {
+  runtimeCapabilities = await readRuntimeCapabilities()
+  queueEnhance()
+}
 
 function queueEnhance(): void {
   if (renderQueued) return
@@ -98,7 +109,7 @@ function enhanceImportSurface(): void {
     surface.querySelector('[data-import-course-details], .import-course-review'),
   )
   const existingScreenshotPicker = surface.querySelector<HTMLButtonElement>('[data-action="choose-screenshot"]')
-  if (existingExcelReview) {
+  if (existingExcelReview || !canUseScreenshotImport(runtimeCapabilities)) {
     existingScreenshotPicker?.remove()
     return
   }
@@ -129,29 +140,23 @@ function updatePickerState(surface: HTMLElement): void {
   if (excelPicker) excelPicker.disabled = recognitionPending
   if (!screenshotPicker) return
 
-  const state = `${recognitionPending}:${desktopRuntime}`
+  const state = String(recognitionPending)
   screenshotPicker.disabled = recognitionPending
   if (screenshotPicker.dataset.screenshotImportState === state) return
   screenshotPicker.dataset.screenshotImportState = state
   screenshotPicker.innerHTML = `
     <strong>${recognitionPending ? '正在识别课表截图…' : '选择 PNG / JPG 课表截图'}</strong>
-    <span>${desktopRuntime
-      ? '请使用完整单张截图，包含星期标题、节次和全部课程；暂不支持多图拼接'
-      : '浏览器预览中不会读取本机图片'}</span>
+    <span>请使用完整单张截图，包含星期标题、节次和全部课程；暂不支持多图拼接</span>
   `
 }
 
 async function chooseScreenshot(): Promise<void> {
-  if (recognitionPending) return
+  if (recognitionPending || !canUseScreenshotImport(runtimeCapabilities)) return
   const surface = document.querySelector<HTMLElement>('.import-review-surface')
   if (!surface) return
-  if (!desktopRuntime) {
-    setMessage(surface, '浏览器预览不会读取本机图片，请在桌面应用中测试。')
-    return
-  }
 
   recognitionPending = true
-  setMessage(surface, '正在本机识别课表截图，首次准备 OCR 模型可能需要较长时间…')
+  setMessage(surface, '正在本机识别课表截图…')
   updatePickerState(surface)
 
   try {
