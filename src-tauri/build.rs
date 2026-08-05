@@ -8,6 +8,8 @@ const APP_COMMANDS: &[&str] = &[
     "show_main_widget",
     "hide_main_widget",
     "start_main_widget_drag",
+    "hide_settings_window",
+    "hide_presentation_window",
     "save_lesson_times",
     "choose_and_parse_excel",
     "choose_and_parse_screenshot",
