@@ -15,7 +15,7 @@ use crate::import_draft::{
 const MAX_IMAGE_SIDE: u32 = 1600;
 const DEFAULT_LAST_WEEK: u8 = 16;
 const DEFAULT_SECTION_COUNT: u8 = 12;
-const RECOGNIZER_VERSION: &str = "ocr-rs-mnn-ppocrv5-mobile-v4";
+const RECOGNIZER_VERSION: &str = "ocr-rs-mnn-ppocrv5-mobile-v5";
 
 #[derive(Debug, Clone)]
 struct Token {
@@ -134,7 +134,7 @@ pub fn recognize_screenshot(image_path: &Path) -> Result<ImportDraft, String> {
         .recognize(&working)
         .map_err(|error| format!("本地课表文字识别失败：{error}"))?;
     let recognition_ms = recognition_started.elapsed().as_millis();
-    let tokens = results
+    let raw_tokens = results
         .into_iter()
         .filter_map(|result| {
             Token::from_text(
@@ -147,9 +147,10 @@ pub fn recognize_screenshot(image_path: &Path) -> Result<ImportDraft, String> {
             )
         })
         .collect::<Vec<_>>();
-    if tokens.is_empty() {
+    if raw_tokens.is_empty() {
         return Err("没有从图片中识别到文字，请确认截图清晰且包含完整课表".into());
     }
+    let tokens = expand_multiline_tokens(raw_tokens);
 
     let draft = tokens_to_draft(
         image_path,
@@ -199,7 +200,7 @@ fn tokens_to_draft(
     let content_bottom = if sections_inferred {
         working_height as f32 * 0.98
     } else {
-        timetable_content_bottom(&sections, working_height)
+        timetable_content_bottom(&tokens, &sections, working_height)
     };
     let table_tokens = tokens
         .iter()

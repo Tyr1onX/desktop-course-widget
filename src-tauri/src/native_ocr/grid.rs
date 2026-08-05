@@ -59,7 +59,7 @@ fn fallback_courses(
                 .map(|token| token.text.as_str())
                 .collect::<Vec<_>>()
                 .join(" ");
-let parsed_anchors = course_anchors(&group);
+            let parsed_anchors = course_anchors(&group);
             let first_y = group.first().map(Token::center_y).unwrap_or_default();
             let last_y = group.last().map(Token::center_y).unwrap_or(first_y);
             let positional_start = nearest_section(sections, first_y);
@@ -276,14 +276,31 @@ fn weekday_headers(tokens: &[Token]) -> Vec<WeekdayHeader> {
 }
 
 fn section_markers(tokens: &[Token], image_width: u32) -> Vec<(u8, f32)> {
+    let headers = weekday_headers(tokens);
+    let marker_cutoff = headers
+        .iter()
+        .min_by(|left, right| {
+            left.center_x
+                .partial_cmp(&right.center_x)
+                .unwrap_or(Ordering::Equal)
+        })
+        .map(|header| weekday_column_bounds(&headers, header.weekday, image_width as f32).0)
+        .filter(|cutoff| *cutoff > image_width as f32 * 0.025)
+        .unwrap_or(image_width as f32 * 0.18)
+        .min(image_width as f32 * 0.18);
+
     let mut detected = tokens
         .iter()
-        .filter(|token| token.center_x() < image_width as f32 * 0.18)
+        .filter(|token| token.center_x() < marker_cutoff)
         .filter_map(|token| {
-            section_number_from_text(&token.text).map(|section| (section, token.center_y()))
+            section_marker_number_from_text(&token.text).map(|section| (section, token.center_y()))
         })
         .collect::<Vec<_>>();
-    detected.sort_by_key(|(section, _)| *section);
+    detected.sort_by(|left, right| {
+        left.0
+            .cmp(&right.0)
+            .then_with(|| left.1.partial_cmp(&right.1).unwrap_or(Ordering::Equal))
+    });
     detected.dedup_by_key(|(section, _)| *section);
     if detected.len() < 2 {
         return detected;
@@ -317,7 +334,31 @@ fn section_markers(tokens: &[Token], image_width: u32) -> Vec<(u8, f32)> {
         .collect()
 }
 
-fn timetable_content_bottom(sections: &[(u8, f32)], image_height: u32) -> f32 {
+fn section_marker_number_from_text(value: &str) -> Option<u8> {
+    let compact = compact_text(value);
+    if let Ok(section) = compact.parse::<u8>() {
+        return (1..=20).contains(&section).then_some(section);
+    }
+
+    let labelled = Regex::new(r"^第?(\d{1,2})(?:节|课)$").unwrap();
+    if let Some(captures) = labelled.captures(&compact) {
+        let section = captures.get(1)?.as_str().parse::<u8>().ok()?;
+        return (1..=20).contains(&section).then_some(section);
+    }
+
+    let combined_time = Regex::new(r"^(\d{1,2})(\d{2}[:：]\d{2})$").unwrap();
+    if let Some(captures) = combined_time.captures(&compact) {
+        let section = captures.get(1)?.as_str().parse::<u8>().ok()?;
+        return (1..=20).contains(&section).then_some(section);
+    }
+    None
+}
+
+fn timetable_content_bottom(
+    tokens: &[Token],
+    sections: &[(u8, f32)],
+    image_height: u32,
+) -> f32 {
     if sections.len() < 2 {
         return image_height as f32 * 0.98;
     }
@@ -339,10 +380,20 @@ fn timetable_content_bottom(sections: &[(u8, f32)], image_height: u32) -> f32 {
         .iter()
         .map(|(_, center)| *center)
         .fold(0.0_f32, f32::max);
-
-    (last_center + row_height * 0.65)
+    let geometric_bottom = (last_center + row_height * 0.50)
         .max(last_center)
-        .min(image_height as f32 * 0.995)
+        .min(image_height as f32 * 0.995);
+
+    let footer_top = tokens
+        .iter()
+        .filter(|token| token.top > last_center + row_height * 0.20)
+        .filter(|token| is_footer_table_header(&token.text))
+        .map(|token| token.top)
+        .min_by(|left, right| left.partial_cmp(right).unwrap_or(Ordering::Equal));
+
+    footer_top
+        .map(|top| geometric_bottom.min((top - 1.0).max(last_center)))
+        .unwrap_or(geometric_bottom)
 }
 
 fn section_number_from_text(value: &str) -> Option<u8> {

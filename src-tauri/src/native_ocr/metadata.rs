@@ -40,6 +40,23 @@ fn weekday_from_schedule_text(value: &str) -> Option<u8> {
 
 fn section_range_from_text(value: &str) -> Option<(u8, u8)> {
     let compact = compact_text(value);
+
+    let listed = Regex::new(r"第?(\d{1,2}(?:[,，、]\d{1,2})+)节").unwrap();
+    if let Some(captures) = listed.captures(&compact) {
+        let mut sections = captures
+            .get(1)?
+            .as_str()
+            .split([',', '，', '、'])
+            .filter_map(|value| value.parse::<u8>().ok())
+            .filter(|section| (1..=20).contains(section))
+            .collect::<Vec<_>>();
+        sections.sort_unstable();
+        sections.dedup();
+        if let (Some(start), Some(end)) = (sections.first(), sections.last()) {
+            return Some((*start, *end));
+        }
+    }
+
     let patterns = [
         r"第?(\d{1,2})节(?:[-—~－–‑]+|至|到)第?(\d{1,2})节?",
         r"第?(\d{1,2})(?:[-—~－–‑]+|至|到)第?(\d{1,2})节",
@@ -59,27 +76,63 @@ fn section_range_from_text(value: &str) -> Option<(u8, u8)> {
 }
 
 fn parse_weeks_and_parity(text: &str) -> (Vec<u8>, String, bool) {
-    let range = Regex::new(r"(\d{1,2})\s*(?:[-—~]+|至|到)\s*(\d{1,2})\s*周").unwrap();
-    let single = Regex::new(r"(?:第)?\s*(\d{1,2})\s*周").unwrap();
-    let weeks = range
-        .captures(text)
-        .and_then(|captures| {
-            let start = captures.get(1)?.as_str().parse::<u8>().ok()?;
-            let end = captures.get(2)?.as_str().parse::<u8>().ok()?;
-            (start > 0 && end >= start && end <= 30).then(|| (start..=end).collect::<Vec<_>>())
-        })
-        .or_else(|| {
-            single.captures(text).and_then(|captures| {
-                let week = captures.get(1)?.as_str().parse::<u8>().ok()?;
-                (week > 0 && week <= 30).then_some(vec![week])
-            })
-        });
-    let used_default = weeks.is_none();
-    let mut weeks = weeks.unwrap_or_else(|| (1..=DEFAULT_LAST_WEEK).collect());
-    let parity = if text.contains('单') {
+    let compact = compact_text(text);
+    let mut parsed = std::collections::BTreeSet::new();
+
+    let ranges = Regex::new(r"(?:第)?(\d{1,2})\s*(?:[-—~－–‑]+|至|到)\s*(\d{1,2})\s*周")
+        .unwrap();
+    for captures in ranges.captures_iter(&compact) {
+        let Some(start) = captures.get(1).and_then(|value| value.as_str().parse::<u8>().ok()) else {
+            continue;
+        };
+        let Some(end) = captures.get(2).and_then(|value| value.as_str().parse::<u8>().ok()) else {
+            continue;
+        };
+        if start > 0 && end >= start && end <= 30 {
+            parsed.extend(start..=end);
+        }
+    }
+
+    let lists = Regex::new(r"(?:第)?(\d{1,2}(?:[,，、]\d{1,2})+)周").unwrap();
+    for captures in lists.captures_iter(&compact) {
+        if let Some(values) = captures.get(1) {
+            parsed.extend(
+                values
+                    .as_str()
+                    .split([',', '，', '、'])
+                    .filter_map(|value| value.parse::<u8>().ok())
+                    .filter(|week| (1..=30).contains(week)),
+            );
+        }
+    }
+
+    let singles = Regex::new(r"(?:第)?(\d{1,2})周").unwrap();
+    for captures in singles.captures_iter(&compact) {
+        if let Some(week) = captures
+            .get(1)
+            .and_then(|value| value.as_str().parse::<u8>().ok())
+            .filter(|week| (1..=30).contains(week))
+        {
+            parsed.insert(week);
+        }
+    }
+
+    let used_default = parsed.is_empty();
+    let mut weeks = if used_default {
+        (1..=DEFAULT_LAST_WEEK).collect::<Vec<_>>()
+    } else {
+        parsed.into_iter().collect::<Vec<_>>()
+    };
+    let parity = if compact.contains("单周")
+        || compact.contains("(单)")
+        || compact.contains("（单）")
+    {
         weeks.retain(|week| week % 2 == 1);
         "odd"
-    } else if text.contains('双') {
+    } else if compact.contains("双周")
+        || compact.contains("(双)")
+        || compact.contains("（双）")
+    {
         weeks.retain(|week| week % 2 == 0);
         "even"
     } else {
@@ -231,13 +284,40 @@ fn bare_teacher_from_text(value: &str, course_name: &str) -> Option<String> {
 }
 
 fn is_bare_teacher_name(value: &str) -> bool {
-    let count = value.chars().count();
-    (2..=4).contains(&count)
-        && value.chars().all(|character| ('\u{4e00}'..='\u{9fff}').contains(&character))
-        && !matches!(value, "未识别" | "待确认" | "未知教师" | "暂无教师")
-        && !is_common_header(value)
-        && !is_location_text(value)
-        && !looks_like_schedule_metadata(value)
+    let compact = compact_text(value);
+    if matches!(
+        compact.as_str(),
+        "未识别"
+            | "待确认"
+            | "未知教师"
+            | "暂无教师"
+            | "教师"
+            | "老师"
+            | "周单周"
+            | "周双周"
+            | "单周"
+            | "双周"
+            | "单双周"
+    ) || is_common_header(&compact)
+        || is_location_text(&compact)
+        || looks_like_schedule_metadata(&compact)
+    {
+        return false;
+    }
+
+    let names = compact
+        .split(['/', '／', '、'])
+        .filter(|name| !name.is_empty())
+        .collect::<Vec<_>>();
+    !names.is_empty()
+        && names.len() <= 3
+        && names.iter().all(|name| {
+            let count = name.chars().count();
+            (2..=4).contains(&count)
+                && name
+                    .chars()
+                    .all(|character| ('\u{4e00}'..='\u{9fff}').contains(&character))
+        })
 }
 
 fn looks_like_roster_text(value: &str) -> bool {
@@ -332,12 +412,23 @@ fn find_course_name<'a>(
         if anchor_gap <= anchor_tolerance {
             let mut first_index = before_anchor.len() - 1;
             while first_index > 0 && before_anchor.len() - first_index < 4 {
-                let previous = &before_anchor[first_index - 1].0;
-                let current = &before_anchor[first_index].0;
+                let (previous, previous_name) = &before_anchor[first_index - 1];
+                let (current, current_name) = &before_anchor[first_index];
                 let typical_height = previous.height.max(current.height).max(18.0);
                 let vertical_gap = current.top - previous.bottom();
                 if vertical_gap > typical_height * 1.35 + 8.0
                     || vertical_gap < -typical_height * 0.8
+                {
+                    break;
+                }
+                let has_boundary_between = tokens.iter().any(|candidate| {
+                    candidate.center_y() > previous.center_y() + 0.5
+                        && candidate.center_y() < current.center_y() - 0.5
+                        && token_is_course_boundary(candidate)
+                });
+                if has_boundary_between
+                    || (is_bare_teacher_name(previous_name)
+                        && current_name.chars().count() > 4)
                 {
                     break;
                 }

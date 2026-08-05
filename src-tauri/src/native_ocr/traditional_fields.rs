@@ -75,3 +75,46 @@ fn compact_location_from_text(value: &str) -> Option<String> {
     let sports = Regex::new(r"^(?:操场|体育场|体育馆)[A-Za-z0-9一二三四五六七八九十]*$").unwrap();
     sports.is_match(&compact).then_some(compact)
 }
+
+fn find_location_after_schedule<'a>(
+    tokens: impl IntoIterator<Item = &'a Token>,
+    anchor: &'a Token,
+) -> Option<(&'a Token, String)> {
+    let mut tokens = tokens.into_iter().collect::<Vec<_>>();
+    tokens.sort_by(|left, right| token_reading_order(left, right));
+
+    let maximum_gap = anchor.height.max(18.0) * 5.0 + 24.0;
+    let mut passed_anchor = false;
+    for token in tokens {
+        if std::ptr::eq(token, anchor) {
+            passed_anchor = true;
+            continue;
+        }
+        if !passed_anchor {
+            continue;
+        }
+        if token.top - anchor.bottom() > maximum_gap {
+            break;
+        }
+        if token
+            .parts
+            .iter()
+            .chain(std::iter::once(&token.text))
+            .any(|value| {
+                looks_like_schedule_metadata(value)
+                    || section_range_from_text(value).is_some()
+                    || weekday_from_schedule_text(value).is_some()
+            })
+        {
+            break;
+        }
+        for value in token.parts.iter().chain(std::iter::once(&token.text)) {
+            if let Some(location) = location_from_text(value)
+                .or_else(|| compact_location_from_text(value))
+            {
+                return Some((token, location));
+            }
+        }
+    }
+    None
+}

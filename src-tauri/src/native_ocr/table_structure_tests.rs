@@ -19,7 +19,7 @@ mod table_structure_tests {
         let sections = (1..=12)
             .map(|section| (section, 120.0 + (section as f32 - 1.0) * 50.0))
             .collect::<Vec<_>>();
-        let bottom = timetable_content_bottom(&sections, 1000);
+        let bottom = timetable_content_bottom(&[], &sections, 1000);
         assert!(bottom > 690.0 && bottom < 710.0);
 
         let tokens = vec![
@@ -101,4 +101,80 @@ mod table_structure_tests {
         assert_eq!(compact_location_from_text("操场A").as_deref(), Some("操场A"));
         assert!(compact_location_from_text("毛毅").is_none());
     }
+
+    #[test]
+    fn strict_section_markers_ignore_schedule_text_in_monday_column() {
+        let mut tokens = vec![
+            sized_token("星期一", 190.0, 40.0, 80.0, 24.0),
+            sized_token("星期二", 390.0, 40.0, 80.0, 24.0),
+            sized_token("星期三", 590.0, 40.0, 80.0, 24.0),
+            sized_token("周一第1,2节第1-17周", 130.0, 155.0, 170.0, 22.0),
+        ];
+        for section in 1..=12 {
+            tokens.push(sized_token(
+                &format!("第{section}节"),
+                25.0,
+                100.0 + (section as f32 - 1.0) * 50.0,
+                45.0,
+                22.0,
+            ));
+        }
+        let sections = section_markers(&tokens, 800);
+        assert_eq!(sections.len(), 12);
+        assert!((sections[0].1 - 111.0).abs() < 1.0);
+        assert!((sections[1].1 - 161.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn one_multiline_ocr_box_yields_two_courses_without_footer_rows() {
+        let mut raw_tokens = vec![
+            sized_token("星期一", 190.0, 40.0, 80.0, 24.0),
+            sized_token("星期二", 390.0, 40.0, 80.0, 24.0),
+            sized_token("星期三", 590.0, 40.0, 80.0, 24.0),
+            sized_token(
+                "课程甲（混合式）\n周一第1,2节第1-17周\n张三\n教3-201\n课程乙实验\n周一第1,2节第2周，第6-16周双周\n李四/王五\n教3-202",
+                120.0,
+                105.0,
+                150.0,
+                280.0,
+            ),
+            sized_token("实践课信息", 120.0, 730.0, 100.0, 22.0),
+            sized_token("先修模块", 120.0, 758.0, 90.0, 22.0),
+            sized_token("周一第10,11,12节第5周", 120.0, 786.0, 190.0, 22.0),
+        ];
+        for section in 1..=12 {
+            raw_tokens.push(sized_token(
+                &format!("第{section}节"),
+                25.0,
+                100.0 + (section as f32 - 1.0) * 50.0,
+                45.0,
+                22.0,
+            ));
+        }
+
+        let tokens = expand_multiline_tokens(raw_tokens);
+        let headers = weekday_headers(&tokens);
+        let sections = section_markers(&tokens, 800);
+        let bottom = timetable_content_bottom(&tokens, &sections, 1000);
+        let table_tokens = tokens
+            .into_iter()
+            .filter(|token| token.center_y() <= bottom)
+            .collect::<Vec<_>>();
+        let anchors = course_anchors(&table_tokens);
+        let (courses, _) = anchor_courses(&table_tokens, &anchors, &headers, 800, 1000);
+
+        assert_eq!(anchors.len(), 2);
+        assert_eq!(courses.len(), 2);
+        assert_eq!(courses[0].name, "课程甲（混合式）");
+        assert_eq!(courses[0].start_section, 1);
+        assert_eq!(courses[0].end_section, 2);
+        assert_eq!(courses[0].teacher.as_deref(), Some("张三"));
+        assert_eq!(courses[0].location.as_deref(), Some("教3-201"));
+        assert_eq!(courses[1].name, "课程乙实验");
+        assert_eq!(courses[1].weeks, vec![2, 6, 8, 10, 12, 14, 16]);
+        assert_eq!(courses[1].teacher.as_deref(), Some("李四/王五"));
+        assert_eq!(courses[1].location.as_deref(), Some("教3-202"));
+        assert!(courses.iter().all(|course| course.name != "先修模块"));
+    }
+
 }

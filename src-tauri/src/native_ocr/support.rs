@@ -1,3 +1,71 @@
+fn expand_multiline_tokens(tokens: Vec<Token>) -> Vec<Token> {
+    let mut expanded = Vec::new();
+    for token in tokens {
+        let parts = token
+            .parts
+            .iter()
+            .map(|part| compact_text(part))
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>();
+        if parts.len() <= 1 {
+            expanded.push(token);
+            continue;
+        }
+
+        let line_height = (token.height / parts.len() as f32).max(1.0);
+        for (index, part) in parts.into_iter().enumerate() {
+            expanded.push(Token {
+                text: part.clone(),
+                parts: vec![part],
+                confidence: token.confidence,
+                left: token.left,
+                top: token.top + line_height * index as f32,
+                width: token.width,
+                height: line_height,
+            });
+        }
+    }
+    expanded.sort_by(token_reading_order);
+    expanded
+}
+
+fn is_footer_table_header(value: &str) -> bool {
+    matches!(
+        compact_text(value).as_str(),
+        "调停课信息"
+            | "调、停（补）课信息"
+            | "调停（补）课信息"
+            | "实践课信息"
+            | "实践课（或无上课时间）信息"
+            | "实习课信息"
+            | "实习时间"
+            | "先修模块"
+            | "未安排上课时间的课程"
+            | "原上课时间地点教师"
+            | "现上课时间地点教师"
+            | "申请时间"
+            | "课程名称"
+            | "教师姓名"
+            | "模块代码"
+            | "学分"
+            | "起止周"
+    )
+}
+
+fn token_is_course_boundary(token: &Token) -> bool {
+    token
+        .parts
+        .iter()
+        .chain(std::iter::once(&token.text))
+        .any(|value| {
+            is_location_text(value)
+                || compact_location_from_text(value).is_some()
+                || looks_like_schedule_metadata(value)
+                || section_range_from_text(value).is_some()
+                || weekday_from_schedule_text(value).is_some()
+        })
+}
+
 fn optional_field_evidence(
     field: ImportFieldKey,
     token: Option<&Token>,
@@ -226,6 +294,17 @@ fn is_common_header(value: &str) -> bool {
         "编号",
         "调停课信息",
         "调、停（补）课信息",
+        "调停（补）课信息",
+        "实践课信息",
+        "实践课（或无上课时间）信息",
+        "实习课信息",
+        "实习时间",
+        "先修模块",
+        "未安排上课时间的课程",
+        "原上课时间地点教师",
+        "现上课时间地点教师",
+        "教师姓名",
+        "模块代码",
     ]
     .contains(&value)
 }

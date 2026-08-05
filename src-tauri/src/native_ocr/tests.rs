@@ -278,4 +278,31 @@ mod tests {
         assert_eq!(courses[0].end_section, 3);
     }
 
+
+    #[test]
+    fn parses_listed_sections_and_week_unions() {
+        assert_eq!(section_range_from_text("周五第10,11,12节第6-8周"), Some((10, 12)));
+        assert_eq!(section_range_from_text("周一第1，2节第1-17周"), Some((1, 2)));
+
+        let (weeks, parity, used_default) =
+            parse_weeks_and_parity("周四第8,9节第1周，第3-17周");
+        assert!(!used_default);
+        assert_eq!(parity, "all");
+        assert_eq!(weeks, std::iter::once(1).chain(3..=17).collect::<Vec<_>>());
+
+        let (weeks, parity, used_default) =
+            parse_weeks_and_parity("周五第3,4节第2周，第6-16周双周");
+        assert!(!used_default);
+        assert_eq!(parity, "even");
+        assert_eq!(weeks, vec![2, 6, 8, 10, 12, 14, 16]);
+    }
+
+    #[test]
+    fn accepts_multiple_teacher_names_but_rejects_week_labels() {
+        assert!(is_bare_teacher_name("张三/李四"));
+        assert!(is_bare_teacher_name("张三、李四"));
+        assert!(!is_bare_teacher_name("周单周"));
+        assert!(!is_bare_teacher_name("现上课时间地点教师"));
+    }
+
 }
