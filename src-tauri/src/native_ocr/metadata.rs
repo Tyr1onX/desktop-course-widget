@@ -1,19 +1,10 @@
 fn course_anchors(tokens: &[Token]) -> Vec<CourseAnchor> {
-    let anchor = Regex::new(
-        r"(?:周|星期)([一二三四五六日天1-7]).*?第?\s*(\d{1,2})\s*(?:节\s*)?(?:[-—~]+|至|到)\s*第?\s*(\d{1,2})\s*节",
-    )
-    .unwrap();
     let mut anchors = tokens
         .iter()
         .enumerate()
         .filter_map(|(token_index, token)| {
-            let captures = anchor.captures(&token.text)?;
-            let weekday = weekday_character(captures.get(1)?.as_str().chars().next()?)?;
-            let start_section = captures.get(2)?.as_str().parse::<u8>().ok()?;
-            let end_section = captures.get(3)?.as_str().parse::<u8>().ok()?;
-            if start_section == 0 || end_section < start_section || end_section > 20 {
-                return None;
-            }
+            let weekday = weekday_from_schedule_text(&token.text)?;
+            let (start_section, end_section) = section_range_from_text(&token.text)?;
             let (weeks, parity, used_default_weeks) = parse_weeks_and_parity(&token.text);
             Some(CourseAnchor {
                 token_index,
@@ -38,6 +29,33 @@ fn course_anchors(tokens: &[Token]) -> Vec<CourseAnchor> {
             })
     });
     anchors
+}
+
+fn weekday_from_schedule_text(value: &str) -> Option<u8> {
+    let pattern = Regex::new(r"(?:周|星期)([一二三四五六日天1-7])").unwrap();
+    let compact = compact_text(value);
+    let captures = pattern.captures(&compact)?;
+    weekday_character(captures.get(1)?.as_str().chars().next()?)
+}
+
+fn section_range_from_text(value: &str) -> Option<(u8, u8)> {
+    let compact = compact_text(value);
+    let patterns = [
+        r"第?(\d{1,2})节(?:[-—~－–‑]+|至|到)第?(\d{1,2})节?",
+        r"第?(\d{1,2})(?:[-—~－–‑]+|至|到)第?(\d{1,2})节",
+    ];
+    for pattern in patterns {
+        let regex = Regex::new(pattern).unwrap();
+        let Some(captures) = regex.captures(&compact) else {
+            continue;
+        };
+        let start = captures.get(1)?.as_str().parse::<u8>().ok()?;
+        let end = captures.get(2)?.as_str().parse::<u8>().ok()?;
+        if start > 0 && end >= start && end <= 20 {
+            return Some((start, end));
+        }
+    }
+    None
 }
 
 fn parse_weeks_and_parity(text: &str) -> (Vec<u8>, String, bool) {
@@ -104,7 +122,7 @@ fn find_teacher_fragment<'a>(
     tokens: impl IntoIterator<Item = &'a Token>,
     name_token: &'a Token,
     course_name: &str,
-    anchor: &'a Token,
+    _anchor: &'a Token,
 ) -> Option<(&'a Token, String)> {
     let mut tokens = tokens.into_iter().collect::<Vec<_>>();
     tokens.sort_by(|left, right| token_reading_order(left, right));
@@ -122,7 +140,10 @@ fn find_teacher_fragment<'a>(
     });
     if let Some(name_part) = name_part {
         for value in name_token.parts.iter().skip(name_part + 1) {
-            if is_location_text(value) || looks_like_schedule_metadata(value) {
+            if is_location_text(value)
+                || looks_like_schedule_metadata(value)
+                || section_range_from_text(value).is_some()
+            {
                 break;
             }
             if let Some(teacher) = bare_teacher_from_text(value, course_name) {
@@ -130,6 +151,21 @@ fn find_teacher_fragment<'a>(
             }
         }
     }
+
+    let schedule_top = tokens
+        .iter()
+        .filter(|token| {
+            token.parts.iter().chain(std::iter::once(&token.text)).any(|value| {
+                looks_like_schedule_metadata(value) || section_range_from_text(value).is_some()
+            })
+        })
+        .map(|token| token.top)
+        .fold(f32::MAX, f32::min);
+    let schedule_top = if schedule_top.is_finite() {
+        schedule_top
+    } else {
+        name_token.bottom() + name_token.height.max(18.0) * 3.0
+    };
 
     let mut passed_name = false;
     for token in tokens {
@@ -140,16 +176,13 @@ fn find_teacher_fragment<'a>(
         if !passed_name || token.top + 2.0 < name_token.top {
             continue;
         }
-        if token.top > anchor.top + 2.0 {
+        if token.top >= schedule_top - 1.0 {
             break;
         }
-        if token.top - name_token.bottom() > name_token.height.max(token.height).max(18.0) * 1.8 {
+        if token.top - name_token.bottom() > name_token.height.max(token.height).max(18.0) * 2.2 {
             break;
         }
         for value in &token.parts {
-            if is_location_text(value) || looks_like_schedule_metadata(value) {
-                return None;
-            }
             if let Some(teacher) = bare_teacher_from_text(value, course_name) {
                 return Some((token, teacher));
             }
@@ -192,6 +225,23 @@ fn is_bare_teacher_name(value: &str) -> bool {
         && !is_common_header(value)
         && !is_location_text(value)
         && !looks_like_schedule_metadata(value)
+}
+
+fn looks_like_roster_text(value: &str) -> bool {
+    let compact = compact_text(value);
+    let repeated_class = Regex::new(r"\d{2}[\u{4e00}-\u{9fff}A-Za-z]{1,10}\d{2}")
+        .unwrap()
+        .find_iter(&compact)
+        .count();
+    let separators = compact
+        .chars()
+        .filter(|character| matches!(character, ',' | '，' | '、'))
+        .count();
+    let digits = compact
+        .chars()
+        .filter(|character| character.is_ascii_digit())
+        .count();
+    repeated_class >= 2 || (separators >= 2 && digits >= 6)
 }
 
 fn find_location_fragment<'a>(
@@ -275,12 +325,21 @@ fn has_course_code(value: &str) -> bool {
 }
 
 fn normalize_trailing_course_code(value: &str) -> String {
-    let pattern = Regex::new(r"^(.*[\u{4e00}-\u{9fff}].*?)[|丨Il](\d{2})[\]|丨Il]?$" ).unwrap();
+    let pattern = Regex::new(
+        r"^(.*[\u{4e00}-\u{9fff}].*?)(?:\[|[|丨Il])(\d{2})(?:\]|[|丨Il])?$",
+    )
+    .unwrap();
     let Some(captures) = pattern.captures(value) else {
         return value.to_owned();
     };
-    let base = captures.get(1).map(|value| value.as_str().trim()).unwrap_or_default();
-    let code = captures.get(2).map(|value| value.as_str()).unwrap_or_default();
+    let base = captures
+        .get(1)
+        .map(|value| value.as_str().trim())
+        .unwrap_or_default();
+    let code = captures
+        .get(2)
+        .map(|value| value.as_str())
+        .unwrap_or_default();
     if base.is_empty() || code.is_empty() {
         value.to_owned()
     } else {
@@ -291,7 +350,7 @@ fn normalize_trailing_course_code(value: &str) -> String {
 fn course_name_from_text(value: &str) -> Option<String> {
     let mut candidate = compact_text(value)
         .trim_matches(|character: char| {
-            character.is_ascii_punctuation()
+            (character.is_ascii_punctuation() && !matches!(character, '[' | ']'))
                 || matches!(character, '（' | '）' | '【' | '】' | '，' | '。' | '：' | '；')
         })
         .to_owned();
@@ -305,6 +364,7 @@ fn course_name_from_text(value: &str) -> Option<String> {
         || is_teacher_text(&candidate)
         || is_location_text(&candidate)
         || is_common_header(&candidate)
+        || looks_like_roster_text(&candidate)
     {
         return None;
     }
@@ -329,6 +389,7 @@ fn course_name_from_text(value: &str) -> Option<String> {
     if candidate.is_empty()
         || weekday_from_text(&candidate).is_some()
         || looks_like_schedule_metadata(&candidate)
+        || looks_like_roster_text(&candidate)
     {
         return None;
     }

@@ -31,7 +31,7 @@ fn fallback_courses(
         let mut groups: Vec<Vec<Token>> = Vec::new();
         for token in column_tokens {
             let starts_named_card = token_starts_course_card(&token)
-                && groups.last().is_some_and(|group| group_has_card_body(group));
+                && groups.last().is_some_and(|group| group.iter().any(token_starts_course_card));
             let starts_new = starts_named_card
                 || groups
                     .last()
@@ -59,37 +59,48 @@ fn fallback_courses(
                 .map(|token| token.text.as_str())
                 .collect::<Vec<_>>()
                 .join(" ");
-            let parsed_anchors = course_anchors(&group);
+let parsed_anchors = course_anchors(&group);
             let first_y = group.first().map(Token::center_y).unwrap_or_default();
             let last_y = group.last().map(Token::center_y).unwrap_or(first_y);
             let positional_start = nearest_section(sections, first_y);
             let positional_end = nearest_section(sections, last_y).max(positional_start);
             let fallback_weeks = parse_weeks_and_parity(&combined);
-            let (weekday, start_section, end_section, weeks, parity, used_default_weeks, anchor) =
-                if let Some(parsed) = parsed_anchors.first() {
-                    (
-                        parsed.weekday,
-                        parsed.start_section,
-                        parsed.end_section,
-                        parsed.weeks.clone(),
-                        parsed.parity.clone(),
-                        parsed.used_default_weeks,
-                        &group[parsed.token_index],
-                    )
-                } else {
-                    let Some(anchor) = group.first() else {
-                        continue;
-                    };
-                    (
-                        header.weekday,
-                        positional_start,
-                        positional_end,
-                        fallback_weeks.0,
-                        fallback_weeks.1,
-                        fallback_weeks.2,
-                        anchor,
-                    )
+            let parsed_range = section_range_from_text(&combined);
+            let parsed_weekday = weekday_from_schedule_text(&combined).unwrap_or(header.weekday);
+            let (
+                weekday,
+                start_section,
+                end_section,
+                weeks,
+                parity,
+                used_default_weeks,
+                anchor,
+            ) = if let Some(parsed) = parsed_anchors.first() {
+                (
+                    parsed.weekday,
+                    parsed.start_section,
+                    parsed.end_section,
+                    parsed.weeks.clone(),
+                    parsed.parity.clone(),
+                    parsed.used_default_weeks,
+                    &group[parsed.token_index],
+                )
+            } else {
+                let Some(anchor) = group.first() else {
+                    continue;
                 };
+                let (start_section, end_section) =
+                    parsed_range.unwrap_or((positional_start, positional_end));
+                (
+                    parsed_weekday,
+                    start_section,
+                    end_section,
+                    fallback_weeks.0,
+                    fallback_weeks.1,
+                    fallback_weeks.2,
+                    anchor,
+                )
+            };
             if let Some(course) = course_from_block(
                 weekday,
                 start_section,
@@ -168,16 +179,45 @@ fn weekday_headers(tokens: &[Token]) -> Vec<WeekdayHeader> {
 }
 
 fn section_markers(tokens: &[Token], image_width: u32) -> Vec<(u8, f32)> {
-    let mut markers = tokens
+    let mut detected = tokens
         .iter()
         .filter(|token| token.center_x() < image_width as f32 * 0.18)
         .filter_map(|token| {
             section_number_from_text(&token.text).map(|section| (section, token.center_y()))
         })
         .collect::<Vec<_>>();
-    markers.sort_by_key(|(section, _)| *section);
-    markers.dedup_by_key(|(section, _)| *section);
-    markers
+    detected.sort_by_key(|(section, _)| *section);
+    detected.dedup_by_key(|(section, _)| *section);
+    if detected.len() < 2 {
+        return detected;
+    }
+
+    let mut spacings = detected
+        .windows(2)
+        .filter_map(|pair| {
+            let section_delta = pair[1].0.saturating_sub(pair[0].0);
+            (section_delta > 0).then_some((pair[1].1 - pair[0].1) / section_delta as f32)
+        })
+        .filter(|spacing| spacing.is_finite() && *spacing > 4.0)
+        .collect::<Vec<_>>();
+    if spacings.is_empty() {
+        return detected;
+    }
+    spacings.sort_by(|left, right| left.partial_cmp(right).unwrap_or(Ordering::Equal));
+    let spacing = spacings[spacings.len() / 2];
+    let reference = detected[0];
+    let last_section = detected
+        .iter()
+        .map(|(section, _)| *section)
+        .max()
+        .unwrap_or(DEFAULT_SECTION_COUNT)
+        .max(DEFAULT_SECTION_COUNT);
+    (1..=last_section)
+        .map(|section| {
+            let offset = section as i16 - reference.0 as i16;
+            (section, reference.1 + spacing * offset as f32)
+        })
+        .collect()
 }
 
 fn section_number_from_text(value: &str) -> Option<u8> {

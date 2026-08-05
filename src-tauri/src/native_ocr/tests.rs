@@ -204,4 +204,77 @@ mod tests {
         assert_eq!(courses.len(), 1);
         assert_eq!(courses[0].name, "通信原理");
     }
+
+    #[test]
+    fn normalizes_missing_course_code_brackets_and_rejects_rosters() {
+        assert_eq!(
+            course_name_from_text("课程甲[03").as_deref(),
+            Some("课程甲[03]")
+        );
+        assert_eq!(
+            course_name_from_text("课程乙|04").as_deref(),
+            Some("课程乙[04]")
+        );
+        assert!(course_name_from_text("24班级01,24班级02,24班级03").is_none());
+    }
+
+    #[test]
+    fn fallback_teacher_is_read_after_title_when_anchor_is_title() {
+        let tokens = vec![
+            token("星期一", 190.0, 40.0),
+            token("星期二", 390.0, 40.0),
+            token("星期三", 590.0, 40.0),
+            token("1", 20.0, 120.0),
+            token("2", 20.0, 180.0),
+            token("课程甲|03", 130.0, 90.0),
+            token("李明", 130.0, 118.0),
+            token("3-8周", 130.0, 146.0),
+            token("第一教学楼", 130.0, 174.0),
+        ];
+        let headers = weekday_headers(&tokens);
+        let sections = section_markers(&tokens, 800);
+        let courses = fallback_courses(&tokens, &headers, &sections, 800, 600);
+        assert_eq!(courses.len(), 1);
+        assert_eq!(courses[0].name, "课程甲[03]");
+        assert_eq!(courses[0].teacher.as_deref(), Some("李明"));
+    }
+
+    #[test]
+    fn sparse_section_markers_are_completed_before_position_mapping() {
+        let tokens = vec![
+            token("1", 20.0, 100.0),
+            token("3", 20.0, 220.0),
+            token("5", 20.0, 340.0),
+        ];
+        let sections = section_markers(&tokens, 800);
+        assert_eq!(sections.len(), 12);
+        assert_eq!(nearest_section(&sections, 160.0), 2);
+        assert_eq!(nearest_section(&sections, 280.0), 4);
+    }
+
+    #[test]
+    fn fallback_splits_consecutive_strong_course_titles() {
+        let tokens = vec![
+            token("星期一", 190.0, 40.0),
+            token("星期二", 390.0, 40.0),
+            token("星期三", 590.0, 40.0),
+            token("1", 20.0, 100.0),
+            token("2", 20.0, 160.0),
+            token("3", 20.0, 220.0),
+            token("课程甲|01", 130.0, 82.0),
+            token("课程乙|02", 130.0, 142.0),
+            token("李明", 130.0, 170.0),
+            token("3-8周,星期1,第2节--第3节", 130.0, 198.0),
+            token("第一教学楼", 130.0, 226.0),
+        ];
+        let headers = weekday_headers(&tokens);
+        let sections = section_markers(&tokens, 800);
+        let courses = fallback_courses(&tokens, &headers, &sections, 800, 600);
+        assert_eq!(courses.len(), 1);
+        assert_eq!(courses[0].name, "课程乙[02]");
+        assert_eq!(courses[0].teacher.as_deref(), Some("李明"));
+        assert_eq!(courses[0].start_section, 2);
+        assert_eq!(courses[0].end_section, 3);
+    }
+
 }
