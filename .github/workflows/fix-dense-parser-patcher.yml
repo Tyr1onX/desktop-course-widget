@@ -26,17 +26,19 @@ jobs:
           text = path.read_text(encoding='utf-8')
           start = text.index('          old_trim =')
           end = text.index('          metadata = metadata.replace(\n              "        || is_common_header', start)
-          replacement = '''          course_name_marker = 'fn course_name_from_text'
-          metadata_prefix, metadata_suffix = metadata.split(course_name_marker, 1)
-          if "character.is_ascii_punctuation()" not in metadata_suffix:
-              raise SystemExit('course title punctuation cleanup not found')
-          metadata_suffix = metadata_suffix.replace(
-              "character.is_ascii_punctuation()",
-              "(character.is_ascii_punctuation() && !matches!(character, '[' | ']'))",
-              1,
-          )
-          metadata = metadata_prefix + course_name_marker + metadata_suffix
-'''
+          replacement = "\n".join([
+              "          course_name_marker = 'fn course_name_from_text'",
+              "          metadata_prefix, metadata_suffix = metadata.split(course_name_marker, 1)",
+              "          if \"character.is_ascii_punctuation()\" not in metadata_suffix:",
+              "              raise SystemExit('course title punctuation cleanup not found')",
+              "          metadata_suffix = metadata_suffix.replace(",
+              "              \"character.is_ascii_punctuation()\",",
+              "              \"(character.is_ascii_punctuation() && !matches!(character, '[' | ']'))\",",
+              "              1,",
+              "          )",
+              "          metadata = metadata_prefix + course_name_marker + metadata_suffix",
+              "",
+          ])
           path.write_text(text[:start] + replacement + text[end:], encoding='utf-8')
           PY
           rm .github/workflows/fix-dense-parser-patcher.yml
