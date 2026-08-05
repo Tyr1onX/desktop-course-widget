@@ -7,6 +7,7 @@ mod schedule_apply;
 mod schedule_catalog;
 mod schedule_store;
 mod screenshot_import;
+mod window_commands;
 
 use std::{
     sync::atomic::{AtomicBool, Ordering},
@@ -588,6 +589,12 @@ pub fn run() {
             read_schedule,
             read_app_settings,
             get_runtime_capabilities,
+            window_commands::open_presentation_controller,
+            window_commands::configure_main_widget,
+            window_commands::resize_main_widget,
+            window_commands::show_main_widget,
+            window_commands::hide_main_widget,
+            window_commands::start_main_widget_drag,
             save_lesson_times,
             choose_and_parse_excel,
             choose_and_parse_screenshot,
