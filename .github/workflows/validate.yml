@@ -193,7 +193,7 @@ jobs:
         shell: pwsh
         run: ./scripts/windows-window-smoke.ps1
 
-      - name: Verify build left the branch unchanged
+      - name: Restore expected build-only files
         shell: pwsh
         run: |
           git checkout -- package.json package-lock.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json
@@ -202,6 +202,28 @@ jobs:
             'src-tauri/resources/ocr-native/PP-OCRv5_mobile_rec_fp16.mnn', `
             'src-tauri/resources/ocr-native/ppocr_keys_v5.txt', `
             'src-tauri/resources/ocr-native/manifest.json'
+
+      - name: Capture build workspace state
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force '.tmp/workspace-state' | Out-Null
+          git status --porcelain=v1 | Out-File -Encoding utf8 '.tmp/workspace-state/status.txt'
+          git diff --name-status | Out-File -Encoding utf8 '.tmp/workspace-state/diff-name-status.txt'
+          git diff | Out-File -Encoding utf8 '.tmp/workspace-state/workspace.patch'
+
+      - name: Upload build workspace state
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: workspace-state-${{ github.sha }}
+          path: .tmp/workspace-state/
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Verify build left the branch unchanged
+        shell: pwsh
+        run: |
           git diff --exit-code
           $status = @(git status --porcelain)
           if ($status.Count -ne 0) {
