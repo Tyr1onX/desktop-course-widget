@@ -77,8 +77,8 @@ mod table_structure_tests {
     #[test]
     fn weekday_edges_do_not_include_the_left_time_column() {
         let headers = basic_headers();
-        assert_eq!(weekday_column_bounds(&headers, 1, 800), (90.0, 290.0));
-        assert_eq!(weekday_column_bounds(&headers, 3, 800), (490.0, 690.0));
+        assert_eq!(weekday_column_bounds(&headers, 1, 800.0), (90.0, 290.0));
+        assert_eq!(weekday_column_bounds(&headers, 3, 800.0), (490.0, 690.0));
     }
 
     #[test]
