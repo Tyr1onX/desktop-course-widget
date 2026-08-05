@@ -37,13 +37,15 @@
       window.__screenshotImportCommands = []
       window.__TAURI_INTERNALS__ = {
         invoke: async (command) => {
-          window.__screenshotImportCommands.push(command)
-          if (command === 'choose_screenshot') {
-            await new Promise((resolve) => setTimeout(resolve, 80))
-            return 'C:\\课表 测试.png'
+          if (command === 'get_runtime_capabilities') {
+            return {
+              platform: 'windows',
+              screenshotImport: { available: true, backend: 'test-fixture', unavailableReason: null }
+            }
           }
-          if (command === 'parse_screenshot') {
-            await new Promise((resolve) => setTimeout(resolve, 120))
+          window.__screenshotImportCommands.push(command)
+          if (command === 'choose_and_parse_screenshot') {
+            await new Promise((resolve) => setTimeout(resolve, 80))
             return {
               schemaVersion: 1,
               source: 'image',
@@ -55,7 +57,7 @@
               courses: [{
                 code: null,
                 name: '通信原理',
-                teacher: '李启豪',
+                teacher: '',
                 weekday: 1,
                 startSection: 1,
                 endSection: 2,
@@ -65,7 +67,7 @@
                 review: {
                   fields: [
                     { field: 'name', status: 'review', reason: '截图 OCR 字段需人工确认' },
-                    { field: 'teacher', status: 'review', reason: '截图 OCR 字段需人工确认' },
+                    { field: 'teacher', status: 'missing', reason: '截图 OCR 字段需人工确认' },
                     { field: 'weekday', status: 'confirmed' },
                     { field: 'startSection', status: 'confirmed' },
                     { field: 'endSection', status: 'confirmed' },

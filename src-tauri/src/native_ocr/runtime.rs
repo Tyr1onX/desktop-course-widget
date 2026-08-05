@@ -7,8 +7,6 @@ use std::{
 use image::DynamicImage;
 use ocr_rs::{OcrEngine, OcrEngineConfig};
 use regex::Regex;
-use tauri::{AppHandle, Manager};
-
 use crate::import_draft::{
     ImportCourse, ImportCourseReview, ImportDraft, ImportDraftSummary, ImportFieldEvidence,
     ImportFieldKey, ImportImageSource, ImportReviewStatus, ImportSource, NormalizedImageBox,
@@ -97,9 +95,9 @@ struct WeekdayHeader {
     bottom: f32,
 }
 
-pub fn recognize_screenshot(app: &AppHandle, image_path: &Path) -> Result<ImportDraft, String> {
+pub fn recognize_screenshot(image_path: &Path) -> Result<ImportDraft, String> {
     validate_image_path(image_path)?;
-    let model_root = resolve_model_root(app)?;
+    let model_root = resolve_model_root()?;
     let det_model = model_root.join("PP-OCRv5_mobile_det_fp16.mnn");
     let rec_model = model_root.join("PP-OCRv5_mobile_rec_fp16.mnn");
     let charset = model_root.join("ppocr_keys_v5.txt");

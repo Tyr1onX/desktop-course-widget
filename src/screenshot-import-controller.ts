@@ -11,6 +11,11 @@ import {
   screenshotImportErrorText,
   screenshotImportLessonCount,
 } from './screenshot-import-policy'
+import {
+  canUseScreenshotImport,
+  readRuntimeCapabilities,
+  type RuntimeCapabilities,
+} from './runtime-capabilities'
 
 type LessonTime = {
   section: number
@@ -27,19 +32,17 @@ type ActiveSchedule = {
   semesterStart: string
 }
 
-const desktopRuntime = '__TAURI_INTERNALS__' in window
 const plugin = (command: string) => `plugin:schedule-catalog|${command}`
 const importTitle = '从文件创建独立课表'
+const importDescription = '选择 Excel 或完整单张课表截图，识别结果会进入同一套复核流程；已有课表不会被覆盖。'
 const reopenImportKey = 'screenshot-import:reopen-after-reset'
 
+let runtimeCapabilities: RuntimeCapabilities | null = null
 let activeDraft: ImportDraft | null = null
 let activeSettings: AppSettings | null = null
 let importName = ''
 let firstWeekMonday = ''
-let selectionPending = false
 let recognitionPending = false
-let recognitionStartedAt = 0
-let recognitionTimer: number | null = null
 let createPending = false
 let requestId = ''
 let renderQueued = false
@@ -48,6 +51,12 @@ const observer = new MutationObserver(() => queueEnhance())
 observer.observe(document.body, { childList: true, subtree: true })
 queueEnhance()
 restoreImportSurfaceAfterReset()
+void loadRuntimeCapabilities()
+
+async function loadRuntimeCapabilities(): Promise<void> {
+  runtimeCapabilities = await readRuntimeCapabilities()
+  queueEnhance()
+}
 
 function queueEnhance(): void {
   if (renderQueued) return
@@ -100,7 +109,7 @@ function enhanceImportSurface(): void {
     surface.querySelector('[data-import-course-details], .import-course-review'),
   )
   const existingScreenshotPicker = surface.querySelector<HTMLButtonElement>('[data-action="choose-screenshot"]')
-  if (existingExcelReview) {
+  if (existingExcelReview || !canUseScreenshotImport(runtimeCapabilities)) {
     existingScreenshotPicker?.remove()
     return
   }
@@ -108,7 +117,7 @@ function enhanceImportSurface(): void {
   const introTitle = surface.querySelector<HTMLElement>('.surface-intro h3')
   const introCopy = surface.querySelector<HTMLElement>('.surface-intro p')
   if (introTitle && introTitle.textContent !== importTitle) introTitle.textContent = importTitle
-  introCopy?.remove()
+  if (introCopy && introCopy.textContent !== importDescription) introCopy.textContent = importDescription
 
   let screenshotPicker = existingScreenshotPicker
   if (!screenshotPicker) {
@@ -125,101 +134,38 @@ function enhanceImportSurface(): void {
   updatePickerState(surface)
 }
 
-function recognitionElapsedSeconds(): number {
-  if (!recognitionPending || recognitionStartedAt <= 0) return 0
-  return Math.max(0, Math.floor((performance.now() - recognitionStartedAt) / 1000))
-}
-
 function updatePickerState(surface: HTMLElement): void {
   const excelPicker = surface.querySelector<HTMLButtonElement>('[data-action="choose-excel"]')
   const screenshotPicker = surface.querySelector<HTMLButtonElement>('[data-action="choose-screenshot"]')
-  const pending = selectionPending || recognitionPending
-  if (excelPicker) excelPicker.disabled = pending
+  if (excelPicker) excelPicker.disabled = recognitionPending
   if (!screenshotPicker) return
 
-  screenshotPicker.disabled = pending
-  const elapsedSeconds = recognitionElapsedSeconds()
-  const state = `${selectionPending}:${recognitionPending}:${desktopRuntime}:${elapsedSeconds}`
+  const state = String(recognitionPending)
+  screenshotPicker.disabled = recognitionPending
   if (screenshotPicker.dataset.screenshotImportState === state) return
   screenshotPicker.dataset.screenshotImportState = state
   screenshotPicker.innerHTML = `
-    <strong>${selectionPending
-      ? '正在选择课表截图'
-      : recognitionPending
-        ? `正在识别课表 · ${elapsedSeconds} 秒`
-        : '选择课表截图'}</strong>
+    <strong>${recognitionPending ? '正在识别课表截图…' : '选择 PNG / JPG 课表截图'}</strong>
+    <span>请使用完整单张截图，包含星期标题、节次和全部课程；暂不支持多图拼接</span>
   `
 }
 
-function stopRecognitionClock(): void {
-  if (recognitionTimer !== null) {
-    window.clearInterval(recognitionTimer)
-    recognitionTimer = null
-  }
-  recognitionStartedAt = 0
-}
-
-function startRecognitionClock(): void {
-  stopRecognitionClock()
-  recognitionStartedAt = performance.now()
-  const tick = () => {
-    const currentSurface = document.querySelector<HTMLElement>('.import-review-surface')
-    if (!currentSurface || !recognitionPending) return
-    updatePickerState(currentSurface)
-  }
-  tick()
-  recognitionTimer = window.setInterval(tick, 1000)
-}
-
-function setRecognitionBusy(surface: HTMLElement, busy: boolean): void {
-  recognitionPending = busy
-  if (busy) startRecognitionClock()
-  else stopRecognitionClock()
-  document.documentElement.classList.toggle('screenshot-import-busy', busy)
-  surface.toggleAttribute('aria-busy', busy)
-  const controls = document.querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLSelectElement | HTMLTextAreaElement>(
-    'button, input, select, textarea',
-  )
-  controls.forEach((control) => {
-    if (busy) {
-      if (!control.dataset.screenshotOcrWasDisabled) {
-        control.dataset.screenshotOcrWasDisabled = control.disabled ? 'true' : 'false'
-      }
-      control.disabled = true
-      return
-    }
-    const previous = control.dataset.screenshotOcrWasDisabled
-    if (previous !== undefined) {
-      control.disabled = previous === 'true'
-      delete control.dataset.screenshotOcrWasDisabled
-    }
-  })
-  updatePickerState(surface)
-}
-
 async function chooseScreenshot(): Promise<void> {
-  if (selectionPending || recognitionPending) return
+  if (recognitionPending || !canUseScreenshotImport(runtimeCapabilities)) return
   const surface = document.querySelector<HTMLElement>('.import-review-surface')
   if (!surface) return
-  if (!desktopRuntime) {
-    setMessage(surface, '浏览器预览不会读取本机图片，请在桌面应用中测试。')
-    return
-  }
 
-  selectionPending = true
+  recognitionPending = true
+  setMessage(surface, '正在本机识别课表截图…')
   updatePickerState(surface)
 
   try {
-    const path = await invoke<string | null>('choose_screenshot')
-    selectionPending = false
-    if (!path) {
+    const draft = await invoke<ImportDraft | null>('choose_and_parse_screenshot')
+    if (!draft) {
       setMessage(surface, '已取消选择课表截图。')
-      updatePickerState(surface)
       return
     }
 
-    setRecognitionBusy(surface, true)
-    const draft = await invoke<ImportDraft>('parse_screenshot', { path })
     const [settings, schedule] = await Promise.all([
       invoke<AppSettings>('read_app_settings'),
       invoke<ActiveSchedule>('read_schedule'),
@@ -234,11 +180,9 @@ async function chooseScreenshot(): Promise<void> {
   } catch (error) {
     setMessage(surface, screenshotImportErrorText(error))
   } finally {
-    selectionPending = false
+    recognitionPending = false
     const currentSurface = document.querySelector<HTMLElement>('.import-review-surface')
-    if (currentSurface && recognitionPending) setRecognitionBusy(currentSurface, false)
-    else if (currentSurface) updatePickerState(currentSurface)
-    else stopRecognitionClock()
+    if (currentSurface && !activeDraft) updatePickerState(currentSurface)
   }
 }
 
@@ -258,6 +202,7 @@ function renderReviewSurface(surface: HTMLElement): void {
   surface.innerHTML = `
     <div class="surface-intro">
       <h3>检查截图识别结果</h3>
+      <p>${escapeHtml(draft.sourceName)} 已在本机完成识别。请先核对课程数量和摘要；可以随时放弃本次结果并重新选择图片。</p>
     </div>
     <div class="import-summary">
       <div><span>课程安排</span><strong>${draft.summary.arrangements} 项</strong></div>
@@ -269,7 +214,7 @@ function renderReviewSurface(surface: HTMLElement): void {
       <label class="field field--full"><span>第一周星期一</span><input id="screenshot-import-first-week" type="date" value="${escapeHtml(firstWeekMonday)}" /></label>
     </div>
     <div class="import-review-heading">
-      <div><h3>逐项检查</h3></div>
+      <div><h3>逐项检查</h3><p>先浏览课程摘要；整体无误可一次确认全部，只有异常项需要展开修改。</p></div>
       <span>${draft.courses.length} 项</span>
     </div>
     <div class="import-review-list">
@@ -322,9 +267,7 @@ function resetScreenshotImport(): void {
   activeSettings = null
   importName = ''
   firstWeekMonday = ''
-  selectionPending = false
   recognitionPending = false
-  stopRecognitionClock()
   createPending = false
   requestId = ''
   sessionStorage.setItem(reopenImportKey, 'true')
@@ -332,9 +275,7 @@ function resetScreenshotImport(): void {
 }
 
 function hideTechnicalReviewEvidence(surface: HTMLElement): void {
-  surface
-    .querySelectorAll('.import-evidence-copy, .surface-intro p, .import-review-heading p')
-    .forEach((element) => element.remove())
+  surface.querySelectorAll('.import-evidence-copy').forEach((element) => element.remove())
 }
 
 async function createScreenshotSchedule(): Promise<void> {

@@ -1,8 +1,6 @@
 import { formatMinutesDuration } from './duration'
 import scheduleData from './data/schedule.json'
-import { isTauri } from '@tauri-apps/api/core'
-import { emit } from '@tauri-apps/api/event'
-import { getCurrentWindow } from '@tauri-apps/api/window'
+import { invoke, isTauri } from '@tauri-apps/api/core'
 
 type Scenario = 'current' | 'between' | 'ended' | 'empty' | 'before' | 'browsing'
 type Theme = 'light' | 'dark'
@@ -390,11 +388,12 @@ export function createWidget(options: WidgetOptions, onNavigate?: () => void) {
   widget.querySelector<HTMLButtonElement>('[data-hide]')?.addEventListener('click', () => {
     if (hideRequested || !isTauri()) return
     hideRequested = true
-    void getCurrentWindow().hide()
-      .then(() => emit('widget:visibility-changed'))
+    void invoke('hide_main_widget')
       .catch((error: unknown) => {
-        hideRequested = false
         console.error('[widget-close] hide failed', error)
+      })
+      .finally(() => {
+        hideRequested = false
       })
   })
 
@@ -408,7 +407,7 @@ export function createWidget(options: WidgetOptions, onNavigate?: () => void) {
       if (!draggable) return
       event.preventDefault()
       event.stopPropagation()
-      void getCurrentWindow().startDragging().catch((error: unknown) => console.error('[widget-drag] startDragging failed', error))
+      void invoke('start_main_widget_drag').catch((error: unknown) => console.error('[widget-drag] startDragging failed', error))
     })
   }
   return widget

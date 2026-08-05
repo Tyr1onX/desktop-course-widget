@@ -1,9 +1,14 @@
+#[path = "native_ocr.rs"]
+mod native_ocr;
+
 use std::path::Path;
 
-use tauri::AppHandle;
+use crate::import_draft::ImportDraft;
 
-use crate::{import_draft::ImportDraft, native_ocr};
+pub fn runtime_status() -> Result<(), String> {
+    native_ocr::runtime_status()
+}
 
-pub fn recognize_screenshot(app: &AppHandle, image_path: &Path) -> Result<ImportDraft, String> {
-    native_ocr::recognize_screenshot(app, image_path)
+pub fn recognize_screenshot(image_path: &Path) -> Result<ImportDraft, String> {
+    native_ocr::recognize_screenshot(image_path)
 }

@@ -1,8 +1,8 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { getCurrentWindow } from '@tauri-apps/api/window'
 import type { ImportCourse, ImportDraft } from './import-draft'
 import { parseWeeksText, refreshImportDraftSummary, validateImportCourse, validateImportDraft, weeksToText } from './import-review'
+import { requestSettingsWindowClose } from './window-close-behavior'
 import scheduleData from './data/schedule.json'
 import './settings.css'
 
@@ -1601,18 +1601,23 @@ window.addEventListener('keydown', (event) => {
 })
 
 async function handleSettingsCloseRequest(): Promise<void> {
-  if (hasUnsavedChanges() && !window.confirm('放弃未保存的修改？')) return
-  surface = null
-  menuOpen = false
-  scheduleMenuOpen = false
-  selectedCourseId = null
-  courseDraft = null
-  initialDraftSnapshot = ''
-  scheduleDraft = null
-  initialScheduleDraftSnapshot = ''
-  surfaceMessage = ''
-  render()
-  await getCurrentWindow().hide()
+  await requestSettingsWindowClose({
+    hasUnsavedChanges,
+    confirmDiscard: () => window.confirm('放弃未保存的修改？'),
+    resetState: () => {
+      surface = null
+      menuOpen = false
+      scheduleMenuOpen = false
+      selectedCourseId = null
+      courseDraft = null
+      initialDraftSnapshot = ''
+      scheduleDraft = null
+      initialScheduleDraftSnapshot = ''
+      surfaceMessage = ''
+      render()
+    },
+    hideWindow: () => invoke('hide_settings_window'),
+  })
 }
 
 async function initialize(): Promise<void> {

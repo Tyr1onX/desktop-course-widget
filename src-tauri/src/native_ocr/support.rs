@@ -85,7 +85,7 @@ fn normalized_union(
     })
 }
 
-fn resolve_model_root(app: &AppHandle) -> Result<PathBuf, String> {
+fn resolve_model_root() -> Result<PathBuf, String> {
     let development = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .map(|root| root.join(".tmp/native-ocr-models"));
@@ -94,13 +94,16 @@ fn resolve_model_root(app: &AppHandle) -> Result<PathBuf, String> {
             return Ok(path);
         }
     }
-    let resource_dir = app
-        .path()
-        .resource_dir()
-        .map_err(|error| format!("无法定位应用资源目录：{error}"))?;
+
+    let executable = std::env::current_exe()
+        .map_err(|error| format!("无法定位课刻程序目录：{error}"))?;
+    let executable_dir = executable
+        .parent()
+        .ok_or_else(|| "无法定位课刻程序目录".to_owned())?;
     for bundled in [
-        resource_dir.join("ocr-native"),
-        resource_dir.join("resources/ocr-native"),
+        executable_dir.join("ocr-native"),
+        executable_dir.join("resources/ocr-native"),
+        executable_dir.join("_up_/resources/ocr-native"),
     ] {
         if bundled.is_dir() {
             return Ok(bundled);
