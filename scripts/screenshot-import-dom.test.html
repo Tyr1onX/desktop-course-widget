@@ -37,13 +37,13 @@
       window.__screenshotImportCommands = []
       window.__TAURI_INTERNALS__ = {
         invoke: async (command) => {
-          window.__screenshotImportCommands.push(command)
           if (command === 'get_runtime_capabilities') {
             return {
               platform: 'windows',
               screenshotImport: { available: true, backend: 'test-fixture', unavailableReason: null }
             }
           }
+          window.__screenshotImportCommands.push(command)
           if (command === 'choose_and_parse_screenshot') {
             await new Promise((resolve) => setTimeout(resolve, 80))
             return {
