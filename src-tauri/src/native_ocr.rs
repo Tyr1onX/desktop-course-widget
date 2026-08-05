@@ -3,6 +3,7 @@ include!("native_ocr/courses.rs");
 include!("native_ocr/grid.rs");
 include!("native_ocr/metadata.rs");
 include!("native_ocr/support.rs");
+include!("native_ocr/traditional_fields.rs");
 include!("native_ocr/tests.rs");
 include!("native_ocr/weekday_header_tests.rs");
 include!("native_ocr/table_structure_tests.rs");
