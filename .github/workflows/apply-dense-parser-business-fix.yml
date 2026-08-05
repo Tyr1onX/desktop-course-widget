@@ -1,0 +1,59 @@
+name: Apply dense parser business fix
+
+on:
+  push:
+    branches:
+      - spike/rust-native-ocr
+    paths:
+      - '.github/workflows/apply-dense-parser-business-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: spike/rust-native-ocr
+      - name: Apply business-code parser patch
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from textwrap import dedent
+
+          workflow = Path('.github/workflows/apply-dense-card-parser-fix-v2.yml').read_text(encoding='utf-8')
+          marker_start = "          python - <<'PY'\n"
+          marker_end = "\n          PY\n"
+          start = workflow.index(marker_start) + len(marker_start)
+          end = workflow.index(marker_end, start)
+          source = dedent(workflow[start:end])
+
+          patch_start = source.index('old_trim =')
+          patch_end = source.index('metadata = metadata.replace(\n    "        || is_common_header', patch_start)
+          robust = "\n".join([
+              "course_name_marker = 'fn course_name_from_text'",
+              "metadata_prefix, metadata_suffix = metadata.split(course_name_marker, 1)",
+              "if \"character.is_ascii_punctuation()\" not in metadata_suffix:",
+              "    raise SystemExit('course title punctuation cleanup not found')",
+              "metadata_suffix = metadata_suffix.replace(",
+              "    \"character.is_ascii_punctuation()\",",
+              "    \"(character.is_ascii_punctuation() && !matches!(character, '[' | ']'))\",",
+              "    1,",
+              ")",
+              "metadata = metadata_prefix + course_name_marker + metadata_suffix",
+              "",
+          ])
+          source = source[:patch_start] + robust + source[patch_end:]
+          exec(compile(source, '<dense-parser-patch>', 'exec'), {})
+          PY
+      - name: Commit business-code changes
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src-tauri/src/native_ocr/metadata.rs src-tauri/src/native_ocr/grid.rs src-tauri/src/native_ocr/tests.rs
+          git commit -m "fix: parse dense timetables by course cards"
+          git push origin HEAD:spike/rust-native-ocr
