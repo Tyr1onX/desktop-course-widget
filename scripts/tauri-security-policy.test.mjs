@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { extname, join, relative, resolve } from 'node:path'
 import test from 'node:test'
+import {
+  hidePresentationWindowOnClose,
+  requestSettingsWindowClose,
+} from '../src/window-close-behavior.ts'
 
 const root = resolve('.')
 const read = (path) => readFileSync(join(root, path), 'utf8')
@@ -37,10 +41,6 @@ function permissionIdentifiers(capability) {
   return capability.permissions.map(permissionIdentifier)
 }
 
-function permissionEntry(capability, identifier) {
-  return capability.permissions.find((permission) => permissionIdentifier(permission) === identifier)
-}
-
 function hasPermission(capability, identifier) {
   return permissionIdentifiers(capability).includes(identifier)
 }
@@ -50,12 +50,6 @@ function assertPermissionAbsent(capability, permissions) {
   for (const permission of permissions) {
     assert(!identifiers.includes(permission), `${capability.identifier} must not include ${permission}`)
   }
-}
-
-function scopedLabels(capability, identifier) {
-  const entry = permissionEntry(capability, identifier)
-  assert(entry && typeof entry === 'object', `${capability.identifier} ${identifier} must be scoped`)
-  return (entry.allow ?? []).map((scope) => scope.label)
 }
 
 function walkFiles(directory) {
@@ -85,6 +79,13 @@ function handlerCommandNames(source) {
     .map((value) => value.split('::').at(-1))
 }
 
+function commandBlock(source, command) {
+  const start = source.indexOf(`pub fn ${command}`)
+  assert(start >= 0, `${command} must exist`)
+  const end = source.indexOf('#[tauri::command]', start + 1)
+  return source.slice(start, end < 0 ? source.length : end)
+}
+
 test('application commands are registered, manifested, and assigned without omissions', () => {
   const lib = read('src-tauri/src/lib.rs')
   const windowCommands = read('src-tauri/src/window_commands.rs')
@@ -106,7 +107,7 @@ test('application commands are registered, manifested, and assigned without omis
   }
 })
 
-test('each window has one capability with the intended responsibility boundary', () => {
+test('each window has one capability and no capability exposes core window control commands', () => {
   assert.deepEqual(sorted([...capabilityByWindow.keys()]), ['main', 'presentation', 'settings'])
   assert.equal(capabilities.flatMap((capability) => capability.windows).length, 3)
 
@@ -114,6 +115,17 @@ test('each window has one capability with the intended responsibility boundary',
   const settings = capabilityByWindow.get('settings')
   const presentation = capabilityByWindow.get('presentation')
   assert(main && settings && presentation)
+
+  for (const capability of capabilities) {
+    const coreWindowPermissions = permissionIdentifiers(capability)
+      .filter((permission) => permission.startsWith('core:window:'))
+    assert.deepEqual(
+      coreWindowPermissions,
+      [],
+      `${capability.identifier} must not expose any generic core window command`,
+    )
+    assert(!permissionIdentifiers(capability).some((permission) => /allow[-_:]?all/i.test(permission)))
+  }
 
   const writeAndImportPermissions = [
     'allow-save-lesson-times',
@@ -133,10 +145,6 @@ test('each window has one capability with the intended responsibility boundary',
   assertPermissionAbsent(main, writeAndImportPermissions)
   assertPermissionAbsent(presentation, writeAndImportPermissions)
 
-  assert(
-    !permissionIdentifiers(main).some((permission) => permission.startsWith('core:window:')),
-    'main must not expose generic core window commands',
-  )
   for (const permission of [
     'allow-read-schedule',
     'allow-read-app-settings',
@@ -150,14 +158,25 @@ test('each window has one capability with the intended responsibility boundary',
   ]) {
     assert(hasPermission(main, permission), `main is missing ${permission}`)
   }
+  assertPermissionAbsent(main, [
+    'allow-hide-settings-window',
+    'allow-hide-presentation-window',
+  ])
 
   assert(hasPermission(presentation, 'allow-read-schedule'))
   assert(hasPermission(presentation, 'core:event:default'))
-  assert.deepEqual(scopedLabels(presentation, 'core:window:allow-hide'), ['presentation'])
-  assert(!hasPermission(presentation, 'allow-open-presentation-controller'))
+  assert(hasPermission(presentation, 'allow-hide-presentation-window'))
+  assertPermissionAbsent(presentation, [
+    'allow-hide-settings-window',
+    'allow-open-presentation-controller',
+  ])
 
-  assert.deepEqual(scopedLabels(settings, 'core:window:allow-hide'), ['settings'])
-  assert(!hasPermission(settings, 'dialog:default'), 'settings must not expose the frontend dialog plugin')
+  assert(hasPermission(settings, 'allow-hide-settings-window'))
+  assertPermissionAbsent(settings, [
+    'allow-hide-presentation-window',
+    'dialog:default',
+    'allow-open-presentation-controller',
+  ])
   for (const permission of [
     'allow-read-schedule',
     'allow-read-app-settings',
@@ -175,12 +194,11 @@ test('each window has one capability with the intended responsibility boundary',
 
   assert.match(main.description, /only its own window/i)
   assert.match(main.description, /hard-coded presentation controller/i)
+  assert.match(settings.description, /hide only itself through a source-validated application command/i)
   assert.match(settings.description, /backend-owned/i)
-  assert.match(presentation.description, /only its own scoped window/i)
-
-  for (const capability of capabilities) {
-    assert(!permissionIdentifiers(capability).some((permission) => /allow[-_:]?all/i.test(permission)))
-  }
+  assert.match(presentation.description, /hide only itself through a source-validated application command/i)
+  assert.doesNotMatch(settings.description, /scoped core|label scope/i)
+  assert.doesNotMatch(presentation.description, /scoped core|label scope/i)
 })
 
 test('presentation controller opening is hard-coded and source validated', () => {
@@ -198,9 +216,7 @@ test('presentation controller opening is hard-coded and source validated', () =>
   assert.match(signature[1], /window:\s*tauri::WebviewWindow/)
   assert(!/label|target|String|&str/.test(signature[1]), 'command must not accept an arbitrary target label')
 
-  const start = source.indexOf('pub fn open_presentation_controller')
-  const end = source.indexOf('#[tauri::command]', start + 1)
-  const body = source.slice(start, end)
+  const body = commandBlock(source, 'open_presentation_controller')
   assert(body.includes('require_window_label(&window, MAIN_WINDOW_LABEL)?'))
   assert(body.includes('get_webview_window(PRESENTATION_WINDOW_LABEL)'))
   assert(body.includes('controller.show()'))
@@ -223,10 +239,7 @@ test('main window application commands bind operations to the calling main windo
     'hide_main_widget',
     'start_main_widget_drag',
   ]) {
-    const start = source.indexOf(`pub fn ${command}`)
-    assert(start >= 0, `${command} must exist`)
-    const end = source.indexOf('#[tauri::command]', start + 1)
-    const body = source.slice(start, end < 0 ? source.length : end)
+    const body = commandBlock(source, command)
     assert(body.includes('window: tauri::WebviewWindow'), `${command} must use injected caller context`)
     assert(body.includes('require_window_label(&window, MAIN_WINDOW_LABEL)?'), `${command} must reject non-main callers`)
   }
@@ -239,27 +252,60 @@ test('main window application commands bind operations to the calling main windo
   assert(!/pub fn resize_main_widget[\s\S]*?label\s*:/.test(source))
 })
 
-test('main frontend has no generic cross-window control path', () => {
+test('settings and presentation hide commands operate only on their injected caller window', () => {
+  const source = read('src-tauri/src/window_commands.rs')
+  const specifications = [
+    {
+      command: 'hide_settings_window',
+      labelConstant: 'SETTINGS_WINDOW_LABEL',
+      labelDeclaration: 'const SETTINGS_WINDOW_LABEL: &str = "settings";',
+      permission: 'allow-hide-settings-window',
+      capability: 'settings',
+    },
+    {
+      command: 'hide_presentation_window',
+      labelConstant: 'PRESENTATION_WINDOW_LABEL',
+      labelDeclaration: 'const PRESENTATION_WINDOW_LABEL: &str = "presentation";',
+      permission: 'allow-hide-presentation-window',
+      capability: 'presentation',
+    },
+  ]
+
+  for (const specification of specifications) {
+    assert(source.includes(specification.labelDeclaration))
+    const signature = new RegExp(`pub fn ${specification.command}\\s*\\(([^)]*)\\)`).exec(source)
+    assert(signature, `${specification.command} must exist as a Rust command`)
+    assert.match(signature[1], /^window:\s*tauri::WebviewWindow\s*$/)
+    assert.doesNotMatch(
+      signature[1],
+      /label|target|windowName|String|&str/i,
+      `${specification.command} must not accept a caller-selected target`,
+    )
+
+    const body = commandBlock(source, specification.command)
+    assert(body.includes(`require_window_label(&window, ${specification.labelConstant})?`))
+    assert(body.includes('window.hide()'))
+    assert(!body.includes('.app_handle()'), `${specification.command} must not retrieve an AppHandle`)
+    assert(!body.includes('get_webview_window'), `${specification.command} must not look up another window`)
+
+    const holders = capabilities
+      .filter((capability) => hasPermission(capability, specification.permission))
+      .map((capability) => capability.identifier)
+    assert.deepEqual(holders, [specification.capability])
+  }
+})
+
+test('frontend window control is limited to source-validated application commands', () => {
   const page = read('src/widget-page.ts')
   const shell = read('src/desktop-shell.ts')
   const widget = read('src/widget.ts')
+  const settings = read('src/settings.ts')
+  const presentation = read('src/presentation-page.ts')
 
   assert(!page.includes('WebviewWindow'))
   assert(!page.includes('getByLabel'))
   assert(page.includes("invoke('open_presentation_controller')"))
 
-  for (const marker of [
-    '.show(',
-    '.hide(',
-    '.setFocus(',
-    '.setSize(',
-    '.setMinSize(',
-    '.setMaxSize(',
-    '.scaleFactor(',
-    '.startDragging(',
-  ]) {
-    assert(!shell.includes(marker), `desktop shell must not call generic window method ${marker}`)
-  }
   assert(shell.includes("invoke<MainWindowMetrics>('resize_main_widget'"))
   assert(shell.includes("invoke('configure_main_widget')"))
   assert(shell.includes("invoke('show_main_widget')"))
@@ -268,6 +314,98 @@ test('main frontend has no generic cross-window control path', () => {
   assert(!widget.includes('getCurrentWindow'))
   assert(widget.includes("invoke('hide_main_widget')"))
   assert(widget.includes("invoke('start_main_widget_drag')"))
+
+  assert(!settings.includes('getCurrentWindow'))
+  assert(settings.includes('requestSettingsWindowClose'))
+  assert(settings.includes("invoke('hide_settings_window')"))
+  assert(settings.includes("window.confirm('放弃未保存的修改？')"))
+
+  assert(presentation.includes('getCurrentWindow'))
+  assert(presentation.includes('controllerWindow.onCloseRequested'))
+  assert(presentation.includes('controllerWindow.onFocusChanged'))
+  assert(presentation.includes('hidePresentationWindowOnClose'))
+  assert(presentation.includes("invoke('hide_presentation_window')"))
+
+  const forbiddenMethods = [
+    '.show(',
+    '.hide(',
+    '.setFocus(',
+    '.setSize(',
+    '.setMinSize(',
+    '.setMaxSize(',
+    '.scaleFactor(',
+    '.startDragging(',
+  ]
+  const violations = []
+  for (const path of frontendSourceFiles()) {
+    const source = readFileSync(path, 'utf8')
+    for (const marker of forbiddenMethods) {
+      if (source.includes(marker)) violations.push(`${relative(root, path)}:${marker}`)
+    }
+  }
+  assert.deepEqual(
+    violations,
+    [],
+    `frontend must not call generic window control methods: ${violations.join(', ')}`,
+  )
+})
+
+test('settings close cancellation preserves state and does not invoke the hide command', async () => {
+  let confirmations = 0
+  let resets = 0
+  let hides = 0
+
+  const closed = await requestSettingsWindowClose({
+    hasUnsavedChanges: () => true,
+    confirmDiscard: () => {
+      confirmations += 1
+      return false
+    },
+    resetState: () => {
+      resets += 1
+    },
+    hideWindow: async () => {
+      hides += 1
+    },
+  })
+
+  assert.equal(closed, false)
+  assert.equal(confirmations, 1)
+  assert.equal(resets, 0)
+  assert.equal(hides, 0)
+})
+
+test('settings close confirmation resets state and invokes only its dedicated hide command', async () => {
+  const calls = []
+  const closed = await requestSettingsWindowClose({
+    hasUnsavedChanges: () => true,
+    confirmDiscard: () => true,
+    resetState: () => {
+      calls.push('reset')
+    },
+    hideWindow: async () => {
+      calls.push('hide_settings_window')
+    },
+  })
+
+  assert.equal(closed, true)
+  assert.deepEqual(calls, ['reset', 'hide_settings_window'])
+})
+
+test('presentation close request prevents destruction and invokes its dedicated hide command', async () => {
+  const calls = []
+  await hidePresentationWindowOnClose(
+    {
+      preventDefault: () => {
+        calls.push('preventDefault')
+      },
+    },
+    async () => {
+      calls.push('hide_presentation_window')
+    },
+  )
+
+  assert.deepEqual(calls, ['preventDefault', 'hide_presentation_window'])
 })
 
 test('frontend does not use the dialog plugin directly', () => {
