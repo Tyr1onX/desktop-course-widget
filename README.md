@@ -131,6 +131,12 @@ npm run tauri:build
 src-tauri\target\release\bundle\nsis\
 ```
 
+## 开发与贡献
+
+课刻当前处于快速产品迭代阶段。功能范围、缺陷优先级、安全停止条件、版本号、PR、测试、隐私与发布决策统一遵循 [课刻开发与发布规范](docs/DEVELOPMENT_POLICY.md)。
+
+该规范的核心原则是优先持续交付用户可感知的新能力，同时立即处理 P0、修复阻断当前版本的 P1，并避免让 P2、P3 或没有明确风险假设的泛化审计无限阻塞主线。
+
 ## 技术栈
 
 Tauri 2 · Rust · Vite · Vanilla TypeScript · HTML / CSS · Calamine

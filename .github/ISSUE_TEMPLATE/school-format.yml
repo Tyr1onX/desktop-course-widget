@@ -7,7 +7,7 @@ body:
       value: |
         感谢帮助课刻适配更多学校和教务系统。
 
-        **上传文件或截图前，请先删除或遮住姓名、学号、教师、教室以及其他个人信息。** 只保留能够复现问题的最小样例。
+        **上传文件、截图或日志前，请先完成脱敏。** 不要公开完整课表、控制台日志或包含个人目录的文件绝对路径。请移除或遮住用户名、姓名、学号、教师、教室、课表具体内容、设备标识以及其他个人信息，只保留能够复现问题的最小样例。
 
   - type: dropdown
     id: import-type
@@ -57,18 +57,19 @@ body:
     id: sample
     attributes:
       label: 脱敏样例或截图
-      description: 可直接拖入经过隐私处理的文件、局部截图或结构说明
+      description: 可直接拖入经过隐私处理的文件、局部截图或结构说明；不要上传未经处理的完整课表
 
   - type: textarea
     id: logs
     attributes:
-      label: 补充信息
-      description: 可提供 Windows 版本、复现步骤、日志或其他有助于定位的信息
+      label: 补充信息（请先脱敏）
+      description: 优先提供匿名诊断摘要、Windows 版本和最小复现步骤；不要直接粘贴完整控制台日志、课表原文或文件绝对路径
+      placeholder: 例如 Windows 11 24H2；识别在模型初始化阶段失败；已移除用户名和个人路径
 
   - type: checkboxes
     id: privacy
     attributes:
       label: 隐私确认
       options:
-        - label: 我已检查附件和文字，不包含姓名、学号或其他不应公开的个人信息
+        - label: 我已检查附件、日志和文字，不包含姓名、学号、教师姓名、课表内容、文件绝对路径、设备标识或其他不应公开的个人信息
           required: true
