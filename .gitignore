@@ -15,6 +15,10 @@ dist-ssr
 __pycache__/
 *.local
 
+# Tauri AppManifest build output. Application permissions are generated from
+# the Rust command manifest during compilation and are not source files.
+src-tauri/permissions/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

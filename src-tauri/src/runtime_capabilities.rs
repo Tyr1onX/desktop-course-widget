@@ -20,28 +20,28 @@ pub fn current() -> RuntimeCapabilities {
     }
 }
 
-#[cfg(debug_assertions)]
+#[cfg(target_os = "windows")]
 fn screenshot_import_capability() -> ScreenshotImportCapability {
-    match crate::screenshot_import::development_runtime_status() {
+    match crate::screenshot_import::runtime_status() {
         Ok(()) => ScreenshotImportCapability {
             available: true,
-            backend: "python-development".into(),
+            backend: "rust-native-ocr".into(),
             unavailable_reason: None,
         },
         Err(reason) => ScreenshotImportCapability {
             available: false,
-            backend: "python-development".into(),
+            backend: "rust-native-ocr".into(),
             unavailable_reason: Some(reason),
         },
     }
 }
 
-#[cfg(not(debug_assertions))]
+#[cfg(not(target_os = "windows"))]
 fn screenshot_import_capability() -> ScreenshotImportCapability {
     ScreenshotImportCapability {
         available: false,
         backend: "none".into(),
-        unavailable_reason: Some(crate::screenshot_import::RELEASE_UNAVAILABLE_REASON.into()),
+        unavailable_reason: Some("当前平台暂未提供本地课表截图识别".into()),
     }
 }
 

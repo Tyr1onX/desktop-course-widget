@@ -2,15 +2,22 @@
 
 ## Unreleased
 
-- Added a hidden time replay and presentation mode with a separate controller window and animated course handoffs.
-- Added a source-neutral import draft shared by Excel import and future screenshot recognition.
-- Added a course-by-course review and correction screen before importing a timetable.
-- Removed the obsolete in-app updater UI and its unused process/updater dependencies.
-- Reduced the production frontend build to the widget and settings pages.
-- Removed unused website styles, demo states, and duplicate validation configuration.
-- Removed the low-frequency manual backup and restore surface to keep the settings experience focused.
-- Updated repository documentation for the current release.
+## v0.5.0-beta.1 - 2026-08-05
 
+- Added fully local timetable screenshot recognition using in-process Rust OCR with bundled, hash-pinned models and no Python runtime.
+- Added a course-by-course review and correction screen before importing screenshot or Excel results.
+- Preserved existing timetables and settings during the tested upgrade from v0.4.0.
+- Added clear failures for non-timetable images and kept recognition controls locked only while processing.
+- Added a hidden time replay and presentation mode with a separate controller window and animated course handoffs.
+- Tightened Tauri window capabilities with dedicated source-bound commands and no generic WebView window permissions.
+- Removed the obsolete in-app updater UI and its unused process/updater dependencies.
+- Reduced the production frontend build and removed unused website/demo configuration.
+
+### Known limitations
+
+- Screenshot recognition is a Beta feature and may require manual correction for unfamiliar timetable layouts.
+- Some optional location fields may remain empty even when the core course arrangement is recovered correctly.
+- Use a complete PNG/JPG screenshot containing weekday headers, section markers, and all course cards.
 ## v0.4.0
 
 - Renamed the application to 课刻 and introduced the new application icon.

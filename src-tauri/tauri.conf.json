@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "课刻",
-  "version": "0.4.0",
+  "version": "0.5.0-beta.1",
   "identifier": "com.coursewidget.desktop",
   "build": {
     "frontendDist": "../dist",
@@ -96,7 +96,9 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "publisher": "Tyr1onX",
     "copyright": "Copyright © 2026 Tyr1onX",
     "icon": [
@@ -109,11 +111,16 @@
     "windows": {
       "nsis": {
         "installMode": "currentUser",
-        "languages": ["SimpChinese"]
+        "languages": [
+          "SimpChinese"
+        ]
       }
     },
     "android": {
       "debugApplicationIdSuffix": ".debug"
-    }
+    },
+    "resources": [
+      "resources/ocr-native/*"
+    ]
   }
 }

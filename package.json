@@ -1,7 +1,7 @@
 {
   "name": "desktop-course-widget",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.5.0-beta.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,7 +11,7 @@
     "check:version": "node scripts/check-version-consistency.mjs",
     "check:time-flow": "node scripts/check-time-flow.mjs",
     "check:import-review": "node --experimental-strip-types --test scripts/import-review.test.ts",
-    "check:screenshot-import": "node --experimental-strip-types --test scripts/screenshot-import-policy.test.ts scripts/runtime-capabilities.test.ts",
+    "check:screenshot-import": "node --experimental-strip-types --test scripts/screenshot-import-policy.test.ts scripts/runtime-capabilities.test.ts scripts/screenshot-import-busy-lifecycle.test.mjs",
     "check:import-review-dom": "node scripts/check-import-review-dom.mjs",
     "check:screenshot-import-dom": "node scripts/check-screenshot-import-dom.mjs",
     "check:presentation-clock": "node --experimental-strip-types scripts/check-presentation-clock.mjs",

@@ -11,6 +11,9 @@ on:
 permissions:
   contents: read
 
+env:
+  COURSE_WIDGET_BUILD_VERSION: 0.5.0-beta.1
+
 concurrency:
   group: validate-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -33,8 +36,24 @@ jobs:
       - name: Install web dependencies
         run: npm ci
 
+      - name: Prepare v0.5.0 beta candidate version
+        run: node scripts/set-build-version.mjs $env:COURSE_WIDGET_BUILD_VERSION
+
       - name: Check release version consistency
         run: npm run check:version
+
+      - name: Upload candidate version files
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: desktop-course-widget-version-files
+          path: |
+            package.json
+            package-lock.json
+            src-tauri/Cargo.toml
+            src-tauri/Cargo.lock
+            src-tauri/tauri.conf.json
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Check widget time-flow model
         run: npm run check:time-flow
@@ -156,15 +175,43 @@ jobs:
             }
           }
 
+      - name: Download pinned native OCR models
+        shell: pwsh
+        run: ./scripts/download-native-ocr-models.ps1
+
       - name: Build Windows NSIS installer
         run: npm run tauri:build
+
+      - name: Verify packaged native OCR resources
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'Windows NSIS installer was not produced.' }
+          ./scripts/verify-native-ocr-package.ps1 -Installer $installer.FullName
 
       - name: Smoke test packaged windows
         shell: pwsh
         run: ./scripts/windows-window-smoke.ps1
 
+      - name: Restore expected build-only files
+        shell: pwsh
+        run: |
+          git checkout -- package.json package-lock.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json
+          Remove-Item -Force -ErrorAction SilentlyContinue `
+            'src-tauri/resources/ocr-native/PP-OCRv5_mobile_det_fp16.mnn', `
+            'src-tauri/resources/ocr-native/PP-OCRv5_mobile_rec_fp16.mnn', `
+            'src-tauri/resources/ocr-native/ppocr_keys_v5.txt', `
+            'src-tauri/resources/ocr-native/manifest.json'
+
       - name: Verify build left the branch unchanged
-        run: git diff --exit-code
+        shell: pwsh
+        run: |
+          git diff --exit-code
+          $status = @(git status --porcelain)
+          if ($status.Count -ne 0) {
+            git status --short
+            throw 'Build left untracked or modified files in the review branch.'
+          }
 
       - name: Upload Windows NSIS installer
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5

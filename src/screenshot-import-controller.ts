@@ -32,6 +32,8 @@ type ActiveSchedule = {
   semesterStart: string
 }
 
+type LockableControl = HTMLInputElement | HTMLButtonElement | HTMLSelectElement | HTMLTextAreaElement
+
 const plugin = (command: string) => `plugin:schedule-catalog|${command}`
 const importTitle = '从文件创建独立课表'
 const importDescription = '选择 Excel 或完整单张课表截图，识别结果会进入同一套复核流程；已有课表不会被覆盖。'
@@ -42,7 +44,11 @@ let activeDraft: ImportDraft | null = null
 let activeSettings: AppSettings | null = null
 let importName = ''
 let firstWeekMonday = ''
+let selectionPending = false
 let recognitionPending = false
+let recognitionStartedAt = 0
+let recognitionTimer: number | null = null
+let nativeDialogCleanup: (() => void) | null = null
 let createPending = false
 let requestId = ''
 let renderQueued = false
@@ -134,30 +140,119 @@ function enhanceImportSurface(): void {
   updatePickerState(surface)
 }
 
+function recognitionElapsedSeconds(): number {
+  if (!recognitionPending || recognitionStartedAt <= 0) return 0
+  return Math.max(0, Math.floor((performance.now() - recognitionStartedAt) / 1000))
+}
+
 function updatePickerState(surface: HTMLElement): void {
   const excelPicker = surface.querySelector<HTMLButtonElement>('[data-action="choose-excel"]')
   const screenshotPicker = surface.querySelector<HTMLButtonElement>('[data-action="choose-screenshot"]')
-  if (excelPicker) excelPicker.disabled = recognitionPending
+  const pending = selectionPending || recognitionPending
+  if (excelPicker) excelPicker.disabled = pending
   if (!screenshotPicker) return
 
-  const state = String(recognitionPending)
-  screenshotPicker.disabled = recognitionPending
+  const elapsedSeconds = recognitionElapsedSeconds()
+  const state = `${selectionPending}:${recognitionPending}:${elapsedSeconds}`
+  screenshotPicker.disabled = pending
   if (screenshotPicker.dataset.screenshotImportState === state) return
   screenshotPicker.dataset.screenshotImportState = state
+
+  if (selectionPending) {
+    screenshotPicker.innerHTML = '<strong>正在选择课表截图…</strong>'
+    return
+  }
+  if (recognitionPending) {
+    screenshotPicker.innerHTML = `<strong>正在识别课表 · ${elapsedSeconds} 秒</strong>`
+    return
+  }
   screenshotPicker.innerHTML = `
-    <strong>${recognitionPending ? '正在识别课表截图…' : '选择 PNG / JPG 课表截图'}</strong>
+    <strong>选择 PNG / JPG 课表截图</strong>
     <span>请使用完整单张截图，包含星期标题、节次和全部课程；暂不支持多图拼接</span>
   `
 }
 
+function stopRecognitionClock(): void {
+  if (recognitionTimer !== null) {
+    window.clearInterval(recognitionTimer)
+    recognitionTimer = null
+  }
+  recognitionStartedAt = 0
+}
+
+function startRecognitionClock(): void {
+  stopRecognitionClock()
+  recognitionStartedAt = performance.now()
+  const tick = () => {
+    const currentSurface = document.querySelector<HTMLElement>('.import-review-surface')
+    if (currentSurface && recognitionPending) updatePickerState(currentSurface)
+  }
+  tick()
+  recognitionTimer = window.setInterval(tick, 1000)
+}
+
+function setRecognitionBusy(surface: HTMLElement, busy: boolean): void {
+  recognitionPending = busy
+  if (busy) startRecognitionClock()
+  else stopRecognitionClock()
+
+  document.documentElement.classList.toggle('screenshot-import-busy', busy)
+  surface.toggleAttribute('aria-busy', busy)
+  document.querySelectorAll<LockableControl>('button, input, select, textarea').forEach((control) => {
+    if (busy) {
+      if (control.dataset.screenshotOcrWasDisabled === undefined) {
+        control.dataset.screenshotOcrWasDisabled = control.disabled ? 'true' : 'false'
+      }
+      control.disabled = true
+      return
+    }
+    const previous = control.dataset.screenshotOcrWasDisabled
+    if (previous !== undefined) {
+      control.disabled = previous === 'true'
+      delete control.dataset.screenshotOcrWasDisabled
+    }
+  })
+  updatePickerState(surface)
+}
+
+function stopWatchingNativeDialog(): void {
+  nativeDialogCleanup?.()
+  nativeDialogCleanup = null
+}
+
+function watchNativeDialog(surface: HTMLElement): void {
+  stopWatchingNativeDialog()
+  let focusLeftWindow = false
+
+  const onBlur = () => {
+    if (selectionPending) focusLeftWindow = true
+  }
+  const onFocus = () => {
+    if (!selectionPending || !focusLeftWindow) return
+    selectionPending = false
+    setMessage(surface, '正在本机识别课表截图…')
+    setRecognitionBusy(surface, true)
+    stopWatchingNativeDialog()
+  }
+  const cleanup = () => {
+    window.removeEventListener('blur', onBlur)
+    window.removeEventListener('focus', onFocus)
+  }
+
+  window.addEventListener('blur', onBlur)
+  window.addEventListener('focus', onFocus)
+  nativeDialogCleanup = cleanup
+}
+
 async function chooseScreenshot(): Promise<void> {
-  if (recognitionPending || !canUseScreenshotImport(runtimeCapabilities)) return
+  if (selectionPending || recognitionPending || !canUseScreenshotImport(runtimeCapabilities)) return
   const surface = document.querySelector<HTMLElement>('.import-review-surface')
   if (!surface) return
 
-  recognitionPending = true
-  setMessage(surface, '正在本机识别课表截图…')
+  selectionPending = true
+  setMessage(surface, '')
   updatePickerState(surface)
+  watchNativeDialog(surface)
 
   try {
     const draft = await invoke<ImportDraft | null>('choose_and_parse_screenshot')
@@ -180,9 +275,12 @@ async function chooseScreenshot(): Promise<void> {
   } catch (error) {
     setMessage(surface, screenshotImportErrorText(error))
   } finally {
-    recognitionPending = false
+    stopWatchingNativeDialog()
+    selectionPending = false
     const currentSurface = document.querySelector<HTMLElement>('.import-review-surface')
-    if (currentSurface && !activeDraft) updatePickerState(currentSurface)
+    if (currentSurface && recognitionPending) setRecognitionBusy(currentSurface, false)
+    else if (currentSurface && !activeDraft) updatePickerState(currentSurface)
+    else stopRecognitionClock()
   }
 }
 
@@ -202,7 +300,6 @@ function renderReviewSurface(surface: HTMLElement): void {
   surface.innerHTML = `
     <div class="surface-intro">
       <h3>检查截图识别结果</h3>
-      <p>${escapeHtml(draft.sourceName)} 已在本机完成识别。请先核对课程数量和摘要；可以随时放弃本次结果并重新选择图片。</p>
     </div>
     <div class="import-summary">
       <div><span>课程安排</span><strong>${draft.summary.arrangements} 项</strong></div>
@@ -214,7 +311,7 @@ function renderReviewSurface(surface: HTMLElement): void {
       <label class="field field--full"><span>第一周星期一</span><input id="screenshot-import-first-week" type="date" value="${escapeHtml(firstWeekMonday)}" /></label>
     </div>
     <div class="import-review-heading">
-      <div><h3>逐项检查</h3><p>先浏览课程摘要；整体无误可一次确认全部，只有异常项需要展开修改。</p></div>
+      <div><h3>逐项检查</h3></div>
       <span>${draft.courses.length} 项</span>
     </div>
     <div class="import-review-list">
@@ -267,7 +364,10 @@ function resetScreenshotImport(): void {
   activeSettings = null
   importName = ''
   firstWeekMonday = ''
+  selectionPending = false
   recognitionPending = false
+  stopRecognitionClock()
+  stopWatchingNativeDialog()
   createPending = false
   requestId = ''
   sessionStorage.setItem(reopenImportKey, 'true')
@@ -275,7 +375,9 @@ function resetScreenshotImport(): void {
 }
 
 function hideTechnicalReviewEvidence(surface: HTMLElement): void {
-  surface.querySelectorAll('.import-evidence-copy').forEach((element) => element.remove())
+  surface
+    .querySelectorAll('.import-evidence-copy, .surface-intro p, .import-review-heading p')
+    .forEach((element) => element.remove())
 }
 
 async function createScreenshotSchedule(): Promise<void> {
