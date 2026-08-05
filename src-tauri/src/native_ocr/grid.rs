@@ -149,33 +149,128 @@ fn group_has_card_body(group: &[Token]) -> bool {
 }
 
 fn weekday_headers(tokens: &[Token]) -> Vec<WeekdayHeader> {
-    let top_limit = tokens
+    #[derive(Clone)]
+    struct Candidate {
+        header: WeekdayHeader,
+        center_y: f32,
+        height: f32,
+    }
+
+    let mut candidates = tokens
         .iter()
-        .map(|token| token.top)
-        .fold(f32::MAX, f32::min)
-        + tokens
-            .iter()
-            .map(|token| token.height)
-            .fold(0.0_f32, f32::max)
-            * 5.0;
-    let mut headers = tokens
-        .iter()
-        .filter(|token| token.top <= top_limit)
         .filter_map(|token| {
-            weekday_from_text(&token.text).map(|weekday| WeekdayHeader {
-                weekday,
-                center_x: token.center_x(),
-                bottom: token.bottom(),
+            weekday_from_text(&token.text).map(|weekday| Candidate {
+                header: WeekdayHeader {
+                    weekday,
+                    center_x: token.center_x(),
+                    bottom: token.bottom(),
+                },
+                center_y: token.center_y(),
+                height: token.height.max(1.0),
             })
         })
         .collect::<Vec<_>>();
-    headers.sort_by(|left, right| {
-        left.center_x
-            .partial_cmp(&right.center_x)
-            .unwrap_or(Ordering::Equal)
-    });
-    headers.dedup_by_key(|header| header.weekday);
-    headers
+
+    // OCR may return `星期` and the final weekday character as separate boxes.
+    for (prefix_index, prefix) in tokens.iter().enumerate() {
+        let prefix_text = compact_text(&prefix.text);
+        if prefix_text != "星期" && prefix_text != "周" {
+            continue;
+        }
+        for (suffix_index, suffix) in tokens.iter().enumerate() {
+            if prefix_index == suffix_index {
+                continue;
+            }
+            let suffix_text = compact_text(&suffix.text);
+            if suffix_text.chars().count() != 1 {
+                continue;
+            }
+            let Some(weekday) = suffix_text.chars().next().and_then(weekday_character) else {
+                continue;
+            };
+            let height = prefix.height.max(suffix.height).max(1.0);
+            if (prefix.center_y() - suffix.center_y()).abs() > height * 0.8 + 4.0 {
+                continue;
+            }
+            let horizontal_gap = suffix.left - prefix.right();
+            if horizontal_gap < -height * 0.25 || horizontal_gap > height * 1.8 + 8.0 {
+                continue;
+            }
+            let left = prefix.left.min(suffix.left);
+            let right = prefix.right().max(suffix.right());
+            let top = prefix.top.min(suffix.top);
+            let bottom = prefix.bottom().max(suffix.bottom());
+            candidates.push(Candidate {
+                header: WeekdayHeader {
+                    weekday,
+                    center_x: (left + right) / 2.0,
+                    bottom,
+                },
+                center_y: (top + bottom) / 2.0,
+                height: (bottom - top).max(1.0),
+            });
+        }
+    }
+
+    let mut best_headers = Vec::new();
+    let mut best_is_monotonic = false;
+    let mut best_center_y = f32::MAX;
+    let mut best_span = 0.0_f32;
+
+    for seed in &candidates {
+        let mut by_weekday: [Option<&Candidate>; 7] = std::array::from_fn(|_| None);
+        for candidate in &candidates {
+            let tolerance = seed.height.max(candidate.height) * 1.35 + 6.0;
+            if (seed.center_y - candidate.center_y).abs() > tolerance {
+                continue;
+            }
+            let slot = &mut by_weekday[(candidate.header.weekday - 1) as usize];
+            let candidate_distance = (candidate.center_y - seed.center_y).abs();
+            let should_replace = slot.is_none_or(|existing| {
+                candidate_distance < (existing.center_y - seed.center_y).abs()
+            });
+            if should_replace {
+                *slot = Some(candidate);
+            }
+        }
+
+        let mut row = by_weekday
+            .into_iter()
+            .flatten()
+            .map(|candidate| candidate.header.clone())
+            .collect::<Vec<_>>();
+        row.sort_by(|left, right| {
+            left.center_x
+                .partial_cmp(&right.center_x)
+                .unwrap_or(Ordering::Equal)
+        });
+        let is_monotonic = row
+            .windows(2)
+            .all(|pair| pair[0].weekday < pair[1].weekday);
+        let span = row
+            .last()
+            .zip(row.first())
+            .map(|(last, first)| last.center_x - first.center_x)
+            .unwrap_or_default();
+
+        let is_better = row.len() > best_headers.len()
+            || (row.len() == best_headers.len() && is_monotonic && !best_is_monotonic)
+            || (row.len() == best_headers.len()
+                && is_monotonic == best_is_monotonic
+                && seed.center_y < best_center_y)
+            || (row.len() == best_headers.len()
+                && is_monotonic == best_is_monotonic
+                && (seed.center_y - best_center_y).abs() < 1.0
+                && span > best_span);
+        if is_better {
+            best_headers = row;
+            best_is_monotonic = is_monotonic;
+            best_center_y = seed.center_y;
+            best_span = span;
+        }
+    }
+
+    best_headers
 }
 
 fn section_markers(tokens: &[Token], image_width: u32) -> Vec<(u8, f32)> {

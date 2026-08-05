@@ -15,7 +15,7 @@ use crate::import_draft::{
 const MAX_IMAGE_SIDE: u32 = 1600;
 const DEFAULT_LAST_WEEK: u8 = 16;
 const DEFAULT_SECTION_COUNT: u8 = 12;
-const RECOGNIZER_VERSION: &str = "ocr-rs-mnn-ppocrv5-mobile-v2";
+const RECOGNIZER_VERSION: &str = "ocr-rs-mnn-ppocrv5-mobile-v3";
 
 #[derive(Debug, Clone)]
 struct Token {
