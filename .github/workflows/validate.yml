@@ -18,14 +18,14 @@ concurrency:
 jobs:
   build-and-test:
     runs-on: windows-latest
-    timeout-minutes: 35
+    timeout-minutes: 50
 
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22
           cache: npm
@@ -66,8 +66,8 @@ jobs:
           exit 0
 
       - name: Upload web build log
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always() && steps.web_build.outcome != 'skipped'
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
           name: web-build-log
           path: web-build.log
@@ -80,7 +80,7 @@ jobs:
         run: exit 1
 
       - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.13'
 
@@ -159,11 +159,15 @@ jobs:
       - name: Build Windows NSIS installer
         run: npm run tauri:build
 
+      - name: Smoke test packaged windows
+        shell: pwsh
+        run: ./scripts/windows-window-smoke.ps1
+
       - name: Verify build left the branch unchanged
         run: git diff --exit-code
 
       - name: Upload Windows NSIS installer
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
           name: course-widget-windows-${{ github.sha }}
           path: src-tauri/target/release/bundle/nsis/*.exe
