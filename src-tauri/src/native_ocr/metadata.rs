@@ -92,17 +92,30 @@ fn weekday_column_bounds(headers: &[WeekdayHeader], weekday: u8, image_width: f3
     let Some(index) = headers.iter().position(|header| header.weekday == weekday) else {
         return (0.0, image_width);
     };
-    let left = if index == 0 {
-        0.0
-    } else {
-        (headers[index - 1].center_x + headers[index].center_x) / 2.0
+    if headers.len() == 1 {
+        return (0.0, image_width);
+    }
+
+    let current = &headers[index];
+    let step_from = |left: &WeekdayHeader, right: &WeekdayHeader| {
+        let weekday_delta = right.weekday.saturating_sub(left.weekday).max(1) as f32;
+        ((right.center_x - left.center_x) / weekday_delta).abs()
     };
-    let right = if index + 1 == headers.len() {
-        image_width
-    } else {
-        (headers[index].center_x + headers[index + 1].center_x) / 2.0
-    };
-    (left, right)
+    let left_step = index
+        .checked_sub(1)
+        .map(|previous| step_from(&headers[previous], current))
+        .or_else(|| headers.get(index + 1).map(|next| step_from(current, next)))
+        .unwrap_or(image_width);
+    let right_step = headers
+        .get(index + 1)
+        .map(|next| step_from(current, next))
+        .or_else(|| index.checked_sub(1).map(|previous| step_from(&headers[previous], current)))
+        .unwrap_or(image_width);
+
+    (
+        (current.center_x - left_step / 2.0).max(0.0),
+        (current.center_x + right_step / 2.0).min(image_width),
+    )
 }
 
 fn nearest_section(sections: &[(u8, f32)], y: f32) -> u8 {
@@ -289,9 +302,12 @@ fn location_from_text(value: &str) -> Option<String> {
 
 fn find_course_name<'a>(
     tokens: impl IntoIterator<Item = &'a Token>,
+    anchor: &'a Token,
 ) -> Option<(&'a Token, String)> {
-    let tokens = tokens.into_iter().collect::<Vec<_>>();
+    let mut tokens = tokens.into_iter().collect::<Vec<_>>();
+    tokens.sort_by(|left, right| token_reading_order(left, right));
 
+    // Coded card titles are already strong and should not be merged with neighbouring text.
     for token in &tokens {
         for value in token.parts.iter().chain(std::iter::once(&token.text)) {
             if let Some(name) = course_name_from_text(value) {
@@ -301,23 +317,97 @@ fn find_course_name<'a>(
             }
         }
     }
-    for token in &tokens {
-        for value in token.parts.iter().chain(std::iter::once(&token.text)) {
-            if let Some(name) = course_name_from_text(value) {
-                if !is_bare_teacher_name(&name) {
-                    return Some((*token, name));
+
+    // In grid timetables the title is normally one or more consecutive lines immediately
+    // above the line containing weekday, sections and weeks. Rebuild those lines before
+    // falling back to single-token heuristics.
+    let before_anchor = tokens
+        .iter()
+        .filter(|token| token.center_y() < anchor.center_y() - 1.0)
+        .filter_map(|token| name_fragment_from_token(token).map(|name| (*token, name)))
+        .collect::<Vec<_>>();
+    if let Some((last_token, _)) = before_anchor.last() {
+        let anchor_gap = anchor.top - last_token.bottom();
+        let anchor_tolerance = anchor.height.max(last_token.height).max(18.0) * 2.8 + 12.0;
+        if anchor_gap <= anchor_tolerance {
+            let mut first_index = before_anchor.len() - 1;
+            while first_index > 0 && before_anchor.len() - first_index < 4 {
+                let previous = &before_anchor[first_index - 1].0;
+                let current = &before_anchor[first_index].0;
+                let typical_height = previous.height.max(current.height).max(18.0);
+                let vertical_gap = current.top - previous.bottom();
+                if vertical_gap > typical_height * 1.35 + 8.0
+                    || vertical_gap < -typical_height * 0.8
+                {
+                    break;
                 }
+                let overlap = (previous.right().min(current.right())
+                    - previous.left.max(current.left))
+                    .max(0.0);
+                let minimum_width = previous.width.min(current.width).max(1.0);
+                let center_distance = (previous.center_x() - current.center_x()).abs();
+                if overlap < minimum_width * 0.12
+                    && center_distance > previous.width.max(current.width) * 0.65
+                {
+                    break;
+                }
+                first_index -= 1;
+            }
+
+            let fragments = before_anchor[first_index..]
+                .iter()
+                .map(|(_, name)| name.clone())
+                .collect::<Vec<_>>();
+            let combined = join_course_name_fragments(&fragments);
+            if let Some(name) = course_name_from_text(&combined) {
+                return Some((before_anchor[first_index].0, name));
+            }
+        }
+    }
+
+    // Some mobile card styles put the schedule line before the title. Preserve the existing
+    // single-token fallback for those layouts, but prefer values that are not bare names.
+    for token in &tokens {
+        if let Some(name) = name_fragment_from_token(token) {
+            if !is_bare_teacher_name(&name) {
+                return Some((*token, name));
             }
         }
     }
     for token in tokens {
-        for value in token.parts.iter().chain(std::iter::once(&token.text)) {
-            if let Some(name) = course_name_from_text(value) {
-                return Some((token, name));
-            }
+        if let Some(name) = name_fragment_from_token(token) {
+            return Some((token, name));
         }
     }
     None
+}
+
+fn name_fragment_from_token(token: &Token) -> Option<String> {
+    for value in &token.parts {
+        if let Some(name) = course_name_from_text(value) {
+            return Some(name);
+        }
+    }
+    course_name_from_text(&token.text)
+}
+
+fn join_course_name_fragments(fragments: &[String]) -> String {
+    let mut joined = String::new();
+    for fragment in fragments {
+        if fragment.is_empty() {
+            continue;
+        }
+        let needs_space = joined
+            .chars()
+            .last()
+            .zip(fragment.chars().next())
+            .is_some_and(|(left, right)| left.is_ascii_alphanumeric() && right.is_ascii_alphanumeric());
+        if needs_space {
+            joined.push(' ');
+        }
+        joined.push_str(fragment);
+    }
+    normalize_trailing_course_code(&joined)
 }
 
 fn has_course_code(value: &str) -> bool {

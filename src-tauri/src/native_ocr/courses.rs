@@ -106,7 +106,7 @@ fn course_from_block(
 ) -> Option<ImportCourse> {
     let mut candidates = block.iter().chain(std::iter::once(anchor)).collect::<Vec<_>>();
     candidates.sort_by(|left, right| token_reading_order(left, right));
-    let (name_token, name) = find_course_name(candidates.iter().copied())?;
+    let (name_token, name) = find_course_name(candidates.iter().copied(), anchor)?;
     let teacher = find_teacher_fragment(candidates.iter().copied(), name_token, &name, anchor);
     let location = find_location_fragment(candidates.iter().copied());
 

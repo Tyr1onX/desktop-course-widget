@@ -145,7 +145,7 @@ fn group_has_card_body(group: &[Token]) -> bool {
             }
         }
     }
-    has_name && (has_supporting_field || group.len() >= 2)
+    has_name && (has_supporting_field || group.iter().any(token_starts_course_card))
 }
 
 fn weekday_headers(tokens: &[Token]) -> Vec<WeekdayHeader> {
@@ -313,6 +313,34 @@ fn section_markers(tokens: &[Token], image_width: u32) -> Vec<(u8, f32)> {
             (section, reference.1 + spacing * offset as f32)
         })
         .collect()
+}
+
+fn timetable_content_bottom(sections: &[(u8, f32)], image_height: u32) -> f32 {
+    if sections.len() < 2 {
+        return image_height as f32 * 0.98;
+    }
+
+    let mut spacings = sections
+        .windows(2)
+        .filter_map(|pair| {
+            let section_delta = pair[1].0.saturating_sub(pair[0].0);
+            (section_delta > 0).then_some((pair[1].1 - pair[0].1) / section_delta as f32)
+        })
+        .filter(|spacing| spacing.is_finite() && *spacing > 4.0)
+        .collect::<Vec<_>>();
+    if spacings.is_empty() {
+        return image_height as f32 * 0.98;
+    }
+    spacings.sort_by(|left, right| left.partial_cmp(right).unwrap_or(Ordering::Equal));
+    let row_height = spacings[spacings.len() / 2];
+    let last_center = sections
+        .iter()
+        .map(|(_, center)| *center)
+        .fold(0.0_f32, f32::max);
+
+    (last_center + row_height * 0.65)
+        .max(last_center)
+        .min(image_height as f32 * 0.995)
 }
 
 fn section_number_from_text(value: &str) -> Option<u8> {

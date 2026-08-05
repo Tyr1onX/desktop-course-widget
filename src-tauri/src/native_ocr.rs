@@ -5,6 +5,7 @@ include!("native_ocr/metadata.rs");
 include!("native_ocr/support.rs");
 include!("native_ocr/tests.rs");
 include!("native_ocr/weekday_header_tests.rs");
+include!("native_ocr/table_structure_tests.rs");
 
 pub fn runtime_status() -> Result<(), String> {
     let model_root = resolve_model_root()?;

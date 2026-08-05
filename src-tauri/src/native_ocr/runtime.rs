@@ -15,7 +15,7 @@ use crate::import_draft::{
 const MAX_IMAGE_SIDE: u32 = 1600;
 const DEFAULT_LAST_WEEK: u8 = 16;
 const DEFAULT_SECTION_COUNT: u8 = 12;
-const RECOGNIZER_VERSION: &str = "ocr-rs-mnn-ppocrv5-mobile-v3";
+const RECOGNIZER_VERSION: &str = "ocr-rs-mnn-ppocrv5-mobile-v4";
 
 #[derive(Debug, Clone)]
 struct Token {
@@ -193,16 +193,30 @@ fn tokens_to_draft(
             true,
         )
     };
-    let anchors = course_anchors(tokens);
+    // A traditional timetable can be followed by transfer, internship and credit tables.
+    // When real section markers are available, stop at the lower edge of section 12 instead
+    // of feeding the whole long screenshot into the course parser.
+    let content_bottom = if sections_inferred {
+        working_height as f32 * 0.98
+    } else {
+        timetable_content_bottom(&sections, working_height)
+    };
+    let table_tokens = tokens
+        .iter()
+        .filter(|token| token.center_y() <= content_bottom)
+        .cloned()
+        .collect::<Vec<_>>();
+
+    let anchors = course_anchors(&table_tokens);
     let (anchored_courses, mut warnings) = anchor_courses(
-        tokens,
+        &table_tokens,
         &anchors,
         &headers,
         working_width,
         working_height,
     );
     let fallback = fallback_courses(
-        tokens,
+        &table_tokens,
         &headers,
         &sections,
         working_width,

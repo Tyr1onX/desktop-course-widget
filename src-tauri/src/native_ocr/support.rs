@@ -199,6 +199,7 @@ fn is_location_text(value: &str) -> bool {
         "南湖",
         "南岭",
         "中心",
+        "操场",
     ]
     .iter()
     .any(|marker| value.contains(marker))
@@ -218,6 +219,13 @@ fn is_common_header(value: &str) -> bool {
         "教学周",
         "课表",
         "学期",
+        "学分",
+        "起止周",
+        "上课时间",
+        "申请时间",
+        "编号",
+        "调停课信息",
+        "调、停（补）课信息",
     ]
     .contains(&value)
 }
