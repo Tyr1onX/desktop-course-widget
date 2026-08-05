@@ -1,20 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "presentation",
-  "description": "Allows the presentation controller to read the schedule, exchange replay events, and hide only its own scoped window.",
+  "description": "Allows the presentation controller to read the schedule, exchange replay events, and hide only itself through a source-validated application command.",
   "windows": [
     "presentation"
   ],
   "permissions": [
     "core:event:default",
-    {
-      "identifier": "core:window:allow-hide",
-      "allow": [
-        {
-          "label": "presentation"
-        }
-      ]
-    },
+    "allow-hide-presentation-window",
     "allow-read-schedule"
   ]
 }
