@@ -145,7 +145,9 @@ fn group_has_card_body(group: &[Token]) -> bool {
             }
         }
     }
-    has_name && (has_supporting_field || group.iter().any(token_starts_course_card))
+    has_name
+        && (has_supporting_field
+            || (group.len() >= 2 && group.iter().any(token_starts_course_card)))
 }
 
 fn weekday_headers(tokens: &[Token]) -> Vec<WeekdayHeader> {

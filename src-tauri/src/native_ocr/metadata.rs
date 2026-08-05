@@ -441,7 +441,7 @@ fn course_name_from_text(value: &str) -> Option<String> {
     let mut candidate = compact_text(value)
         .trim_matches(|character: char| {
             (character.is_ascii_punctuation() && !matches!(character, '[' | ']'))
-                || matches!(character, '（' | '）' | '【' | '】' | '，' | '。' | '：' | '；')
+                || matches!(character, '【' | '】' | '，' | '。' | '：' | '；')
         })
         .to_owned();
     if candidate.is_empty()

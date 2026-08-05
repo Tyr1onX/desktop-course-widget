@@ -49,11 +49,11 @@ mod table_structure_tests {
     #[test]
     fn reconstructs_multiline_title_before_schedule_anchor() {
         let tokens = vec![
-            sized_token("人工智能导论及其", 120.0, 120.0, 160.0, 22.0),
-            sized_token("Python应用实践", 120.0, 146.0, 160.0, 22.0),
-            sized_token("周三第1-2节第1-17周", 120.0, 174.0, 180.0, 22.0),
-            sized_token("左益平", 120.0, 202.0, 60.0, 22.0),
-            sized_token("教3-511", 120.0, 228.0, 70.0, 22.0),
+            sized_token("人工智能导论及其", 520.0, 120.0, 160.0, 22.0),
+            sized_token("Python应用实践", 520.0, 146.0, 160.0, 22.0),
+            sized_token("周三第1-2节第1-17周", 520.0, 174.0, 180.0, 22.0),
+            sized_token("左益平", 520.0, 202.0, 60.0, 22.0),
+            sized_token("教3-511", 520.0, 228.0, 70.0, 22.0),
         ];
         let anchors = course_anchors(&tokens);
         let (courses, _) = anchor_courses(&tokens, &anchors, &basic_headers(), 800, 500);
