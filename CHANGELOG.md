@@ -30,5 +30,13 @@
 
 ## v0.2.0
 
-- Initial Tauri desktop release.
-- Added Excel import and local timetable storage.
+- Expanded the public Windows MVP with a seven-day timetable.
+- Added course creation and editing, multiple time segments, custom teaching weeks, and dynamic lesson times from 1 to 24.
+- Added multi-timetable management and upgrade guidance for retaining local application data.
+
+## v0.1.0
+
+- Published the first public Windows Beta / MVP.
+- Added local Excel timetable import with a review step before applying changes.
+- Added the desktop course widget, configurable lesson times, first-run guidance, and system tray controls.
+- Kept timetable data on the local device without requiring an account.
