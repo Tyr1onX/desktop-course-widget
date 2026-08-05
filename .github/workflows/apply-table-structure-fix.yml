@@ -6,6 +6,7 @@ on:
       - fix/weekday-header-row-detection
     paths:
       - scripts/apply_table_structure_fix.py
+      - scripts/fix_apply_table_structure_script.py
       - .github/workflows/apply-table-structure-fix.yml
 
 permissions:
@@ -20,6 +21,9 @@ jobs:
         with:
           ref: fix/weekday-header-row-detection
           fetch-depth: 0
+
+      - name: Correct patch target file
+        run: python scripts/fix_apply_table_structure_script.py
 
       - name: Apply parser patch
         run: python scripts/apply_table_structure_fix.py
@@ -38,6 +42,7 @@ jobs:
             src-tauri/src/native_ocr/grid.rs \
             src-tauri/src/native_ocr/courses.rs \
             src-tauri/src/native_ocr/metadata.rs \
+            src-tauri/src/native_ocr/support.rs \
             src-tauri/src/native_ocr/table_structure_tests.rs
           git diff --cached --check
           git commit -m "fix: parse traditional timetable structure"
