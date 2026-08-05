@@ -187,6 +187,7 @@ test('release workflow is read-only, locked, reproducible, and leaves the tree c
     'npm run check:security-boundary',
     'npm run web:build',
     'npm run tauri:build',
+    './scripts/windows-window-smoke.ps1',
     'git diff --exit-code',
   ]) {
     assert(workflow.includes(command), `release workflow is missing ${command}`)
