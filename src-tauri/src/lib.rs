@@ -595,6 +595,8 @@ pub fn run() {
             window_commands::show_main_widget,
             window_commands::hide_main_widget,
             window_commands::start_main_widget_drag,
+            window_commands::hide_settings_window,
+            window_commands::hide_presentation_window,
             save_lesson_times,
             choose_and_parse_excel,
             choose_and_parse_screenshot,
