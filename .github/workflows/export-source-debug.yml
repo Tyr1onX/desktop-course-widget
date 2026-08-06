@@ -17,10 +17,12 @@ jobs:
       - name: Checkout branch
         uses: actions/checkout@v4
       - name: Archive source
-        run: tar --exclude=.git -czf ../desktop-course-widget-source.tar.gz .
+        run: |
+          tar --exclude=.git -czf /tmp/desktop-course-widget-source.tar.gz .
+          mv /tmp/desktop-course-widget-source.tar.gz ./desktop-course-widget-source.tar.gz
       - name: Upload source archive
         uses: actions/upload-artifact@v4
         with:
           name: desktop-course-widget-source-debug
-          path: ../desktop-course-widget-source.tar.gz
+          path: desktop-course-widget-source.tar.gz
           retention-days: 1
