@@ -20,7 +20,7 @@ jobs:
           ref: fix/weekday-header-row-detection
           fetch-depth: 0
 
-      - name: Patch parser and regression tests
+      - name: Apply verified parser patch
         shell: bash
         run: |
           python - <<'PY'
@@ -34,6 +34,16 @@ jobs:
           path.write_text(text.replace(old, new, 1), encoding='utf-8')
           PY
           python scripts/apply_real_grid_v3.py
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('src-tauri/src/native_ocr/metadata.rs')
+          text = path.read_text(encoding='utf-8')
+          old = '.filter_map(|(token_index, token)| {'
+          new = '.filter_map(|(token_index, _token)| {'
+          if text.count(old) != 1:
+              raise SystemExit('unused token binding not found exactly once')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
 
       - name: Format Rust
         run: cargo fmt --manifest-path src-tauri/Cargo.toml
@@ -44,12 +54,12 @@ jobs:
       - name: Run Rust library tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked --lib
 
-      - name: Commit tested parser changes
+      - name: Commit verified parser changes
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm .github/workflows/apply-real-grid-v3.yml scripts/apply_real_grid_v3.py
+          git rm -f .github/workflows/apply-real-grid-v3.yml scripts/apply_real_grid_v3.py
           git add src-tauri/src/native_ocr/runtime.rs \
             src-tauri/src/native_ocr/support.rs \
             src-tauri/src/native_ocr/metadata.rs \
