@@ -247,11 +247,57 @@ mod table_structure_tests {
         );
     }
 
+
+    #[test]
+    fn complete_schedule_does_not_absorb_next_course_week_range() {
+        let tokens = vec![
+            sized_token("概率论与数理统计", 520.0, 110.0, 150.0, 22.0),
+            sized_token("周五第3,4节第1-17周", 520.0, 138.0, 180.0, 22.0),
+            sized_token("王雪红", 520.0, 164.0, 60.0, 22.0),
+            sized_token("教3-512", 520.0, 190.0, 70.0, 22.0),
+            sized_token("操作系统基础（混合式）", 520.0, 220.0, 180.0, 22.0),
+            sized_token("周五第3,4节", 520.0, 248.0, 120.0, 22.0),
+            sized_token("第6-16周双周", 520.0, 274.0, 110.0, 22.0),
+        ];
+
+        let text = schedule_text_for_anchor(&tokens, 1);
+        let (weeks, parity, used_default) = parse_weeks_and_parity(&text);
+        assert_eq!(weeks, (1..=17).collect::<Vec<_>>());
+        assert_eq!(parity, "all");
+        assert!(!used_default);
+    }
+
+    #[test]
+    fn incomplete_schedule_stops_at_teacher_before_unrelated_week_range() {
+        let tokens = vec![
+            sized_token("周五第3,4节", 520.0, 138.0, 120.0, 22.0),
+            sized_token("王雪红", 520.0, 164.0, 60.0, 22.0),
+            sized_token("教3-512", 520.0, 190.0, 70.0, 22.0),
+            sized_token("第6-16周双周", 520.0, 216.0, 110.0, 22.0),
+        ];
+
+        let text = schedule_text_for_anchor(&tokens, 0);
+        assert_eq!(text, "周五第3,4节");
+    }
+
+    #[test]
+    fn missing_week_range_adopts_detected_semester_maximum() {
+        let tokens = vec![
+            sized_token("周一第1,2节", 120.0, 138.0, 120.0, 22.0),
+            sized_token("周二第1,2节第1-17周", 320.0, 138.0, 180.0, 22.0),
+        ];
+        let anchors = course_anchors(&tokens);
+        assert_eq!(anchors.len(), 2);
+        assert_eq!(anchors[0].weeks, (1..=17).collect::<Vec<_>>());
+        assert!(anchors[0].used_default_weeks);
+        assert_eq!(anchors[1].weeks, (1..=17).collect::<Vec<_>>());
+    }
+
     #[test]
     fn reliable_grid_anchors_disable_unstructured_fallback() {
         assert!(!should_use_fallback(false, 3));
         assert!(should_use_fallback(false, 2));
-        assert!(should_use_fallback(true, 8));
+        assert!(!should_use_fallback(true, 8));
     }
 
 }

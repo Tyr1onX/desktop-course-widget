@@ -355,6 +355,8 @@ fn same_course_identity(left: &ImportCourse, right: &ImportCourse) -> bool {
 }
 
 
-fn should_use_fallback(sections_inferred: bool, anchor_count: usize) -> bool {
-    sections_inferred || anchor_count < 3
+fn should_use_fallback(_sections_inferred: bool, anchor_count: usize) -> bool {
+    // Once a timetable yields several explicit weekday/section anchors, position-only
+    // fallback creates duplicate and fake courses when row markers are inferred.
+    anchor_count < 3
 }

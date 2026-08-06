@@ -19,6 +19,22 @@ fn course_anchors(tokens: &[Token]) -> Vec<CourseAnchor> {
             })
         })
         .collect::<Vec<_>>();
+
+    // Some OCR results keep the weekday and section range but lose the final week range.
+    // Prefer the semester maximum observed elsewhere in the same timetable instead of
+    // silently truncating those courses to DEFAULT_LAST_WEEK.
+    let detected_last_week = anchors
+        .iter()
+        .filter(|anchor| !anchor.used_default_weeks)
+        .flat_map(|anchor| anchor.weeks.iter().copied())
+        .max()
+        .unwrap_or(DEFAULT_LAST_WEEK);
+    for anchor in &mut anchors {
+        if anchor.used_default_weeks && detected_last_week > DEFAULT_LAST_WEEK {
+            anchor.weeks = (1..=detected_last_week).collect();
+        }
+    }
+
     anchors.sort_by(|left, right| {
         left.weekday
             .cmp(&right.weekday)
@@ -35,7 +51,14 @@ fn course_anchors(tokens: &[Token]) -> Vec<CourseAnchor> {
 
 fn schedule_text_for_anchor(tokens: &[Token], token_index: usize) -> String {
     let anchor = &tokens[token_index];
-    let mut fragments = vec![anchor.text.clone()];
+
+    // A complete schedule line is authoritative. Extending it with a nearby bare week
+    // range can steal the metadata of the next course in a densely stacked grid cell.
+    if !parse_weeks_and_parity(&anchor.text).2 {
+        return anchor.text.clone();
+    }
+
+    let mut combined = anchor.text.clone();
     let maximum_gap = anchor.height.max(18.0) * 3.4 + 16.0;
     let mut continuations = tokens
         .iter()
@@ -45,22 +68,49 @@ fn schedule_text_for_anchor(tokens: &[Token], token_index: usize) -> String {
                 && candidate.center_y() > anchor.center_y() + 0.5
                 && candidate.top - anchor.bottom() <= maximum_gap
         })
-        .filter(|(_, candidate)| {
-            let overlap = (anchor.right().min(candidate.right())
-                - anchor.left.max(candidate.left))
-                .max(0.0);
-            let minimum_width = anchor.width.min(candidate.width).max(1.0);
-            overlap >= minimum_width * 0.12
-                || (anchor.center_x() - candidate.center_x()).abs()
-                    <= anchor.width.max(candidate.width) * 0.55
-        })
-        .filter(|(_, candidate)| looks_like_schedule_continuation(&candidate.text))
+        .filter(|(_, candidate)| horizontally_related(anchor, candidate))
         .collect::<Vec<_>>();
     continuations.sort_by(|left, right| token_reading_order(left.1, right.1));
-    for (_, candidate) in continuations.into_iter().take(2) {
-        fragments.push(candidate.text.clone());
+
+    let mut appended = 0;
+    for (_, candidate) in continuations {
+        if continuation_has_boundary(tokens, anchor, candidate) {
+            break;
+        }
+        if !looks_like_schedule_continuation(&candidate.text) {
+            continue;
+        }
+        combined.push_str(&candidate.text);
+        appended += 1;
+        if !parse_weeks_and_parity(&combined).2 || appended >= 2 {
+            break;
+        }
     }
-    fragments.join("")
+    combined
+}
+
+fn horizontally_related(left: &Token, right: &Token) -> bool {
+    let overlap = (left.right().min(right.right()) - left.left.max(right.left)).max(0.0);
+    let minimum_width = left.width.min(right.width).max(1.0);
+    overlap >= minimum_width * 0.12
+        || (left.center_x() - right.center_x()).abs() <= left.width.max(right.width) * 0.55
+}
+
+fn continuation_has_boundary(tokens: &[Token], anchor: &Token, candidate: &Token) -> bool {
+    tokens.iter().any(|between| {
+        between.center_y() > anchor.center_y() + 0.5
+            && between.center_y() < candidate.center_y() - 0.5
+            && horizontally_related(anchor, between)
+            && (weekday_from_schedule_text(&between.text).is_some()
+                || section_range_from_text(&between.text).is_some()
+                || is_footer_table_header(&between.text)
+                || is_teacher_text(&between.text)
+                || is_bare_teacher_name(&between.text)
+                || is_location_text(&between.text)
+                || compact_location_from_text(&between.text).is_some()
+                || course_name_from_text(&between.text)
+                    .is_some_and(|name| name.chars().count() >= 4))
+    })
 }
 
 fn looks_like_schedule_continuation(value: &str) -> bool {
