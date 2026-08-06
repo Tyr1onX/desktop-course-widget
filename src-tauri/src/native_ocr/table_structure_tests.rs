@@ -177,4 +177,81 @@ mod table_structure_tests {
         assert!(courses.iter().all(|course| course.name != "先修模块"));
     }
 
+
+    #[test]
+    fn ordinary_spaces_do_not_turn_one_ocr_line_into_vertical_rows() {
+        let tokens = expand_multiline_tokens(vec![sized_token(
+            "周一 第1,2节 （第1-17周）",
+            120.0,
+            120.0,
+            180.0,
+            24.0,
+        )]);
+        assert_eq!(tokens.len(), 1);
+        let anchors = course_anchors(&tokens);
+        assert_eq!(anchors.len(), 1);
+        assert_eq!((anchors[0].start_section, anchors[0].end_section), (1, 2));
+        assert_eq!(anchors[0].weeks, (1..=17).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn wrapped_schedule_lines_restore_parity_and_explicit_week_ranges() {
+        let tokens = vec![
+            sized_token("课程甲实验", 120.0, 110.0, 130.0, 22.0),
+            sized_token("周一第6,7节(第2-16", 120.0, 138.0, 170.0, 22.0),
+            sized_token("周双周)", 120.0, 164.0, 70.0, 22.0),
+            sized_token("张三", 120.0, 190.0, 50.0, 22.0),
+            sized_token("教3-201", 120.0, 216.0, 70.0, 22.0),
+            sized_token("课程乙专题", 520.0, 110.0, 130.0, 22.0),
+            sized_token("周三第10,11,12节(第", 520.0, 138.0, 190.0, 22.0),
+            sized_token("6-8周)", 520.0, 164.0, 70.0, 22.0),
+            sized_token("李四", 520.0, 190.0, 50.0, 22.0),
+            sized_token("教3-202", 520.0, 216.0, 70.0, 22.0),
+        ];
+        let anchors = course_anchors(&tokens);
+        assert_eq!(anchors.len(), 2);
+        assert_eq!((anchors[0].start_section, anchors[0].end_section), (6, 7));
+        assert_eq!(anchors[0].weeks, vec![2, 4, 6, 8, 10, 12, 14, 16]);
+        assert_eq!(anchors[0].parity, "even");
+        assert_eq!((anchors[1].start_section, anchors[1].end_section), (10, 12));
+        assert_eq!(anchors[1].weeks, vec![6, 7, 8]);
+    }
+
+    #[test]
+    fn punctuated_footer_headers_cut_off_practice_tables() {
+        assert!(is_footer_table_header("调、停（补）课信息："));
+        assert!(is_footer_table_header("实践课(或无上课时间)信息:"));
+        let sections = (1..=12)
+            .map(|section| (section, 120.0 + (section as f32 - 1.0) * 50.0))
+            .collect::<Vec<_>>();
+        let tokens = vec![sized_token(
+            "实践课(或无上课时间)信息:",
+            120.0,
+            682.0,
+            210.0,
+            22.0,
+        )];
+        let bottom = timetable_content_bottom(&tokens, &sections, 1000);
+        assert!(bottom < 682.0);
+    }
+
+    #[test]
+    fn traditional_room_and_change_metadata_are_not_part_of_titles() {
+        assert_eq!(
+            course_name_from_text("教3-201（停0079）操作系统实验（混合式）").as_deref(),
+            Some("操作系统实验（混合式）")
+        );
+        assert_eq!(
+            course_name_from_text("教3-312人工智能应用实践").as_deref(),
+            Some("人工智能应用实践")
+        );
+    }
+
+    #[test]
+    fn reliable_grid_anchors_disable_unstructured_fallback() {
+        assert!(!should_use_fallback(false, 3));
+        assert!(should_use_fallback(false, 2));
+        assert!(should_use_fallback(true, 8));
+    }
+
 }

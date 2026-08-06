@@ -15,12 +15,13 @@ use crate::import_draft::{
 const MAX_IMAGE_SIDE: u32 = 1600;
 const DEFAULT_LAST_WEEK: u8 = 16;
 const DEFAULT_SECTION_COUNT: u8 = 12;
-const RECOGNIZER_VERSION: &str = "ocr-rs-mnn-ppocrv5-mobile-v5";
+const RECOGNIZER_VERSION: &str = "ocr-rs-mnn-ppocrv5-mobile-v6";
 
 #[derive(Debug, Clone)]
 struct Token {
     text: String,
     parts: Vec<String>,
+    lines: Vec<String>,
     confidence: f32,
     left: f32,
     top: f32,
@@ -49,9 +50,18 @@ impl Token {
         if parts.is_empty() {
             parts.push(text.clone());
         }
+        let mut lines = value
+            .lines()
+            .map(compact_text)
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<_>>();
+        if lines.is_empty() {
+            lines.push(text.clone());
+        }
         Some(Self {
             text,
             parts,
+            lines,
             confidence: confidence.clamp(0.0, 1.0),
             left,
             top,
@@ -86,6 +96,7 @@ struct CourseAnchor {
     weeks: Vec<u8>,
     parity: String,
     used_default_weeks: bool,
+    metadata_text: String,
 }
 
 #[derive(Debug, Clone)]
@@ -216,13 +227,17 @@ fn tokens_to_draft(
         working_width,
         working_height,
     );
-    let fallback = fallback_courses(
-        &table_tokens,
-        &headers,
-        &sections,
-        working_width,
-        working_height,
-    );
+    let fallback = if should_use_fallback(sections_inferred, anchors.len()) {
+        fallback_courses(
+            &table_tokens,
+            &headers,
+            &sections,
+            working_width,
+            working_height,
+        )
+    } else {
+        Vec::new()
+    };
     let fallback_count = fallback.len();
     let mut courses = merge_course_candidates(anchored_courses, fallback);
 
@@ -337,4 +352,9 @@ fn same_course_identity(left: &ImportCourse, right: &ImportCourse) -> bool {
         && left.name == right.name
         && left.weeks == right.weeks
         && left.parity == right.parity
+}
+
+
+fn should_use_fallback(sections_inferred: bool, anchor_count: usize) -> bool {
+    sections_inferred || anchor_count < 3
 }

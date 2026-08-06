@@ -1,22 +1,23 @@
 fn expand_multiline_tokens(tokens: Vec<Token>) -> Vec<Token> {
     let mut expanded = Vec::new();
     for token in tokens {
-        let parts = token
-            .parts
+        let lines = token
+            .lines
             .iter()
-            .map(|part| compact_text(part))
-            .filter(|part| !part.is_empty())
+            .map(|line| compact_text(line))
+            .filter(|line| !line.is_empty())
             .collect::<Vec<_>>();
-        if parts.len() <= 1 {
+        if lines.len() <= 1 {
             expanded.push(token);
             continue;
         }
 
-        let line_height = (token.height / parts.len() as f32).max(1.0);
-        for (index, part) in parts.into_iter().enumerate() {
+        let line_height = (token.height / lines.len() as f32).max(1.0);
+        for (index, line) in lines.into_iter().enumerate() {
             expanded.push(Token {
-                text: part.clone(),
-                parts: vec![part],
+                text: line.clone(),
+                parts: vec![line.clone()],
+                lines: vec![line],
                 confidence: token.confidence,
                 left: token.left,
                 top: token.top + line_height * index as f32,
@@ -30,13 +31,24 @@ fn expand_multiline_tokens(tokens: Vec<Token>) -> Vec<Token> {
 }
 
 fn is_footer_table_header(value: &str) -> bool {
+    let compact = compact_text(value);
+    let normalized = compact
+        .chars()
+        .filter(|character| {
+            !character.is_ascii_punctuation()
+                && !matches!(
+                    character,
+                    '，' | '。' | '：' | '；' | '、' | '（' | '）' | '【' | '】'
+                )
+        })
+        .collect::<String>();
+
     matches!(
-        compact_text(value).as_str(),
+        normalized.as_str(),
         "调停课信息"
-            | "调、停（补）课信息"
-            | "调停（补）课信息"
+            | "调停补课信息"
             | "实践课信息"
-            | "实践课（或无上课时间）信息"
+            | "实践课或无上课时间信息"
             | "实习课信息"
             | "实习时间"
             | "先修模块"
@@ -49,7 +61,12 @@ fn is_footer_table_header(value: &str) -> bool {
             | "模块代码"
             | "学分"
             | "起止周"
-    )
+    ) || (normalized.contains('调')
+        && normalized.contains('停')
+        && normalized.contains("课信息"))
+        || (normalized.contains("实践课") && normalized.contains("信息"))
+        || (normalized.contains("实习课") && normalized.contains("信息"))
+        || normalized.contains("未安排上课时间")
 }
 
 fn token_is_course_boundary(token: &Token) -> bool {

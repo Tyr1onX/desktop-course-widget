@@ -2,10 +2,11 @@ fn course_anchors(tokens: &[Token]) -> Vec<CourseAnchor> {
     let mut anchors = tokens
         .iter()
         .enumerate()
-        .filter_map(|(token_index, token)| {
-            let weekday = weekday_from_schedule_text(&token.text)?;
-            let (start_section, end_section) = section_range_from_text(&token.text)?;
-            let (weeks, parity, used_default_weeks) = parse_weeks_and_parity(&token.text);
+        .filter_map(|(token_index, _token)| {
+            let metadata_text = schedule_text_for_anchor(tokens, token_index);
+            let weekday = weekday_from_schedule_text(&metadata_text)?;
+            let (start_section, end_section) = section_range_from_text(&metadata_text)?;
+            let (weeks, parity, used_default_weeks) = parse_weeks_and_parity(&metadata_text);
             Some(CourseAnchor {
                 token_index,
                 weekday,
@@ -14,6 +15,7 @@ fn course_anchors(tokens: &[Token]) -> Vec<CourseAnchor> {
                 weeks,
                 parity,
                 used_default_weeks,
+                metadata_text,
             })
         })
         .collect::<Vec<_>>();
@@ -31,6 +33,65 @@ fn course_anchors(tokens: &[Token]) -> Vec<CourseAnchor> {
     anchors
 }
 
+fn schedule_text_for_anchor(tokens: &[Token], token_index: usize) -> String {
+    let anchor = &tokens[token_index];
+    let mut fragments = vec![anchor.text.clone()];
+    let maximum_gap = anchor.height.max(18.0) * 3.4 + 16.0;
+    let mut continuations = tokens
+        .iter()
+        .enumerate()
+        .filter(|(index, candidate)| {
+            *index != token_index
+                && candidate.center_y() > anchor.center_y() + 0.5
+                && candidate.top - anchor.bottom() <= maximum_gap
+        })
+        .filter(|(_, candidate)| {
+            let overlap = (anchor.right().min(candidate.right())
+                - anchor.left.max(candidate.left))
+                .max(0.0);
+            let minimum_width = anchor.width.min(candidate.width).max(1.0);
+            overlap >= minimum_width * 0.12
+                || (anchor.center_x() - candidate.center_x()).abs()
+                    <= anchor.width.max(candidate.width) * 0.55
+        })
+        .filter(|(_, candidate)| looks_like_schedule_continuation(&candidate.text))
+        .collect::<Vec<_>>();
+    continuations.sort_by(|left, right| token_reading_order(left.1, right.1));
+    for (_, candidate) in continuations.into_iter().take(2) {
+        fragments.push(candidate.text.clone());
+    }
+    fragments.join("")
+}
+
+fn looks_like_schedule_continuation(value: &str) -> bool {
+    let compact = compact_text(value);
+    if compact.is_empty()
+        || weekday_from_schedule_text(&compact).is_some()
+        || compact_location_from_text(&compact).is_some()
+        || is_location_text(&compact)
+        || is_footer_table_header(&compact)
+    {
+        return false;
+    }
+    let has_digit = compact.chars().any(|character| character.is_ascii_digit());
+    let has_week = compact.contains('周');
+    let has_parity = compact.contains("单周")
+        || compact.contains("双周")
+        || compact.contains("周单")
+        || compact.contains("周双");
+    (has_week && (has_digit || has_parity))
+        || (has_digit
+            && compact
+                .chars()
+                .all(|character| {
+                    character.is_ascii_digit()
+                        || matches!(
+                            character,
+                            '-' | '—' | '~' | '－' | '–' | '‑' | '第' | '周' | '(' | ')' | '（' | '）'
+                        )
+                }))
+}
+
 fn weekday_from_schedule_text(value: &str) -> Option<u8> {
     let pattern = Regex::new(r"(?:周|星期)([一二三四五六日天1-7])").unwrap();
     let compact = compact_text(value);
@@ -41,13 +102,15 @@ fn weekday_from_schedule_text(value: &str) -> Option<u8> {
 fn section_range_from_text(value: &str) -> Option<(u8, u8)> {
     let compact = compact_text(value);
 
-    let listed = Regex::new(r"第?(\d{1,2}(?:[,，、]\d{1,2})+)节").unwrap();
+    let listed = Regex::new(
+        r"第?(\d{1,2}(?:(?:[,，、.·/]|第)\d{1,2})+)节",
+    )
+    .unwrap();
     if let Some(captures) = listed.captures(&compact) {
-        let mut sections = captures
-            .get(1)?
-            .as_str()
-            .split([',', '，', '、'])
-            .filter_map(|value| value.parse::<u8>().ok())
+        let mut sections = Regex::new(r"\d{1,2}")
+            .unwrap()
+            .find_iter(captures.get(1)?.as_str())
+            .filter_map(|value| value.as_str().parse::<u8>().ok())
             .filter(|section| (1..=20).contains(section))
             .collect::<Vec<_>>();
         sections.sort_unstable();
@@ -528,6 +591,28 @@ fn normalize_trailing_course_code(value: &str) -> String {
     }
 }
 
+fn strip_traditional_grid_prefix(value: &str) -> String {
+    let room_prefix = Regex::new(
+        r"^(?:(?:教|综|实|实验|实训|逸夫|文|理|工|体)[A-Za-z]?\d{0,2}[-－—–]\d{2,4}|(?:操场|体育场|体育馆)[A-Za-z0-9一二三四五六七八九十]*)(?:[（(](?:停|调)\d{3,8}[)）])?",
+    )
+    .unwrap();
+    let change_prefix = Regex::new(r"^[（(](?:停|调)\d{3,8}[)）]").unwrap();
+    let mut candidate = value.to_owned();
+    if let Some(prefix) = room_prefix.find(&candidate) {
+        let remainder = candidate[prefix.end()..].trim();
+        if remainder.chars().count() >= 2 {
+            candidate = remainder.to_owned();
+        }
+    }
+    if let Some(prefix) = change_prefix.find(&candidate) {
+        let remainder = candidate[prefix.end()..].trim();
+        if remainder.chars().count() >= 2 {
+            candidate = remainder.to_owned();
+        }
+    }
+    candidate
+}
+
 fn course_name_from_text(value: &str) -> Option<String> {
     let mut candidate = compact_text(value)
         .trim_matches(|character: char| {
@@ -535,6 +620,7 @@ fn course_name_from_text(value: &str) -> Option<String> {
                 || matches!(character, '【' | '】' | '，' | '。' | '：' | '；')
         })
         .to_owned();
+    candidate = strip_traditional_grid_prefix(&candidate);
     if candidate.is_empty()
         || weekday_from_text(&candidate).is_some()
         || Regex::new(r"^(?:周|星期)[一二三四五六日天1-7]$")

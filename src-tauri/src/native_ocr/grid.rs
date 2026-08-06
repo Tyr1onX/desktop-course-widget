@@ -109,6 +109,7 @@ fn fallback_courses(
                 parity,
                 used_default_weeks,
                 anchor,
+                &anchor.text,
                 &group,
                 image_width,
                 image_height,
@@ -384,15 +385,21 @@ fn timetable_content_bottom(
         .max(last_center)
         .min(image_height as f32 * 0.995);
 
+    let footer_search_start = sections
+        .iter()
+        .find(|(section, _)| *section >= 8)
+        .map(|(_, center)| *center)
+        .unwrap_or(last_center - row_height * 4.0)
+        .max(0.0);
     let footer_top = tokens
         .iter()
-        .filter(|token| token.top > last_center + row_height * 0.20)
+        .filter(|token| token.top > footer_search_start)
         .filter(|token| is_footer_table_header(&token.text))
         .map(|token| token.top)
         .min_by(|left, right| left.partial_cmp(right).unwrap_or(Ordering::Equal));
 
     footer_top
-        .map(|top| geometric_bottom.min((top - 1.0).max(last_center)))
+        .map(|top| geometric_bottom.min((top - 1.0).max(footer_search_start)))
         .unwrap_or(geometric_bottom)
 }
 

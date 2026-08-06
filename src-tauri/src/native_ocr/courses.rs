@@ -96,6 +96,7 @@ fn anchor_courses(
             anchor.parity.clone(),
             anchor.used_default_weeks,
             anchor_token,
+            &anchor.metadata_text,
             &block,
             image_width,
             image_height,
@@ -121,6 +122,7 @@ fn course_from_block(
     parity: String,
     default_weeks: bool,
     anchor: &Token,
+    anchor_text: &str,
     block: &[Token],
     image_width: u32,
     image_height: u32,
@@ -133,18 +135,23 @@ fn course_from_block(
         .copied()
         .filter(|token| token.center_y() >= name_token.center_y() - 1.0)
         .collect::<Vec<_>>();
-    let teacher = find_teacher_fragment(
-        field_candidates.iter().copied(),
-        name_token,
-        &name,
-        anchor,
-    )
-    .or_else(|| {
-        find_teacher_after_schedule(field_candidates.iter().copied(), &name, anchor)
-    });
-    let location = find_location_after_schedule(field_candidates.iter().copied(), anchor)
-        .or_else(|| find_location_fragment(field_candidates.iter().copied()))
-        .or_else(|| find_compact_location(field_candidates.iter().copied()));
+    let teacher = find_teacher_after_schedule(field_candidates.iter().copied(), &name, anchor)
+        .or_else(|| {
+            find_teacher_fragment(
+                field_candidates.iter().copied(),
+                name_token,
+                &name,
+                anchor,
+            )
+        });
+    let after_anchor = field_candidates
+        .iter()
+        .copied()
+        .filter(|token| token.center_y() >= anchor.center_y() - 1.0)
+        .collect::<Vec<_>>();
+    let location = find_location_after_schedule(after_anchor.iter().copied(), anchor)
+        .or_else(|| find_location_fragment(after_anchor.iter().copied()))
+        .or_else(|| find_compact_location(after_anchor.iter().copied()));
 
     let mut source_tokens = vec![anchor.clone()];
     source_tokens.extend(block.iter().cloned());
@@ -176,7 +183,7 @@ fn course_from_block(
         field: ImportFieldKey::Weeks,
         status: ImportReviewStatus::Review,
         confidence: Some(anchor.confidence),
-        raw_text: Some(anchor.text.clone()),
+        raw_text: Some(anchor_text.to_owned()),
         source_box: normalized_box(anchor, image_width, image_height),
         reason: Some(if default_weeks {
             "周次未完整识别，已填入默认范围，请修改后确认".into()
@@ -188,7 +195,7 @@ fn course_from_block(
         field: ImportFieldKey::Parity,
         status: ImportReviewStatus::Review,
         confidence: Some(anchor.confidence),
-        raw_text: Some(anchor.text.clone()),
+        raw_text: Some(anchor_text.to_owned()),
         source_box: normalized_box(anchor, image_width, image_height),
         reason: Some("本地 OCR 单双周需确认".into()),
     });
