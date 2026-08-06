@@ -1,0 +1,573 @@
+from pathlib import Path
+import re
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def read(path: str) -> str:
+    return (ROOT / path).read_text(encoding="utf-8")
+
+
+def write(path: str, text: str) -> None:
+    (ROOT / path).write_text(text.rstrip() + "\n", encoding="utf-8")
+
+
+def replace_once(text: str, old: str, new: str, label: str) -> str:
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(f"{label}: expected one match, found {count}")
+    return text.replace(old, new, 1)
+
+
+runtime_path = "src-tauri/src/native_ocr/runtime.rs"
+runtime = read(runtime_path)
+runtime = replace_once(
+    runtime,
+    'const RECOGNIZER_VERSION: &str = "ocr-rs-mnn-ppocrv5-mobile-v5";',
+    'const RECOGNIZER_VERSION: &str = "ocr-rs-mnn-ppocrv5-mobile-v6";',
+    "recognizer version",
+)
+runtime = replace_once(
+    runtime,
+    "    parts: Vec<String>,\n    confidence: f32,",
+    "    parts: Vec<String>,\n    lines: Vec<String>,\n    confidence: f32,",
+    "token lines field",
+)
+runtime = replace_once(
+    runtime,
+    """        let mut parts = value
+            .split_whitespace()
+            .map(compact_text)
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>();
+        if parts.is_empty() {
+            parts.push(text.clone());
+        }
+        Some(Self {
+            text,
+            parts,
+            confidence: confidence.clamp(0.0, 1.0),""",
+    """        let mut parts = value
+            .split_whitespace()
+            .map(compact_text)
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>();
+        if parts.is_empty() {
+            parts.push(text.clone());
+        }
+        let mut lines = value
+            .lines()
+            .map(compact_text)
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<_>>();
+        if lines.is_empty() {
+            lines.push(text.clone());
+        }
+        Some(Self {
+            text,
+            parts,
+            lines,
+            confidence: confidence.clamp(0.0, 1.0),""",
+    "token line initialization",
+)
+runtime = replace_once(
+    runtime,
+    "    used_default_weeks: bool,\n}",
+    "    used_default_weeks: bool,\n    metadata_text: String,\n}",
+    "anchor metadata text",
+)
+runtime = replace_once(
+    runtime,
+    """    let fallback = fallback_courses(
+        &table_tokens,
+        &headers,
+        &sections,
+        working_width,
+        working_height,
+    );""",
+    """    let fallback = if should_use_fallback(sections_inferred, anchors.len()) {
+        fallback_courses(
+            &table_tokens,
+            &headers,
+            &sections,
+            working_width,
+            working_height,
+        )
+    } else {
+        Vec::new()
+    };""",
+    "safe fallback selection",
+)
+runtime += """
+
+fn should_use_fallback(sections_inferred: bool, anchor_count: usize) -> bool {
+    sections_inferred || anchor_count < 3
+}
+"""
+write(runtime_path, runtime)
+
+support_path = "src-tauri/src/native_ocr/support.rs"
+support = read(support_path)
+support = replace_once(
+    support,
+    """        let parts = token
+            .parts
+            .iter()
+            .map(|part| compact_text(part))
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>();
+        if parts.len() <= 1 {
+            expanded.push(token);
+            continue;
+        }
+
+        let line_height = (token.height / parts.len() as f32).max(1.0);
+        for (index, part) in parts.into_iter().enumerate() {
+            expanded.push(Token {
+                text: part.clone(),
+                parts: vec![part],
+                confidence: token.confidence,""",
+    """        let lines = token
+            .lines
+            .iter()
+            .map(|line| compact_text(line))
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<_>>();
+        if lines.len() <= 1 {
+            expanded.push(token);
+            continue;
+        }
+
+        let line_height = (token.height / lines.len() as f32).max(1.0);
+        for (index, line) in lines.into_iter().enumerate() {
+            expanded.push(Token {
+                text: line.clone(),
+                parts: vec![line.clone()],
+                lines: vec![line],
+                confidence: token.confidence,""",
+    "newline-only expansion",
+)
+footer_pattern = re.compile(r"fn is_footer_table_header\(value: &str\) -> bool \{.*?\n\}", re.S)
+footer_replacement = """fn is_footer_table_header(value: &str) -> bool {
+    let compact = compact_text(value);
+    let normalized = compact
+        .chars()
+        .filter(|character| {
+            !character.is_ascii_punctuation()
+                && !matches!(
+                    character,
+                    '，' | '。' | '：' | '；' | '、' | '（' | '）' | '【' | '】'
+                )
+        })
+        .collect::<String>();
+
+    matches!(
+        normalized.as_str(),
+        "调停课信息"
+            | "调停补课信息"
+            | "实践课信息"
+            | "实践课或无上课时间信息"
+            | "实习课信息"
+            | "实习时间"
+            | "先修模块"
+            | "未安排上课时间的课程"
+            | "原上课时间地点教师"
+            | "现上课时间地点教师"
+            | "申请时间"
+            | "课程名称"
+            | "教师姓名"
+            | "模块代码"
+            | "学分"
+            | "起止周"
+    ) || (normalized.contains('调')
+        && normalized.contains('停')
+        && normalized.contains("课信息"))
+        || (normalized.contains("实践课") && normalized.contains("信息"))
+        || (normalized.contains("实习课") && normalized.contains("信息"))
+        || normalized.contains("未安排上课时间")
+}"""
+support, count = footer_pattern.subn(footer_replacement, support, count=1)
+if count != 1:
+    raise SystemExit(f"footer header replacement: {count}")
+write(support_path, support)
+
+metadata_path = "src-tauri/src/native_ocr/metadata.rs"
+metadata = read(metadata_path)
+anchors_pattern = re.compile(
+    r"fn course_anchors\(tokens: &\[Token\]\) -> Vec<CourseAnchor> \{.*?\n\}\n\nfn weekday_from_schedule_text",
+    re.S,
+)
+anchors_replacement = """fn course_anchors(tokens: &[Token]) -> Vec<CourseAnchor> {
+    let mut anchors = tokens
+        .iter()
+        .enumerate()
+        .filter_map(|(token_index, token)| {
+            let metadata_text = schedule_text_for_anchor(tokens, token_index);
+            let weekday = weekday_from_schedule_text(&metadata_text)?;
+            let (start_section, end_section) = section_range_from_text(&metadata_text)?;
+            let (weeks, parity, used_default_weeks) = parse_weeks_and_parity(&metadata_text);
+            Some(CourseAnchor {
+                token_index,
+                weekday,
+                start_section,
+                end_section,
+                weeks,
+                parity,
+                used_default_weeks,
+                metadata_text,
+            })
+        })
+        .collect::<Vec<_>>();
+    anchors.sort_by(|left, right| {
+        left.weekday
+            .cmp(&right.weekday)
+            .then(left.start_section.cmp(&right.start_section))
+            .then_with(|| {
+                tokens[left.token_index]
+                    .top
+                    .partial_cmp(&tokens[right.token_index].top)
+                    .unwrap_or(Ordering::Equal)
+            })
+    });
+    anchors
+}
+
+fn schedule_text_for_anchor(tokens: &[Token], token_index: usize) -> String {
+    let anchor = &tokens[token_index];
+    let mut fragments = vec![anchor.text.clone()];
+    let maximum_gap = anchor.height.max(18.0) * 3.4 + 16.0;
+    let mut continuations = tokens
+        .iter()
+        .enumerate()
+        .filter(|(index, candidate)| {
+            *index != token_index
+                && candidate.center_y() > anchor.center_y() + 0.5
+                && candidate.top - anchor.bottom() <= maximum_gap
+        })
+        .filter(|(_, candidate)| {
+            let overlap = (anchor.right().min(candidate.right())
+                - anchor.left.max(candidate.left))
+                .max(0.0);
+            let minimum_width = anchor.width.min(candidate.width).max(1.0);
+            overlap >= minimum_width * 0.12
+                || (anchor.center_x() - candidate.center_x()).abs()
+                    <= anchor.width.max(candidate.width) * 0.55
+        })
+        .filter(|(_, candidate)| looks_like_schedule_continuation(&candidate.text))
+        .collect::<Vec<_>>();
+    continuations.sort_by(|left, right| token_reading_order(left.1, right.1));
+    for (_, candidate) in continuations.into_iter().take(2) {
+        fragments.push(candidate.text.clone());
+    }
+    fragments.join("")
+}
+
+fn looks_like_schedule_continuation(value: &str) -> bool {
+    let compact = compact_text(value);
+    if compact.is_empty()
+        || weekday_from_schedule_text(&compact).is_some()
+        || compact_location_from_text(&compact).is_some()
+        || is_location_text(&compact)
+        || is_footer_table_header(&compact)
+    {
+        return false;
+    }
+    let has_digit = compact.chars().any(|character| character.is_ascii_digit());
+    let has_week = compact.contains('周');
+    let has_parity = compact.contains("单周")
+        || compact.contains("双周")
+        || compact.contains("周单")
+        || compact.contains("周双");
+    (has_week && (has_digit || has_parity))
+        || (has_digit
+            && compact
+                .chars()
+                .all(|character| {
+                    character.is_ascii_digit()
+                        || matches!(
+                            character,
+                            '-' | '—' | '~' | '－' | '–' | '‑' | '第' | '周' | '(' | ')' | '（' | '）'
+                        )
+                }))
+}
+
+fn weekday_from_schedule_text"""
+metadata, count = anchors_pattern.subn(anchors_replacement, metadata, count=1)
+if count != 1:
+    raise SystemExit(f"course anchors replacement: {count}")
+
+section_pattern = re.compile(
+    r"fn section_range_from_text\(value: &str\) -> Option<\(u8, u8\)> \{.*?\n\}\n\nfn parse_weeks_and_parity",
+    re.S,
+)
+section_replacement = """fn section_range_from_text(value: &str) -> Option<(u8, u8)> {
+    let compact = compact_text(value);
+
+    let listed = Regex::new(
+        r"第?(\\d{1,2}(?:(?:[,，、.·/]|第)\\d{1,2})+)节",
+    )
+    .unwrap();
+    if let Some(captures) = listed.captures(&compact) {
+        let mut sections = Regex::new(r"\\d{1,2}")
+            .unwrap()
+            .find_iter(captures.get(1)?.as_str())
+            .filter_map(|value| value.as_str().parse::<u8>().ok())
+            .filter(|section| (1..=20).contains(section))
+            .collect::<Vec<_>>();
+        sections.sort_unstable();
+        sections.dedup();
+        if let (Some(start), Some(end)) = (sections.first(), sections.last()) {
+            return Some((*start, *end));
+        }
+    }
+
+    let patterns = [
+        r"第?(\\d{1,2})节(?:[-—~－–‑]+|至|到)第?(\\d{1,2})节?",
+        r"第?(\\d{1,2})(?:[-—~－–‑]+|至|到)第?(\\d{1,2})节",
+    ];
+    for pattern in patterns {
+        let regex = Regex::new(pattern).unwrap();
+        let Some(captures) = regex.captures(&compact) else {
+            continue;
+        };
+        let start = captures.get(1)?.as_str().parse::<u8>().ok()?;
+        let end = captures.get(2)?.as_str().parse::<u8>().ok()?;
+        if start > 0 && end >= start && end <= 20 {
+            return Some((start, end));
+        }
+    }
+    None
+}
+
+fn parse_weeks_and_parity"""
+metadata, count = section_pattern.subn(section_replacement, metadata, count=1)
+if count != 1:
+    raise SystemExit(f"section range replacement: {count}")
+metadata = replace_once(
+    metadata,
+    """    let mut candidate = compact_text(value)
+        .trim_matches(|character: char| {
+            (character.is_ascii_punctuation() && !matches!(character, '[' | ']'))
+                || matches!(character, '【' | '】' | '，' | '。' | '：' | '；')
+        })
+        .to_owned();""",
+    """    let mut candidate = compact_text(value)
+        .trim_matches(|character: char| {
+            (character.is_ascii_punctuation() && !matches!(character, '[' | ']'))
+                || matches!(character, '【' | '】' | '，' | '。' | '：' | '；')
+        })
+        .to_owned();
+    candidate = strip_traditional_grid_prefix(&candidate);""",
+    "strip title prefix call",
+)
+insert_marker = "fn course_name_from_text(value: &str) -> Option<String> {"
+helper = """fn strip_traditional_grid_prefix(value: &str) -> String {
+    let room_prefix = Regex::new(
+        r"^(?:(?:教|综|实|实验|实训|逸夫|文|理|工|体)[A-Za-z]?\\d{0,2}[-－—–]\\d{2,4}|(?:操场|体育场|体育馆)[A-Za-z0-9一二三四五六七八九十]*)(?:[（(](?:停|调)\\d{3,8}[)）])?",
+    )
+    .unwrap();
+    let change_prefix = Regex::new(r"^[（(](?:停|调)\\d{3,8}[)）]").unwrap();
+    let mut candidate = value.to_owned();
+    if let Some(prefix) = room_prefix.find(&candidate) {
+        let remainder = candidate[prefix.end()..].trim();
+        if remainder.chars().count() >= 2 {
+            candidate = remainder.to_owned();
+        }
+    }
+    if let Some(prefix) = change_prefix.find(&candidate) {
+        let remainder = candidate[prefix.end()..].trim();
+        if remainder.chars().count() >= 2 {
+            candidate = remainder.to_owned();
+        }
+    }
+    candidate
+}
+
+"""
+if metadata.count(insert_marker) != 1:
+    raise SystemExit("course name marker missing")
+metadata = metadata.replace(insert_marker, helper + insert_marker, 1)
+write(metadata_path, metadata)
+
+courses_path = "src-tauri/src/native_ocr/courses.rs"
+courses = read(courses_path)
+courses = replace_once(
+    courses,
+    """            anchor.used_default_weeks,
+            anchor_token,
+            &block,""",
+    """            anchor.used_default_weeks,
+            anchor_token,
+            &anchor.metadata_text,
+            &block,""",
+    "anchored metadata argument",
+)
+courses = replace_once(
+    courses,
+    """    default_weeks: bool,
+    anchor: &Token,
+    block: &[Token],""",
+    """    default_weeks: bool,
+    anchor: &Token,
+    anchor_text: &str,
+    block: &[Token],""",
+    "course signature metadata argument",
+)
+teacher_pattern = re.compile(
+    r"    let teacher = find_teacher_fragment\(.*?\n    \}\);\n    let location = find_location_after_schedule\(.*?\n        \.or_else\(\|\| find_compact_location\(field_candidates\.iter\(\)\.copied\(\)\)\);",
+    re.S,
+)
+teacher_replacement = """    let teacher = find_teacher_after_schedule(field_candidates.iter().copied(), &name, anchor)
+        .or_else(|| {
+            find_teacher_fragment(
+                field_candidates.iter().copied(),
+                name_token,
+                &name,
+                anchor,
+            )
+        });
+    let after_anchor = field_candidates
+        .iter()
+        .copied()
+        .filter(|token| token.center_y() >= anchor.center_y() - 1.0)
+        .collect::<Vec<_>>();
+    let location = find_location_after_schedule(after_anchor.iter().copied(), anchor)
+        .or_else(|| find_location_fragment(after_anchor.iter().copied()))
+        .or_else(|| find_compact_location(after_anchor.iter().copied()));"""
+courses, count = teacher_pattern.subn(teacher_replacement, courses, count=1)
+if count != 1:
+    raise SystemExit(f"teacher/location replacement: {count}")
+courses = courses.replace(
+    "raw_text: Some(anchor.text.clone()),", "raw_text: Some(anchor_text.to_owned()),"
+)
+if courses.count("raw_text: Some(anchor_text.to_owned()),") != 2:
+    raise SystemExit("expected two anchor evidence replacements")
+write(courses_path, courses)
+
+grid_path = "src-tauri/src/native_ocr/grid.rs"
+grid = read(grid_path)
+grid = replace_once(
+    grid,
+    """                used_default_weeks,
+                anchor,
+                &group,""",
+    """                used_default_weeks,
+                anchor,
+                &anchor.text,
+                &group,""",
+    "fallback metadata argument",
+)
+footer_search_old = """    let footer_top = tokens
+        .iter()
+        .filter(|token| token.top > last_center + row_height * 0.20)
+        .filter(|token| is_footer_table_header(&token.text))
+        .map(|token| token.top)
+        .min_by(|left, right| left.partial_cmp(right).unwrap_or(Ordering::Equal));
+
+    footer_top
+        .map(|top| geometric_bottom.min((top - 1.0).max(last_center)))
+        .unwrap_or(geometric_bottom)"""
+footer_search_new = """    let footer_search_start = sections
+        .iter()
+        .find(|(section, _)| *section >= 8)
+        .map(|(_, center)| *center)
+        .unwrap_or(last_center - row_height * 4.0)
+        .max(0.0);
+    let footer_top = tokens
+        .iter()
+        .filter(|token| token.top > footer_search_start)
+        .filter(|token| is_footer_table_header(&token.text))
+        .map(|token| token.top)
+        .min_by(|left, right| left.partial_cmp(right).unwrap_or(Ordering::Equal));
+
+    footer_top
+        .map(|top| geometric_bottom.min((top - 1.0).max(footer_search_start)))
+        .unwrap_or(geometric_bottom)"""
+grid = replace_once(grid, footer_search_old, footer_search_new, "footer cutoff geometry")
+write(grid_path, grid)
+
+tests_path = "src-tauri/src/native_ocr/table_structure_tests.rs"
+tests = read(tests_path)
+extra_tests = r'''
+
+    #[test]
+    fn ordinary_spaces_do_not_turn_one_ocr_line_into_vertical_rows() {
+        let tokens = expand_multiline_tokens(vec![sized_token(
+            "周一 第1,2节 （第1-17周）",
+            120.0,
+            120.0,
+            180.0,
+            24.0,
+        )]);
+        assert_eq!(tokens.len(), 1);
+        let anchors = course_anchors(&tokens);
+        assert_eq!(anchors.len(), 1);
+        assert_eq!((anchors[0].start_section, anchors[0].end_section), (1, 2));
+        assert_eq!(anchors[0].weeks, (1..=17).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn wrapped_schedule_lines_restore_parity_and_explicit_week_ranges() {
+        let tokens = vec![
+            sized_token("课程甲实验", 120.0, 110.0, 130.0, 22.0),
+            sized_token("周一第6,7节(第2-16", 120.0, 138.0, 170.0, 22.0),
+            sized_token("周双周)", 120.0, 164.0, 70.0, 22.0),
+            sized_token("张三", 120.0, 190.0, 50.0, 22.0),
+            sized_token("教3-201", 120.0, 216.0, 70.0, 22.0),
+            sized_token("课程乙专题", 520.0, 110.0, 130.0, 22.0),
+            sized_token("周三第10,11,12节(第", 520.0, 138.0, 190.0, 22.0),
+            sized_token("6-8周)", 520.0, 164.0, 70.0, 22.0),
+            sized_token("李四", 520.0, 190.0, 50.0, 22.0),
+            sized_token("教3-202", 520.0, 216.0, 70.0, 22.0),
+        ];
+        let anchors = course_anchors(&tokens);
+        assert_eq!(anchors.len(), 2);
+        assert_eq!((anchors[0].start_section, anchors[0].end_section), (6, 7));
+        assert_eq!(anchors[0].weeks, vec![2, 4, 6, 8, 10, 12, 14, 16]);
+        assert_eq!(anchors[0].parity, "even");
+        assert_eq!((anchors[1].start_section, anchors[1].end_section), (10, 12));
+        assert_eq!(anchors[1].weeks, vec![6, 7, 8]);
+    }
+
+    #[test]
+    fn punctuated_footer_headers_cut_off_practice_tables() {
+        assert!(is_footer_table_header("调、停（补）课信息："));
+        assert!(is_footer_table_header("实践课(或无上课时间)信息:"));
+        let sections = (1..=12)
+            .map(|section| (section, 120.0 + (section as f32 - 1.0) * 50.0))
+            .collect::<Vec<_>>();
+        let tokens = vec![sized_token(
+            "实践课(或无上课时间)信息:",
+            120.0,
+            682.0,
+            210.0,
+            22.0,
+        )];
+        let bottom = timetable_content_bottom(&tokens, &sections, 1000);
+        assert!(bottom < 682.0);
+    }
+
+    #[test]
+    fn traditional_room_and_change_metadata_are_not_part_of_titles() {
+        assert_eq!(
+            course_name_from_text("教3-201（停0079）操作系统实验（混合式）").as_deref(),
+            Some("操作系统实验（混合式）")
+        );
+        assert_eq!(
+            course_name_from_text("教3-312人工智能应用实践").as_deref(),
+            Some("人工智能应用实践")
+        );
+    }
+
+    #[test]
+    fn reliable_grid_anchors_disable_unstructured_fallback() {
+        assert!(!should_use_fallback(false, 3));
+        assert!(should_use_fallback(false, 2));
+        assert!(should_use_fallback(true, 8));
+    }
+'''
+closing = "\n}\n"
+if not tests.endswith(closing):
+    raise SystemExit("unexpected table test ending")
+tests = tests[: -len(closing)] + extra_tests + closing
+write(tests_path, tests)
