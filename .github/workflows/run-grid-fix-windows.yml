@@ -1,0 +1,55 @@
+name: Run grid fix on Windows
+
+on:
+  push:
+    branches:
+      - fix/weekday-header-row-detection
+    paths:
+      - .github/workflows/run-grid-fix-windows.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/weekday-header-row-detection
+          fetch-depth: 0
+      - name: Extract and apply parser transformation
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          workflow = Path('.github/workflows/export-source-debug.yml').read_text(encoding='utf-8').splitlines()
+          start = next(index for index, line in enumerate(workflow) if "python - <<'PY'" in line) + 1
+          end = next(index for index in range(start, len(workflow)) if workflow[index].strip() == 'PY')
+          script = '\n'.join(line[10:] if line.startswith('          ') else line for line in workflow[start:end]) + '\n'
+          Path('apply-grid-fix.py').write_text(script, encoding='utf-8')
+          PY
+          python apply-grid-fix.py
+          rm apply-grid-fix.py
+      - name: Select stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Format and test parser
+        shell: bash
+        run: |
+          cargo fmt --manifest-path src-tauri/Cargo.toml --all
+          cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
+      - name: Commit verified changes and clean temporary workflows
+        shell: bash
+        run: |
+          rm .github/workflows/export-source-debug.yml
+          rm .github/workflows/run-grid-fix-windows.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src-tauri/src/native_ocr/metadata.rs src-tauri/src/native_ocr/runtime.rs src-tauri/src/native_ocr/table_structure_tests.rs .github/workflows/export-source-debug.yml .github/workflows/run-grid-fix-windows.yml
+          git commit -m "fix: stop grid fallback from inventing courses"
+          git push origin HEAD:fix/weekday-header-row-detection
