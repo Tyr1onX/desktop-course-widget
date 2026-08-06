@@ -1,4 +1,4 @@
-name: Export source debug
+name: Apply grid anchor follow-up
 
 on:
   push:
@@ -8,21 +8,215 @@ on:
       - .github/workflows/export-source-debug.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  export:
+  apply:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout branch
         uses: actions/checkout@v4
-      - name: Archive source
-        run: |
-          tar --exclude=.git -czf /tmp/desktop-course-widget-source.tar.gz .
-          mv /tmp/desktop-course-widget-source.tar.gz ./desktop-course-widget-source.tar.gz
-      - name: Upload source archive
-        uses: actions/upload-artifact@v4
         with:
-          name: desktop-course-widget-source-debug
-          path: desktop-course-widget-source.tar.gz
-          retention-days: 1
+          ref: fix/weekday-header-row-detection
+          fetch-depth: 0
+      - name: Apply focused parser patch
+        shell: bash
+        run: |
+          cat > /tmp/grid-fix.patch <<'PATCH'
+          --- a/src-tauri/src/native_ocr/metadata.rs
+          +++ b/src-tauri/src/native_ocr/metadata.rs
+          @@ -19,6 +19,22 @@
+                       })
+                   })
+                   .collect::<Vec<_>>();
+          +
+          +    // Some OCR results keep the weekday and section range but lose the final week range.
+          +    // Prefer the semester maximum observed elsewhere in the same timetable instead of
+          +    // silently truncating those courses to DEFAULT_LAST_WEEK.
+          +    let detected_last_week = anchors
+          +        .iter()
+          +        .filter(|anchor| !anchor.used_default_weeks)
+          +        .flat_map(|anchor| anchor.weeks.iter().copied())
+          +        .max()
+          +        .unwrap_or(DEFAULT_LAST_WEEK);
+          +    for anchor in &mut anchors {
+          +        if anchor.used_default_weeks && detected_last_week > DEFAULT_LAST_WEEK {
+          +            anchor.weeks = (1..=detected_last_week).collect();
+          +        }
+          +    }
+          +
+               anchors.sort_by(|left, right| {
+                   left.weekday
+                       .cmp(&right.weekday)
+          @@ -35,7 +51,14 @@
+           
+           fn schedule_text_for_anchor(tokens: &[Token], token_index: usize) -> String {
+               let anchor = &tokens[token_index];
+          -    let mut fragments = vec![anchor.text.clone()];
+          +
+          +    // A complete schedule line is authoritative. Extending it with a nearby bare week
+          +    // range can steal the metadata of the next course in a densely stacked grid cell.
+          +    if !parse_weeks_and_parity(&anchor.text).2 {
+          +        return anchor.text.clone();
+          +    }
+          +
+          +    let mut combined = anchor.text.clone();
+               let maximum_gap = anchor.height.max(18.0) * 3.4 + 16.0;
+               let mut continuations = tokens
+                   .iter()
+          @@ -45,22 +68,49 @@
+                           && candidate.center_y() > anchor.center_y() + 0.5
+                           && candidate.top - anchor.bottom() <= maximum_gap
+                   })
+          -        .filter(|(_, candidate)| {
+          -            let overlap = (anchor.right().min(candidate.right())
+          -                - anchor.left.max(candidate.left))
+          -                .max(0.0);
+          -            let minimum_width = anchor.width.min(candidate.width).max(1.0);
+          -            overlap >= minimum_width * 0.12
+          -                || (anchor.center_x() - candidate.center_x()).abs()
+          -                    <= anchor.width.max(candidate.width) * 0.55
+          -        })
+          -        .filter(|(_, candidate)| looks_like_schedule_continuation(&candidate.text))
+          +        .filter(|(_, candidate)| horizontally_related(anchor, candidate))
+                   .collect::<Vec<_>>();
+               continuations.sort_by(|left, right| token_reading_order(left.1, right.1));
+          -    for (_, candidate) in continuations.into_iter().take(2) {
+          -        fragments.push(candidate.text.clone());
+          +
+          +    let mut appended = 0;
+          +    for (_, candidate) in continuations {
+          +        if continuation_has_boundary(tokens, anchor, candidate) {
+          +            break;
+          +        }
+          +        if !looks_like_schedule_continuation(&candidate.text) {
+          +            continue;
+          +        }
+          +        combined.push_str(&candidate.text);
+          +        appended += 1;
+          +        if !parse_weeks_and_parity(&combined).2 || appended >= 2 {
+          +            break;
+          +        }
+               }
+          -    fragments.join("")
+          +    combined
+          +}
+          +
+          +fn horizontally_related(left: &Token, right: &Token) -> bool {
+          +    let overlap = (left.right().min(right.right()) - left.left.max(right.left)).max(0.0);
+          +    let minimum_width = left.width.min(right.width).max(1.0);
+          +    overlap >= minimum_width * 0.12
+          +        || (left.center_x() - right.center_x()).abs() <= left.width.max(right.width) * 0.55
+          +}
+          +
+          +fn continuation_has_boundary(tokens: &[Token], anchor: &Token, candidate: &Token) -> bool {
+          +    tokens.iter().any(|between| {
+          +        between.center_y() > anchor.center_y() + 0.5
+          +            && between.center_y() < candidate.center_y() - 0.5
+          +            && horizontally_related(anchor, between)
+          +            && (weekday_from_schedule_text(&between.text).is_some()
+          +                || section_range_from_text(&between.text).is_some()
+          +                || is_footer_table_header(&between.text)
+          +                || is_teacher_text(&between.text)
+          +                || is_bare_teacher_name(&between.text)
+          +                || is_location_text(&between.text)
+          +                || compact_location_from_text(&between.text).is_some()
+          +                || course_name_from_text(&between.text)
+          +                    .is_some_and(|name| name.chars().count() >= 4))
+          +    })
+           }
+           
+           fn looks_like_schedule_continuation(value: &str) -> bool {
+          --- a/src-tauri/src/native_ocr/runtime.rs
+          +++ b/src-tauri/src/native_ocr/runtime.rs
+          @@ -355,6 +355,8 @@
+           }
+           
+           
+          -fn should_use_fallback(sections_inferred: bool, anchor_count: usize) -> bool {
+          -    sections_inferred || anchor_count < 3
+          +fn should_use_fallback(_sections_inferred: bool, anchor_count: usize) -> bool {
+          +    // Once a timetable yields several explicit weekday/section anchors, position-only
+          +    // fallback creates duplicate and fake courses when row markers are inferred.
+          +    anchor_count < 3
+           }
+          --- a/src-tauri/src/native_ocr/table_structure_tests.rs
+          +++ b/src-tauri/src/native_ocr/table_structure_tests.rs
+          @@ -248,10 +248,55 @@
+               }
+           
+               #[test]
+          +    fn complete_schedule_does_not_absorb_next_course_week_range() {
+          +        let tokens = vec![
+          +            sized_token("概率论与数理统计", 520.0, 110.0, 150.0, 22.0),
+          +            sized_token("周五第3,4节第1-17周", 520.0, 138.0, 180.0, 22.0),
+          +            sized_token("王雪红", 520.0, 164.0, 60.0, 22.0),
+          +            sized_token("教3-512", 520.0, 190.0, 70.0, 22.0),
+          +            sized_token("操作系统基础（混合式）", 520.0, 220.0, 180.0, 22.0),
+          +            sized_token("周五第3,4节", 520.0, 248.0, 120.0, 22.0),
+          +            sized_token("第6-16周双周", 520.0, 274.0, 110.0, 22.0),
+          +        ];
+          +
+          +        let text = schedule_text_for_anchor(&tokens, 1);
+          +        let (weeks, parity, used_default) = parse_weeks_and_parity(&text);
+          +        assert_eq!(weeks, (1..=17).collect::<Vec<_>>());
+          +        assert_eq!(parity, "all");
+          +        assert!(!used_default);
+          +    }
+          +
+          +    #[test]
+          +    fn incomplete_schedule_stops_at_teacher_before_unrelated_week_range() {
+          +        let tokens = vec![
+          +            sized_token("周五第3,4节", 520.0, 138.0, 120.0, 22.0),
+          +            sized_token("王雪红", 520.0, 164.0, 60.0, 22.0),
+          +            sized_token("教3-512", 520.0, 190.0, 70.0, 22.0),
+          +            sized_token("第6-16周双周", 520.0, 216.0, 110.0, 22.0),
+          +        ];
+          +
+          +        let text = schedule_text_for_anchor(&tokens, 0);
+          +        assert_eq!(text, "周五第3,4节");
+          +    }
+          +
+          +    #[test]
+          +    fn missing_week_range_adopts_detected_semester_maximum() {
+          +        let tokens = vec![
+          +            sized_token("周一第1,2节", 120.0, 138.0, 120.0, 22.0),
+          +            sized_token("周二第1,2节第1-17周", 320.0, 138.0, 180.0, 22.0),
+          +        ];
+          +        let anchors = course_anchors(&tokens);
+          +        assert_eq!(anchors.len(), 2);
+          +        assert_eq!(anchors[0].weeks, (1..=17).collect::<Vec<_>>());
+          +        assert!(anchors[0].used_default_weeks);
+          +        assert_eq!(anchors[1].weeks, (1..=17).collect::<Vec<_>>());
+          +    }
+          +
+          +    #[test]
+               fn reliable_grid_anchors_disable_unstructured_fallback() {
+                   assert!(!should_use_fallback(false, 3));
+                   assert!(should_use_fallback(false, 2));
+          -        assert!(should_use_fallback(true, 8));
+          +        assert!(!should_use_fallback(true, 8));
+               }
+           
+           }
+          PATCH
+          sed -i 's/^          //' /tmp/grid-fix.patch
+          git apply --whitespace=fix /tmp/grid-fix.patch
+      - name: Select stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Format and test parser
+        shell: bash
+        run: |
+          cargo fmt --manifest-path src-tauri/Cargo.toml --all
+          cargo test --manifest-path src-tauri/Cargo.toml --lib
+      - name: Commit verified changes and remove temporary workflow
+        shell: bash
+        run: |
+          rm .github/workflows/export-source-debug.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src-tauri/src/native_ocr/metadata.rs src-tauri/src/native_ocr/runtime.rs src-tauri/src/native_ocr/table_structure_tests.rs .github/workflows/export-source-debug.yml
+          git commit -m "fix: stop grid fallback from inventing courses"
+          git push origin HEAD:fix/weekday-header-row-detection
