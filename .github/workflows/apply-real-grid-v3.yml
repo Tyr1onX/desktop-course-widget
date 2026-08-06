@@ -21,7 +21,19 @@ jobs:
           fetch-depth: 0
 
       - name: Patch parser and regression tests
-        run: python scripts/apply_real_grid_v3.py
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/apply_real_grid_v3.py')
+          text = path.read_text(encoding='utf-8')
+          old = 'metadata, count = section_pattern.subn(section_replacement, metadata, count=1)'
+          new = 'metadata, count = section_pattern.subn(lambda _: section_replacement, metadata, count=1)'
+          if text.count(old) != 1:
+              raise SystemExit('section replacement call not found exactly once')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+          python scripts/apply_real_grid_v3.py
 
       - name: Format Rust
         run: cargo fmt --manifest-path src-tauri/Cargo.toml
