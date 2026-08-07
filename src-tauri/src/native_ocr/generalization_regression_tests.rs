@@ -30,4 +30,16 @@ mod generalization_regression_tests {
             assert_eq!(course_name_from_text(value).as_deref(), Some(value));
         }
     }
+
+    #[test]
+    fn multiline_english_and_mixed_titles_keep_display_spacing() {
+        assert_eq!(
+            normalized_ascii_spacing("College English\nIII"),
+            Some(("CollegeEnglishIII".into(), "College English III".into()))
+        );
+        assert_eq!(
+            normalized_ascii_spacing("人工智能\nPython 应用"),
+            Some(("人工智能Python应用".into(), "人工智能 Python 应用".into()))
+        );
+    }
 }

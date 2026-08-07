@@ -152,6 +152,9 @@ pub fn recognize_screenshot(image_path: &Path) -> Result<ImportDraft, String> {
     let raw_tokens = results
         .into_iter()
         .filter_map(|result| {
+            if let Some((compact, display)) = normalized_ascii_spacing(&result.text) {
+                spacing_candidates.entry(compact).or_insert(display);
+            }
             for line in result.text.lines() {
                 if let Some((compact, display)) = normalized_ascii_spacing(line) {
                     spacing_candidates.entry(compact).or_insert(display);
