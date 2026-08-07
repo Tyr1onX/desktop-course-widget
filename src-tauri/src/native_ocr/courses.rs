@@ -102,15 +102,19 @@ fn anchor_courses(
             image_height,
         ) {
             if anchor.used_default_weeks {
-                warnings.push(format!(
-                    "{} 的周次未完整识别，已暂按 1～{DEFAULT_LAST_WEEK} 周填写",
-                    course.name
-                ));
+                warnings.push(fallback_week_warning(&course.name, &course.weeks));
             }
             courses.push(course);
         }
     }
     (courses, warnings)
+}
+
+fn fallback_week_warning(course_name: &str, weeks: &[u8]) -> String {
+    let fallback_last_week = weeks.iter().copied().max().unwrap_or(DEFAULT_LAST_WEEK);
+    format!(
+        "{course_name} 的周次未完整识别，已暂按 1～{fallback_last_week} 周填写"
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
