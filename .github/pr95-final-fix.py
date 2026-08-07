@@ -2,11 +2,19 @@ from pathlib import Path
 
 metadata = Path("src-tauri/src/native_ocr/metadata.rs")
 text = metadata.read_text(encoding="utf-8")
-old = r'''        r"^(?:(?:教|综|实|实验|实训|逸夫|文|理|工|体)[A-Za-z]?\d{0,2}[-－—–]\d{2,4}|(?:操场|体育场|体育馆)[A-Za-z0-9一二三四五六七八九十]*)(?:[（(](?:停|调)\d{3,8}[)）])?",'''
-new = r'''        r"^(?:(?:教|综|实|实验|实训|逸夫|文|理|工|体)[A-Za-z]?\d{0,2}[-－—–]\d{2,4}|(?:操场|体育场|体育馆)(?:[-－—–]?[A-Za-z0-9一二三四五六七八九十]+))(?:[（(](?:停|调)\d{3,8}[)）])?",'''
-if text.count(old) != 1:
-    raise SystemExit(f"expected exactly one old sports prefix regex, found {text.count(old)}")
-metadata.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+sports_old = r'''        r"^(?:(?:教|综|实|实验|实训|逸夫|文|理|工|体)[A-Za-z]?\d{0,2}[-－—–]\d{2,4}|(?:操场|体育场|体育馆)[A-Za-z0-9一二三四五六七八九十]*)(?:[（(](?:停|调)\d{3,8}[)）])?",'''
+sports_new = r'''        r"^(?:(?:教|综|实|实验|实训|逸夫|文|理|工|体)[A-Za-z]?\d{0,2}[-－—–]\d{2,4}|(?:操场|体育场|体育馆)(?:[-－—–]?[A-Za-z0-9一二三四五六七八九十]+))(?:[（(](?:停|调)\d{3,8}[)）])?",'''
+if text.count(sports_old) != 1:
+    raise SystemExit(f"expected exactly one old sports prefix regex, found {text.count(sports_old)}")
+text = text.replace(sports_old, sports_new, 1)
+
+location_old = '''fn location_from_text(value: &str) -> Option<String> {\n    let compact = compact_text(value);\n    if !is_location_text(&compact) {\n        return None;\n    }\n\n    let label = Regex::new(r"^地点[:：]?").unwrap();'''
+location_new = '''fn location_from_text(value: &str) -> Option<String> {\n    let compact = compact_text(value);\n\n    let label = Regex::new(r"^地点[:：]?").unwrap();'''
+if text.count(location_old) != 1:
+    raise SystemExit(f"expected exactly one early whole-string location guard, found {text.count(location_old)}")
+text = text.replace(location_old, location_new, 1)
+metadata.write_text(text, encoding="utf-8")
 
 tests = Path("src-tauri/src/native_ocr/generalization_regression_tests.rs")
 test_text = tests.read_text(encoding="utf-8")
