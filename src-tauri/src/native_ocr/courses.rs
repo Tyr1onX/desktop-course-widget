@@ -39,17 +39,38 @@ fn anchor_courses(
             .find(|header| header.weekday == anchor.weekday)
             .map(|header| header.bottom)
             .unwrap_or(0.0);
-        let upper_bound = previous_anchor
-            .map(|candidate| {
-                (tokens[candidate.token_index].center_y() + anchor_token.center_y()) / 2.0
-            })
-            .unwrap_or_else(|| {
-                (anchor_token.center_y() - anchor_token.height.max(24.0) * 4.5)
-                    .max(header_bottom)
-            });
+        let previous_anchor_y = previous_anchor
+            .map(|candidate| tokens[candidate.token_index].center_y())
+            .unwrap_or(header_bottom);
+        let upper_bound = title_start_before_anchor(
+            tokens,
+            column_bounds,
+            previous_anchor_y,
+            anchor_token,
+        )
+        .unwrap_or_else(|| {
+            previous_anchor
+                .map(|candidate| {
+                    (tokens[candidate.token_index].center_y() + anchor_token.center_y()) / 2.0
+                })
+                .unwrap_or_else(|| {
+                    (anchor_token.center_y() - anchor_token.height.max(24.0) * 4.5)
+                        .max(header_bottom)
+                })
+        });
         let lower_bound = next_anchor
-            .map(|candidate| {
-                (anchor_token.center_y() + tokens[candidate.token_index].center_y()) / 2.0
+            .and_then(|candidate| {
+                title_start_before_anchor(
+                    tokens,
+                    column_bounds,
+                    anchor_token.center_y(),
+                    &tokens[candidate.token_index],
+                )
+            })
+            .or_else(|| {
+                next_anchor.map(|candidate| {
+                    (anchor_token.center_y() + tokens[candidate.token_index].center_y()) / 2.0
+                })
             })
             .unwrap_or(anchor_token.center_y() + anchor_token.height.max(24.0) * 4.5);
         let mut block = tokens
@@ -75,20 +96,25 @@ fn anchor_courses(
             anchor.parity.clone(),
             anchor.used_default_weeks,
             anchor_token,
+            &anchor.metadata_text,
             &block,
             image_width,
             image_height,
         ) {
             if anchor.used_default_weeks {
-                warnings.push(format!(
-                    "{} 的周次未完整识别，已暂按 1～{DEFAULT_LAST_WEEK} 周填写",
-                    course.name
-                ));
+                warnings.push(fallback_week_warning(&course.name, &course.weeks));
             }
             courses.push(course);
         }
     }
     (courses, warnings)
+}
+
+fn fallback_week_warning(course_name: &str, weeks: &[u8]) -> String {
+    let fallback_last_week = weeks.iter().copied().max().unwrap_or(DEFAULT_LAST_WEEK);
+    format!(
+        "{course_name} 的周次未完整识别，已暂按 1～{fallback_last_week} 周填写"
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -100,15 +126,36 @@ fn course_from_block(
     parity: String,
     default_weeks: bool,
     anchor: &Token,
+    anchor_text: &str,
     block: &[Token],
     image_width: u32,
     image_height: u32,
 ) -> Option<ImportCourse> {
     let mut candidates = block.iter().chain(std::iter::once(anchor)).collect::<Vec<_>>();
     candidates.sort_by(|left, right| token_reading_order(left, right));
-    let (name_token, name) = find_course_name(candidates.iter().copied())?;
-    let teacher = find_teacher_fragment(candidates.iter().copied(), name_token, &name, anchor);
-    let location = find_location_fragment(candidates.iter().copied());
+    let (name_token, name) = find_course_name(candidates.iter().copied(), anchor)?;
+    let field_candidates = candidates
+        .iter()
+        .copied()
+        .filter(|token| token.center_y() >= name_token.center_y() - 1.0)
+        .collect::<Vec<_>>();
+    let teacher = find_teacher_after_schedule(field_candidates.iter().copied(), &name, anchor)
+        .or_else(|| {
+            find_teacher_fragment(
+                field_candidates.iter().copied(),
+                name_token,
+                &name,
+                anchor,
+            )
+        });
+    let after_anchor = field_candidates
+        .iter()
+        .copied()
+        .filter(|token| token.center_y() >= anchor.center_y() - 1.0)
+        .collect::<Vec<_>>();
+    let location = find_location_after_schedule(after_anchor.iter().copied(), anchor)
+        .or_else(|| find_location_fragment(after_anchor.iter().copied()))
+        .or_else(|| find_compact_location(after_anchor.iter().copied()));
 
     let mut source_tokens = vec![anchor.clone()];
     source_tokens.extend(block.iter().cloned());
@@ -140,7 +187,7 @@ fn course_from_block(
         field: ImportFieldKey::Weeks,
         status: ImportReviewStatus::Review,
         confidence: Some(anchor.confidence),
-        raw_text: Some(anchor.text.clone()),
+        raw_text: Some(anchor_text.to_owned()),
         source_box: normalized_box(anchor, image_width, image_height),
         reason: Some(if default_weeks {
             "周次未完整识别，已填入默认范围，请修改后确认".into()
@@ -152,7 +199,7 @@ fn course_from_block(
         field: ImportFieldKey::Parity,
         status: ImportReviewStatus::Review,
         confidence: Some(anchor.confidence),
-        raw_text: Some(anchor.text.clone()),
+        raw_text: Some(anchor_text.to_owned()),
         source_box: normalized_box(anchor, image_width, image_height),
         reason: Some("本地 OCR 单双周需确认".into()),
     });
@@ -169,4 +216,44 @@ fn course_from_block(
         location: location.map(|(_, value)| value),
         review: Some(ImportCourseReview { source_box, fields }),
     })
+}
+
+fn title_start_before_anchor(
+    tokens: &[Token],
+    column_bounds: (f32, f32),
+    lower_limit: f32,
+    anchor: &Token,
+) -> Option<f32> {
+    let mut candidates = tokens
+        .iter()
+        .filter(|token| {
+            token.center_x() >= column_bounds.0
+                && token.center_x() < column_bounds.1
+                && token.center_y() > lower_limit + 0.5
+                && token.center_y() < anchor.center_y() - 0.5
+        })
+        .filter_map(|token| name_fragment_from_token(token).map(|name| (token, name)))
+        .collect::<Vec<_>>();
+    candidates.sort_by(|left, right| token_reading_order(left.0, right.0));
+    let mut first_index = candidates.len().checked_sub(1)?;
+    while first_index > 0 && candidates.len() - first_index < 4 {
+        let (previous, previous_name) = &candidates[first_index - 1];
+        let (current, current_name) = &candidates[first_index];
+        let typical_height = previous.height.max(current.height).max(18.0);
+        let vertical_gap = current.top - previous.bottom();
+        let has_boundary_between = tokens.iter().any(|candidate| {
+            candidate.center_y() > previous.center_y() + 0.5
+                && candidate.center_y() < current.center_y() - 0.5
+                && token_is_course_boundary(candidate)
+        });
+        if vertical_gap > typical_height * 1.35 + 8.0
+            || vertical_gap < -typical_height * 0.8
+            || has_boundary_between
+            || (is_bare_teacher_name(previous_name) && current_name.chars().count() > 4)
+        {
+            break;
+        }
+        first_index -= 1;
+    }
+    Some(candidates[first_index].0.top)
 }
