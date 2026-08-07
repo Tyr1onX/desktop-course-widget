@@ -131,15 +131,13 @@ fn looks_like_schedule_continuation(value: &str) -> bool {
         || compact.contains("周双");
     (has_week && (has_digit || has_parity))
         || (has_digit
-            && compact
-                .chars()
-                .all(|character| {
-                    character.is_ascii_digit()
-                        || matches!(
-                            character,
-                            '-' | '—' | '~' | '－' | '–' | '‑' | '第' | '周' | '(' | ')' | '（' | '）'
-                        )
-                }))
+            && compact.chars().all(|character| {
+                character.is_ascii_digit()
+                    || matches!(
+                        character,
+                        '-' | '—' | '~' | '－' | '–' | '‑' | '第' | '周' | '(' | ')' | '（' | '）'
+                    )
+            }))
 }
 
 fn weekday_from_schedule_text(value: &str) -> Option<u8> {
@@ -152,10 +150,7 @@ fn weekday_from_schedule_text(value: &str) -> Option<u8> {
 fn section_range_from_text(value: &str) -> Option<(u8, u8)> {
     let compact = compact_text(value);
 
-    let listed = Regex::new(
-        r"第?(\d{1,2}(?:(?:[,，、.·/]|第)\d{1,2})+)节",
-    )
-    .unwrap();
+    let listed = Regex::new(r"第?(\d{1,2}(?:(?:[,，、.·/]|第)\d{1,2})+)节").unwrap();
     if let Some(captures) = listed.captures(&compact) {
         let mut sections = Regex::new(r"\d{1,2}")
             .unwrap()
@@ -192,13 +187,18 @@ fn parse_weeks_and_parity(text: &str) -> (Vec<u8>, String, bool) {
     let compact = compact_text(text);
     let mut parsed = std::collections::BTreeSet::new();
 
-    let ranges = Regex::new(r"(?:第)?(\d{1,2})\s*(?:[-—~－–‑]+|至|到)\s*(\d{1,2})\s*周")
-        .unwrap();
+    let ranges = Regex::new(r"(?:第)?(\d{1,2})\s*(?:[-—~－–‑]+|至|到)\s*(\d{1,2})\s*周").unwrap();
     for captures in ranges.captures_iter(&compact) {
-        let Some(start) = captures.get(1).and_then(|value| value.as_str().parse::<u8>().ok()) else {
+        let Some(start) = captures
+            .get(1)
+            .and_then(|value| value.as_str().parse::<u8>().ok())
+        else {
             continue;
         };
-        let Some(end) = captures.get(2).and_then(|value| value.as_str().parse::<u8>().ok()) else {
+        let Some(end) = captures
+            .get(2)
+            .and_then(|value| value.as_str().parse::<u8>().ok())
+        else {
             continue;
         };
         if start > 0 && end >= start && end <= 30 {
@@ -236,21 +236,18 @@ fn parse_weeks_and_parity(text: &str) -> (Vec<u8>, String, bool) {
     } else {
         parsed.into_iter().collect::<Vec<_>>()
     };
-    let parity = if compact.contains("单周")
-        || compact.contains("(单)")
-        || compact.contains("（单）")
-    {
-        weeks.retain(|week| week % 2 == 1);
-        "odd"
-    } else if compact.contains("双周")
-        || compact.contains("(双)")
-        || compact.contains("（双）")
-    {
-        weeks.retain(|week| week % 2 == 0);
-        "even"
-    } else {
-        "all"
-    };
+    let parity =
+        if compact.contains("单周") || compact.contains("(单)") || compact.contains("（单）")
+        {
+            weeks.retain(|week| week % 2 == 1);
+            "odd"
+        } else if compact.contains("双周") || compact.contains("(双)") || compact.contains("（双）")
+        {
+            weeks.retain(|week| week % 2 == 0);
+            "even"
+        } else {
+            "all"
+        };
     (weeks, parity.into(), used_default)
 }
 
@@ -275,7 +272,11 @@ fn weekday_column_bounds(headers: &[WeekdayHeader], weekday: u8, image_width: f3
     let right_step = headers
         .get(index + 1)
         .map(|next| step_from(current, next))
-        .or_else(|| index.checked_sub(1).map(|previous| step_from(&headers[previous], current)))
+        .or_else(|| {
+            index
+                .checked_sub(1)
+                .map(|previous| step_from(&headers[previous], current))
+        })
         .unwrap_or(image_width);
 
     (
@@ -314,9 +315,10 @@ fn find_teacher_fragment<'a>(
         }
     }
 
-    let name_part = name_token.parts.iter().position(|value| {
-        course_name_from_text(value).as_deref() == Some(course_name)
-    });
+    let name_part = name_token
+        .parts
+        .iter()
+        .position(|value| course_name_from_text(value).as_deref() == Some(course_name));
     if let Some(name_part) = name_part {
         for value in name_token.parts.iter().skip(name_part + 1) {
             if is_location_text(value)
@@ -334,9 +336,13 @@ fn find_teacher_fragment<'a>(
     let schedule_top = tokens
         .iter()
         .filter(|token| {
-            token.parts.iter().chain(std::iter::once(&token.text)).any(|value| {
-                looks_like_schedule_metadata(value) || section_range_from_text(value).is_some()
-            })
+            token
+                .parts
+                .iter()
+                .chain(std::iter::once(&token.text))
+                .any(|value| {
+                    looks_like_schedule_metadata(value) || section_range_from_text(value).is_some()
+                })
         })
         .map(|token| token.top)
         .fold(f32::MAX, f32::min);
@@ -379,7 +385,9 @@ fn explicit_teacher_from_text(value: &str) -> Option<String> {
     let suffix = Regex::new(r"(?:老师|教师|教授)$").unwrap();
     let mut candidate = prefix.replace(&compact, "").into_owned();
     candidate = suffix.replace(&candidate, "").into_owned();
-    let candidate = candidate.trim_matches([':', '：', '，', ',', '·']).to_owned();
+    let candidate = candidate
+        .trim_matches([':', '：', '，', ',', '·'])
+        .to_owned();
     if is_bare_teacher_name(&candidate) {
         Some(candidate)
     } else if compact.chars().count() <= 12 {
@@ -465,9 +473,6 @@ fn find_location_fragment<'a>(
 
 fn location_from_text(value: &str) -> Option<String> {
     let compact = compact_text(value);
-    if !is_location_text(&compact) {
-        return None;
-    }
 
     let label = Regex::new(r"^地点[:：]?").unwrap();
     let leading_metadata = Regex::new(
@@ -487,7 +492,10 @@ fn location_from_text(value: &str) -> Option<String> {
     let candidate = candidate
         .trim_matches(|character: char| {
             character.is_ascii_punctuation()
-                || matches!(character, '，' | '。' | '：' | '；' | '、' | '·' | '（' | '）')
+                || matches!(
+                    character,
+                    '，' | '。' | '：' | '；' | '、' | '·' | '（' | '）'
+                )
         })
         .to_owned();
     (!candidate.is_empty() && is_location_text(&candidate)).then_some(candidate)
@@ -540,14 +548,13 @@ fn find_course_name<'a>(
                         && token_is_course_boundary(candidate)
                 });
                 if has_boundary_between
-                    || (is_bare_teacher_name(previous_name)
-                        && current_name.chars().count() > 4)
+                    || (is_bare_teacher_name(previous_name) && current_name.chars().count() > 4)
                 {
                     break;
                 }
                 let overlap = (previous.right().min(current.right())
                     - previous.left.max(current.left))
-                    .max(0.0);
+                .max(0.0);
                 let minimum_width = previous.width.min(current.width).max(1.0);
                 let center_distance = (previous.center_x() - current.center_x()).abs();
                 if overlap < minimum_width * 0.12
@@ -605,7 +612,9 @@ fn join_course_name_fragments(fragments: &[String]) -> String {
             .chars()
             .last()
             .zip(fragment.chars().next())
-            .is_some_and(|(left, right)| left.is_ascii_alphanumeric() && right.is_ascii_alphanumeric());
+            .is_some_and(|(left, right)| {
+                left.is_ascii_alphanumeric() && right.is_ascii_alphanumeric()
+            });
         if needs_space {
             joined.push(' ');
         }
@@ -619,10 +628,8 @@ fn has_course_code(value: &str) -> bool {
 }
 
 fn normalize_trailing_course_code(value: &str) -> String {
-    let pattern = Regex::new(
-        r"^(.*[\u{4e00}-\u{9fff}].*?)(?:\[|[|丨Il])(\d{2})(?:\]|[|丨Il])?$",
-    )
-    .unwrap();
+    let pattern =
+        Regex::new(r"^(.*[\u{4e00}-\u{9fff}].*?)(?:\[|[|丨Il])(\d{2})(?:\]|[|丨Il])?$").unwrap();
     let Some(captures) = pattern.captures(value) else {
         return value.to_owned();
     };
@@ -643,7 +650,7 @@ fn normalize_trailing_course_code(value: &str) -> String {
 
 fn strip_traditional_grid_prefix(value: &str) -> String {
     let room_prefix = Regex::new(
-        r"^(?:(?:教|综|实|实验|实训|逸夫|文|理|工|体)[A-Za-z]?\d{0,2}[-－—–]\d{2,4}|(?:操场|体育场|体育馆)[A-Za-z0-9一二三四五六七八九十]*)(?:[（(](?:停|调)\d{3,8}[)）])?",
+        r"^(?:(?:教|综|实|实验|实训|逸夫|文|理|工|体)[A-Za-z]?\d{0,2}[-－—–]\d{2,4}|(?:操场|体育场|体育馆)(?:[-－—–]?[A-Za-z0-9一二三四五六七八九十]+))(?:[（(](?:停|调)\d{3,8}[)）])?",
     )
     .unwrap();
     let change_prefix = Regex::new(r"^[（(](?:停|调)\d{3,8}[)）]").unwrap();
@@ -687,12 +694,49 @@ fn course_name_from_text(value: &str) -> Option<String> {
     }
 
     let schedule_markers = [
-        "星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日",
-        "星期天", "星期1", "星期2", "星期3", "星期4", "星期5", "星期6", "星期7",
-        "周一", "周二", "周三", "周四", "周五", "周六", "周日", "周天",
-        "第1节", "第2节", "第3节", "第4节", "第5节", "第6节", "第7节", "第8节",
-        "第9节", "第10节", "第11节", "第12节", "老师", "教师", "教授", "教学楼",
-        "教室", "校区", "南湖", "南岭",
+        "星期一",
+        "星期二",
+        "星期三",
+        "星期四",
+        "星期五",
+        "星期六",
+        "星期日",
+        "星期天",
+        "星期1",
+        "星期2",
+        "星期3",
+        "星期4",
+        "星期5",
+        "星期6",
+        "星期7",
+        "周一",
+        "周二",
+        "周三",
+        "周四",
+        "周五",
+        "周六",
+        "周日",
+        "周天",
+        "第1节",
+        "第2节",
+        "第3节",
+        "第4节",
+        "第5节",
+        "第6节",
+        "第7节",
+        "第8节",
+        "第9节",
+        "第10节",
+        "第11节",
+        "第12节",
+        "老师",
+        "教师",
+        "教授",
+        "教学楼",
+        "教室",
+        "校区",
+        "南湖",
+        "南岭",
     ];
     if let Some(index) = schedule_markers
         .iter()
@@ -713,9 +757,9 @@ fn course_name_from_text(value: &str) -> Option<String> {
     candidate = normalize_trailing_course_code(&candidate);
 
     let character_count = candidate.chars().count();
-    let has_name_character = candidate
-        .chars()
-        .any(|character| character.is_alphabetic() || ('\u{4e00}'..='\u{9fff}').contains(&character));
+    let has_name_character = candidate.chars().any(|character| {
+        character.is_alphabetic() || ('\u{4e00}'..='\u{9fff}').contains(&character)
+    });
     if character_count < 2
         || character_count > 60
         || !has_name_character

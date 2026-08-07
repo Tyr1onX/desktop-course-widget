@@ -42,4 +42,20 @@ mod generalization_regression_tests {
             Some(("人工智能Python应用".into(), "人工智能 Python 应用".into()))
         );
     }
+
+    #[test]
+    fn sports_venue_prefix_requires_strong_location_suffix() {
+        for name in ["体育馆建筑设计", "体育馆运营管理", "体育馆结构设计"] {
+            assert_eq!(course_name_from_text(name).as_deref(), Some(name));
+        }
+
+        for (value, expected) in [
+            ("体育馆A课程甲", "课程甲"),
+            ("体育馆2课程乙", "课程乙"),
+            ("体育馆-2课程丙", "课程丙"),
+            ("体育馆101课程丁", "课程丁"),
+        ] {
+            assert_eq!(strip_traditional_grid_prefix(value), expected);
+        }
+    }
 }
