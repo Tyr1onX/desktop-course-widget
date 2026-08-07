@@ -1,0 +1,23 @@
+name: PR95 Source Export
+
+on:
+  push:
+    branches:
+      - fix/weekday-header-row-detection
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Upload metadata source
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: pr95-metadata-source-${{ github.sha }}
+          path: src-tauri/src/native_ocr/metadata.rs
+          if-no-files-found: error
+          retention-days: 1
