@@ -301,6 +301,12 @@ fn is_location_text(value: &str) -> bool {
         return true;
     }
 
+    if let Some((_, tail)) = compact.rsplit_once(['，', ',', '；', ';']) {
+        if !tail.is_empty() && is_location_text(tail) {
+            return true;
+        }
+    }
+
     if Regex::new(r"^[A-Za-z]{1,3}[-]?\d{2,4}$")
         .unwrap()
         .is_match(&compact)
