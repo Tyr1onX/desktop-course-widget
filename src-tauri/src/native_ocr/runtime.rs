@@ -7,6 +7,7 @@ use std::{
 use image::DynamicImage;
 use ocr_rs::{OcrEngine, OcrEngineConfig};
 use regex::Regex;
+
 use crate::import_draft::{
     ImportCourse, ImportCourseReview, ImportDraft, ImportDraftSummary, ImportFieldEvidence,
     ImportFieldKey, ImportImageSource, ImportReviewStatus, ImportSource, NormalizedImageBox,
@@ -42,14 +43,6 @@ impl Token {
         if text.is_empty() {
             return None;
         }
-        let mut parts = value
-            .split_whitespace()
-            .map(compact_text)
-            .filter(|part| !part.is_empty())
-            .collect::<Vec<_>>();
-        if parts.is_empty() {
-            parts.push(text.clone());
-        }
         let mut lines = value
             .lines()
             .map(compact_text)
@@ -58,6 +51,10 @@ impl Token {
         if lines.is_empty() {
             lines.push(text.clone());
         }
+        // Ordinary spaces are typography, not semantic field boundaries. Keep one
+        // logical part per actual OCR line so English and mixed-language titles are
+        // not reduced to their first whitespace-delimited word.
+        let parts = lines.clone();
         Some(Self {
             text,
             parts,
@@ -107,6 +104,7 @@ struct WeekdayHeader {
 }
 
 pub fn recognize_screenshot(image_path: &Path) -> Result<ImportDraft, String> {
+    let total_started = Instant::now();
     validate_image_path(image_path)?;
     let model_root = resolve_model_root()?;
     let det_model = model_root.join("PP-OCRv5_mobile_det_fp16.mnn");
@@ -124,10 +122,11 @@ pub fn recognize_screenshot(image_path: &Path) -> Result<ImportDraft, String> {
     }
 
     let decode_started = Instant::now();
-    let original = image::open(image_path).map_err(|error| format!("无法读取课表截图：{error}"))?;
+    let original =
+        image::open(image_path).map_err(|error| format!("无法读取课表截图：{error}"))?;
     let original_width = original.width();
     let original_height = original.height();
-    let working = bounded_image(original, MAX_IMAGE_SIDE);
+    let working = adaptive_working_image(&original);
     let decode_ms = decode_started.elapsed().as_millis();
 
     let logical_processors = std::thread::available_parallelism()
@@ -138,16 +137,23 @@ pub fn recognize_screenshot(image_path: &Path) -> Result<ImportDraft, String> {
     let engine_started = Instant::now();
     let engine = OcrEngine::new(&det_model, &rec_model, &charset, Some(config))
         .map_err(|error| format!("无法初始化本地文字识别引擎：{error}"))?;
-    let engine_ms = engine_started.elapsed().as_millis();
+    let engine_init_ms = engine_started.elapsed().as_millis();
 
     let recognition_started = Instant::now();
     let results = engine
         .recognize(&working)
         .map_err(|error| format!("本地课表文字识别失败：{error}"))?;
     let recognition_ms = recognition_started.elapsed().as_millis();
+
+    let mut spacing_candidates = std::collections::HashMap::new();
     let raw_tokens = results
         .into_iter()
         .filter_map(|result| {
+            for line in result.text.lines() {
+                if let Some((compact, display)) = normalized_ascii_spacing(line) {
+                    spacing_candidates.entry(compact).or_insert(display);
+                }
+            }
             Token::from_text(
                 &result.text,
                 result.confidence,
@@ -161,9 +167,10 @@ pub fn recognize_screenshot(image_path: &Path) -> Result<ImportDraft, String> {
     if raw_tokens.is_empty() {
         return Err("没有从图片中识别到文字，请确认截图清晰且包含完整课表".into());
     }
-    let tokens = expand_multiline_tokens(raw_tokens);
 
-    let draft = tokens_to_draft(
+    let parsing_started = Instant::now();
+    let tokens = expand_multiline_tokens(raw_tokens);
+    let mut draft = tokens_to_draft(
         image_path,
         original_width,
         original_height,
@@ -171,12 +178,33 @@ pub fn recognize_screenshot(image_path: &Path) -> Result<ImportDraft, String> {
         working.height(),
         &tokens,
     )?;
+    restore_ascii_course_spacing(&mut draft, &spacing_candidates);
+    let parsing_ms = parsing_started.elapsed().as_millis();
+    let secondary_ocr_ms = 0_u128;
+    let total_ms = total_started.elapsed().as_millis();
+
     eprintln!(
-        "[native-ocr] decode_ms={decode_ms} engine_ms={engine_ms} recognition_ms={recognition_ms} tokens={} courses={}",
+        "[native-ocr] decode_ms={decode_ms} engine_init_ms={engine_init_ms} recognition_ms={recognition_ms} parsing_ms={parsing_ms} secondary_ocr_ms={secondary_ocr_ms} total_ms={total_ms} tokens={} courses={} working={}x{} source={}x{}",
         tokens.len(),
-        draft.courses.len()
+        draft.courses.len(),
+        working.width(),
+        working.height(),
+        original_width,
+        original_height
     );
     Ok(draft)
+}
+
+fn restore_ascii_course_spacing(
+    draft: &mut ImportDraft,
+    spacing_candidates: &std::collections::HashMap<String, String>,
+) {
+    for course in &mut draft.courses {
+        let key = compact_text(&course.name);
+        if let Some(display) = spacing_candidates.get(&key) {
+            course.name = display.clone();
+        }
+    }
 }
 
 fn tokens_to_draft(
@@ -187,7 +215,7 @@ fn tokens_to_draft(
     working_height: u32,
     tokens: &[Token],
 ) -> Result<ImportDraft, String> {
-    let headers = weekday_headers(tokens);
+    let headers = structured_weekday_headers(tokens, working_width, working_height);
     if headers.len() < 3 {
         return Err(format!(
             "识别到了 {} 个文字块，但只找到 {} 个星期标题；请使用包含完整星期栏的课表截图",
@@ -196,7 +224,7 @@ fn tokens_to_draft(
         ));
     }
 
-    let detected_sections = section_markers(tokens, working_width);
+    let detected_sections = structured_section_markers(tokens, &headers, working_width);
     let (sections, sections_inferred) = if detected_sections.len() >= 2 {
         (detected_sections, false)
     } else {
@@ -205,21 +233,20 @@ fn tokens_to_draft(
             true,
         )
     };
-    // A traditional timetable can be followed by transfer, internship and credit tables.
-    // When real section markers are available, stop at the lower edge of section 12 instead
-    // of feeding the whole long screenshot into the course parser.
-    let content_bottom = if sections_inferred {
-        working_height as f32 * 0.98
-    } else {
-        timetable_content_bottom(&tokens, &sections, working_height)
-    };
+    let content_bottom = structured_timetable_content_bottom(
+        tokens,
+        &sections,
+        &headers,
+        working_height,
+        sections_inferred,
+    );
     let table_tokens = tokens
         .iter()
         .filter(|token| token.center_y() <= content_bottom)
         .cloned()
         .collect::<Vec<_>>();
 
-    let anchors = course_anchors(&table_tokens);
+    let anchors = structured_course_anchors(&table_tokens);
     let (anchored_courses, mut warnings) = anchor_courses(
         &table_tokens,
         &anchors,
@@ -329,12 +356,18 @@ fn merge_course_candidates(
             .find(|existing| same_course_identity(existing, &candidate))
         {
             if existing.teacher.as_deref().is_none_or(str::is_empty)
-                && candidate.teacher.as_deref().is_some_and(|value| !value.is_empty())
+                && candidate
+                    .teacher
+                    .as_deref()
+                    .is_some_and(|value| !value.is_empty())
             {
                 existing.teacher = candidate.teacher;
             }
             if existing.location.as_deref().is_none_or(str::is_empty)
-                && candidate.location.as_deref().is_some_and(|value| !value.is_empty())
+                && candidate
+                    .location
+                    .as_deref()
+                    .is_some_and(|value| !value.is_empty())
             {
                 existing.location = candidate.location;
             }
@@ -353,7 +386,6 @@ fn same_course_identity(left: &ImportCourse, right: &ImportCourse) -> bool {
         && left.weeks == right.weeks
         && left.parity == right.parity
 }
-
 
 fn should_use_fallback(_sections_inferred: bool, anchor_count: usize) -> bool {
     // Once a timetable yields several explicit weekday/section anchors, position-only

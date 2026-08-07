@@ -269,26 +269,57 @@ fn is_time_text(value: &str) -> bool {
 }
 
 fn is_teacher_text(value: &str) -> bool {
-    value.contains("老师") || value.contains("教师") || value.ends_with("教授")
+    let compact = compact_text(value);
+    if matches!(compact.as_str(), "教师" | "老师" | "教师姓名") {
+        return true;
+    }
+    if Regex::new(r"^(?:教师|老师)[:：].{1,30}$")
+        .unwrap()
+        .is_match(&compact)
+    {
+        return true;
+    }
+    let count = compact.chars().count();
+    (2..=24).contains(&count)
+        && (compact.ends_with("老师") || compact.ends_with("教授"))
 }
 
 fn is_location_text(value: &str) -> bool {
-    compact_location_from_text(value).is_some()
-        || [
-            "教学楼",
-            "教室",
-            "校区",
-            "楼",
-            "室",
-            "阶",
-            "馆",
-            "南湖",
-            "南岭",
-            "中心",
-            "操场",
-        ]
-        .iter()
-        .any(|marker| value.contains(marker))
+    let compact = compact_text(value)
+        .trim_matches([':', '：', '，', ',', '。', '；', ';'])
+        .to_owned();
+    if compact.is_empty() {
+        return false;
+    }
+    if compact_location_from_text(&compact).is_some() {
+        return true;
+    }
+    if Regex::new(r"^(?:地点|上课地点)[:：].{1,40}$")
+        .unwrap()
+        .is_match(&compact)
+    {
+        return true;
+    }
+
+    let explicit_building = Regex::new(
+        r"^[\u{4e00}-\u{9fff}A-Za-z0-9-]{0,18}(?:教学楼|实验楼|实训楼|逸夫楼|图书馆|体育馆|体育场|操场|教室)[A-Za-z0-9一二三四五六七八九十阶-]{0,12}$",
+    )
+    .unwrap();
+    if explicit_building.is_match(&compact) {
+        return true;
+    }
+
+    let building_room = Regex::new(
+        r"^[\u{4e00}-\u{9fff}A-Za-z0-9-]{1,16}(?:楼|馆)[A-Za-z]?\d{1,4}$",
+    )
+    .unwrap();
+    if building_room.is_match(&compact) {
+        return true;
+    }
+
+    Regex::new(r"^[\u{4e00}-\u{9fff}A-Za-z0-9-]{1,16}校区[\u{4e00}-\u{9fff}A-Za-z0-9-]{1,20}$")
+        .unwrap()
+        .is_match(&compact)
 }
 
 fn is_common_header(value: &str) -> bool {
