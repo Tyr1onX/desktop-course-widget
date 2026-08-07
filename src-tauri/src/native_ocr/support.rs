@@ -273,21 +273,22 @@ fn is_teacher_text(value: &str) -> bool {
 }
 
 fn is_location_text(value: &str) -> bool {
-    [
-        "教学楼",
-        "教室",
-        "校区",
-        "楼",
-        "室",
-        "阶",
-        "馆",
-        "南湖",
-        "南岭",
-        "中心",
-        "操场",
-    ]
-    .iter()
-    .any(|marker| value.contains(marker))
+    compact_location_from_text(value).is_some()
+        || [
+            "教学楼",
+            "教室",
+            "校区",
+            "楼",
+            "室",
+            "阶",
+            "馆",
+            "南湖",
+            "南岭",
+            "中心",
+            "操场",
+        ]
+        .iter()
+        .any(|marker| value.contains(marker))
 }
 
 fn is_common_header(value: &str) -> bool {
