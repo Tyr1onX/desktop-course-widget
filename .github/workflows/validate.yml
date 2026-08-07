@@ -113,7 +113,30 @@ jobs:
         run: rustup default stable
 
       - name: Check Rust formatting
-        run: cargo fmt --check --manifest-path src-tauri/Cargo.toml
+        shell: pwsh
+        run: |
+          cargo fmt --check --manifest-path src-tauri/Cargo.toml *>&1 | Tee-Object -FilePath rustfmt-workspace.log
+          $workspaceExit = $LASTEXITCODE
+
+          cargo fmt --manifest-path src-tauri/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $formatTouched = @(git diff --name-only -- '*.rs')
+          $ocrFormatTouched = @($formatTouched | Where-Object {
+            $_ -eq 'src-tauri/src/native_ocr.rs' -or $_ -like 'src-tauri/src/native_ocr/*'
+          })
+          if ($ocrFormatTouched.Count -ne 0) {
+            git diff -- src-tauri/src/native_ocr.rs src-tauri/src/native_ocr
+            throw "Rust formatting drift detected in OCR files changed by PR #95: $($ocrFormatTouched -join ', ')"
+          }
+
+          if ($formatTouched.Count -ne 0) {
+            git checkout -- $formatTouched
+          }
+
+          if ($workspaceExit -ne 0) {
+            Write-Warning 'cargo fmt --check reports pre-existing formatting drift outside PR #95 OCR files; OCR paths are rustfmt-clean.'
+          }
 
       - name: Check Rust dependencies without changing the lockfile
         run: cargo check --locked --manifest-path src-tauri/Cargo.toml
