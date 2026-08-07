@@ -5,7 +5,7 @@ use std::{
 };
 
 use image::DynamicImage;
-use ocr_rs::{OcrEngine, OcrEngineConfig};
+use ocr_rs::{DetOptions, OcrEngine, OcrEngineConfig};
 use regex::Regex;
 
 use crate::import_draft::{
@@ -133,7 +133,10 @@ pub fn recognize_screenshot(image_path: &Path) -> Result<ImportDraft, String> {
         .map(usize::from)
         .unwrap_or(4);
     let threads = (logical_processors / 2).clamp(2, 8) as i32;
-    let config = OcrEngineConfig::fast().with_threads(threads);
+    let detector_max_side = detector_max_side_for_dimensions(original_width, original_height);
+    let config = OcrEngineConfig::fast()
+        .with_threads(threads)
+        .with_det_options(DetOptions::fast().with_max_side_len(detector_max_side));
     let engine_started = Instant::now();
     let engine = OcrEngine::new(&det_model, &rec_model, &charset, Some(config))
         .map_err(|error| format!("无法初始化本地文字识别引擎：{error}"))?;
@@ -184,9 +187,10 @@ pub fn recognize_screenshot(image_path: &Path) -> Result<ImportDraft, String> {
     let total_ms = total_started.elapsed().as_millis();
 
     eprintln!(
-        "[native-ocr] decode_ms={decode_ms} engine_init_ms={engine_init_ms} recognition_ms={recognition_ms} parsing_ms={parsing_ms} secondary_ocr_ms={secondary_ocr_ms} total_ms={total_ms} tokens={} courses={} working={}x{} source={}x{}",
+        "[native-ocr] decode_ms={decode_ms} engine_init_ms={engine_init_ms} recognition_ms={recognition_ms} parsing_ms={parsing_ms} secondary_ocr_ms={secondary_ocr_ms} total_ms={total_ms} tokens={} courses={} detector_max_side={} working={}x{} source={}x{}",
         tokens.len(),
         draft.courses.len(),
+        detector_max_side,
         working.width(),
         working.height(),
         original_width,

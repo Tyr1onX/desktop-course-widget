@@ -4,6 +4,19 @@ const TALL_MAX_WORKING_HEIGHT: u32 = 3600;
 const TALL_MAX_WORKING_PIXELS: u64 = 3_200_000;
 const TALL_SOFT_MAX_HEIGHT: u32 = 4800;
 const TALL_SOFT_MAX_PIXELS: u64 = 4_200_000;
+const TALL_DETECTOR_MAX_SIDE: u32 = 1280;
+
+fn detector_max_side_for_dimensions(width: u32, height: u32) -> u32 {
+    if width == 0 || height == 0 {
+        return 960;
+    }
+    let aspect_ratio = height as f32 / width as f32;
+    if aspect_ratio >= TALL_SCREENSHOT_ASPECT_RATIO {
+        TALL_DETECTOR_MAX_SIDE
+    } else {
+        960
+    }
+}
 
 fn working_dimensions(width: u32, height: u32) -> (u32, u32) {
     if width == 0 || height == 0 {
@@ -174,8 +187,10 @@ fn structured_weekday_headers(
             .iter()
             .map(|header| header.bottom)
             .fold(0.0_f32, f32::max);
-        let anchor_support = schedule_anchor_support_below(tokens, row_bottom, footer_top).min(8) as f32;
-        let section_support = section_sequence_support_below(tokens, &row, image_width, row_bottom);
+        let anchor_support =
+            schedule_anchor_support_below(tokens, row_bottom, footer_top).min(8) as f32;
+        let section_support =
+            section_sequence_support_below(tokens, &row, image_width, row_bottom) as f32;
         let y_ratio = (seed.center_y / image_height.max(1) as f32).clamp(0.0, 1.0);
         let footer_penalty = footer_top
             .filter(|top| seed.center_y >= *top - 1.0)
@@ -729,14 +744,14 @@ fn normalized_ascii_spacing(value: &str) -> Option<(String, String)> {
         return None;
     }
     let display = value.split_whitespace().collect::<Vec<_>>().join(" ");
-    let word_count = display
+    let ascii_word_count = display
         .split(' ')
         .filter(|part| {
             part.chars()
                 .any(|character| character.is_ascii_alphabetic())
         })
         .count();
-    (word_count >= 2).then(|| (compact_text(&display), display))
+    (ascii_word_count >= 1).then(|| (compact_text(&display), display))
 }
 
 #[cfg(test)]
@@ -755,6 +770,9 @@ mod structural_generalization_tests {
         assert!(second.0 >= 800, "1440x6000 became {second:?}");
         assert!(first.0 as u64 * first.1 as u64 <= TALL_SOFT_MAX_PIXELS);
         assert!(second.0 as u64 * second.1 as u64 <= TALL_SOFT_MAX_PIXELS);
+        assert_eq!(detector_max_side_for_dimensions(1080, 4000), 1280);
+        assert_eq!(detector_max_side_for_dimensions(1440, 6000), 1280);
+        assert_eq!(detector_max_side_for_dimensions(1600, 1000), 960);
     }
 
     #[test]
@@ -921,14 +939,23 @@ mod structural_generalization_tests {
     }
 
     #[test]
-    fn ascii_course_spacing_can_be_restored_after_compact_parsing() {
+    fn ascii_and_mixed_course_spacing_can_be_restored_after_compact_parsing() {
         assert_eq!(
             normalized_ascii_spacing("College English III"),
             Some(("CollegeEnglishIII".into(), "College English III".into()))
         );
         assert_eq!(
+            normalized_ascii_spacing("Python Programming"),
+            Some(("PythonProgramming".into(), "Python Programming".into()))
+        );
+        assert_eq!(
             normalized_ascii_spacing("Signals and Systems"),
             Some(("SignalsandSystems".into(), "Signals and Systems".into()))
         );
+        assert_eq!(
+            normalized_ascii_spacing("人工智能 Python 应用"),
+            Some(("人工智能Python应用".into(), "人工智能 Python 应用".into()))
+        );
+        assert_eq!(course_name_from_text("C++程序设计").as_deref(), Some("C++程序设计"));
     }
 }

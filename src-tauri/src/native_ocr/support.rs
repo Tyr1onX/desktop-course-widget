@@ -301,6 +301,13 @@ fn is_location_text(value: &str) -> bool {
         return true;
     }
 
+    if Regex::new(r"^[A-Za-z]{1,3}[-]?\d{2,4}$")
+        .unwrap()
+        .is_match(&compact)
+    {
+        return true;
+    }
+
     let explicit_building = Regex::new(
         r"^[\u{4e00}-\u{9fff}A-Za-z0-9-]{0,18}(?:教学楼|实验楼|实训楼|逸夫楼|图书馆|体育馆|体育场|操场|教室)[A-Za-z0-9一二三四五六七八九十阶-]{0,12}$",
     )
