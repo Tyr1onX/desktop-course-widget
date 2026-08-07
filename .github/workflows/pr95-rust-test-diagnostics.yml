@@ -1,0 +1,42 @@
+name: PR95 Rust Test Diagnostics
+
+on:
+  push:
+    branches:
+      - fix/weekday-header-row-detection
+
+permissions:
+  contents: read
+
+jobs:
+  rust-tests:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Select stable Rust
+        run: rustup default stable
+
+      - name: Run Rust library tests with captured output
+        id: rust_tests
+        shell: pwsh
+        run: |
+          cargo test --locked --manifest-path src-tauri/Cargo.toml --lib -- --nocapture *>&1 | Tee-Object -FilePath pr95-rust-tests.log
+          "exit_code=$LASTEXITCODE" >> $env:GITHUB_OUTPUT
+          exit 0
+
+      - name: Upload Rust test diagnostics
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: pr95-rust-test-diagnostics-${{ github.sha }}
+          path: pr95-rust-tests.log
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Fail when Rust tests failed
+        if: steps.rust_tests.outputs.exit_code != '0'
+        shell: pwsh
+        run: exit 1
