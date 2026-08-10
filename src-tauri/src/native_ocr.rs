@@ -10,6 +10,7 @@ include!("native_ocr/weekday_header_tests.rs");
 include!("native_ocr/table_structure_tests.rs");
 include!("native_ocr/location_filter_tests.rs");
 include!("native_ocr/generalization_regression_tests.rs");
+include!("native_ocr/field_association_regression_tests.rs");
 
 pub fn runtime_status() -> Result<(), String> {
     let model_root = resolve_model_root()?;

@@ -154,8 +154,8 @@ fn course_from_block(
         .filter(|token| token.center_y() >= anchor.center_y() - 1.0)
         .collect::<Vec<_>>();
     let location = find_location_after_schedule(after_anchor.iter().copied(), anchor)
-        .or_else(|| find_location_fragment(after_anchor.iter().copied()))
-        .or_else(|| find_compact_location(after_anchor.iter().copied()));
+        .or_else(|| find_location_fragment(field_candidates.iter().copied()))
+        .or_else(|| find_compact_location(field_candidates.iter().copied()));
 
     let mut source_tokens = vec![anchor.clone()];
     source_tokens.extend(block.iter().cloned());
@@ -242,7 +242,9 @@ fn title_start_before_anchor(
         let typical_height = previous.height.max(current.height).max(18.0);
         let vertical_gap = current.top - previous.bottom();
         let has_boundary_between = tokens.iter().any(|candidate| {
-            candidate.center_y() > previous.center_y() + 0.5
+            candidate.center_x() >= column_bounds.0
+                && candidate.center_x() < column_bounds.1
+                && candidate.center_y() > previous.center_y() + 0.5
                 && candidate.center_y() < current.center_y() - 0.5
                 && token_is_course_boundary(candidate)
         });
