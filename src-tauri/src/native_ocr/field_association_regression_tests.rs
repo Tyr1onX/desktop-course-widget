@@ -95,4 +95,28 @@ mod field_association_regression_tests {
             assert_eq!(course_name_from_text(title).as_deref(), Some(title));
         }
     }
+
+    #[test]
+    fn case_e_location_embedded_in_schedule_token_stays_with_that_card() {
+        let tokens = vec![
+            token("嵌入式接口技术[04]", 480.0, 100.0, 150.0, 22.0),
+            token("周明", 480.0, 126.0, 48.0, 22.0),
+            // The old baseline split ordinary whitespace into parts. The structural parser
+            // now keeps the OCR line intact, so schedule and location can arrive as one token.
+            token(
+                "6-13周, 星期3, 第1节-第2节, 北区-第1教学楼-三阶",
+                480.0,
+                154.0,
+                260.0,
+                22.0,
+            ),
+        ];
+        let parsed = courses(&tokens);
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].name, "嵌入式接口技术[04]");
+        assert_eq!(parsed[0].teacher.as_deref(), Some("周明"));
+        assert_eq!(parsed[0].location.as_deref(), Some("北区-第1教学楼-三阶"));
+        assert_eq!((parsed[0].weekday, parsed[0].start_section, parsed[0].end_section), (3, 1, 2));
+        assert_eq!(parsed[0].weeks, (6..=13).collect::<Vec<_>>());
+    }
 }
