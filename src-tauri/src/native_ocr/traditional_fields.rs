@@ -76,6 +76,18 @@ fn compact_location_from_text(value: &str) -> Option<String> {
     sports.is_match(&compact).then_some(compact)
 }
 
+fn find_location_in_schedule_token(anchor: &Token) -> Option<(&Token, String)> {
+    for value in anchor.parts.iter().chain(std::iter::once(&anchor.text)) {
+        let compact = compact_text(value);
+        for segment in compact.split([',', '，', ';', '；', '|', '·']).rev() {
+            if let Some(location) = location_from_text(segment) {
+                return Some((anchor, location));
+            }
+        }
+    }
+    None
+}
+
 fn find_location_after_schedule<'a>(
     tokens: impl IntoIterator<Item = &'a Token>,
     anchor: &'a Token,
