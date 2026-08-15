@@ -153,7 +153,8 @@ fn course_from_block(
         .copied()
         .filter(|token| token.center_y() >= anchor.center_y() - 1.0)
         .collect::<Vec<_>>();
-    let location = find_location_after_schedule(after_anchor.iter().copied(), anchor)
+    let location = find_location_in_schedule_token(anchor)
+        .or_else(|| find_location_after_schedule(after_anchor.iter().copied(), anchor))
         .or_else(|| find_location_fragment(field_candidates.iter().copied()))
         .or_else(|| find_compact_location(field_candidates.iter().copied()));
 
