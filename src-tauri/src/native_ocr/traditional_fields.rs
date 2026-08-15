@@ -76,8 +76,33 @@ fn compact_location_from_text(value: &str) -> Option<String> {
     sports.is_match(&compact).then_some(compact)
 }
 
+fn location_suffix_after_section(value: &str) -> Option<String> {
+    let compact = compact_text(value);
+    let section = Regex::new(
+        r"(?:第?\d{1,2}(?:(?:[,，、.·/]|第)\d{1,2})+节|第?\d{1,2}节(?:[-—~－–‑]+|至|到)第?\d{1,2}节?|第?\d{1,2}(?:[-—~－–‑]+|至|到)第?\d{1,2}节)",
+    )
+    .unwrap();
+
+    for matched in section.find_iter(&compact) {
+        let suffix = compact[matched.end()..]
+            .trim_start_matches([',', '，', ';', '；', '|', '·', ':', '：']);
+        if suffix.is_empty() || matches!(suffix, "无" | "暂无" | "未安排") {
+            continue;
+        }
+        if let Some(location) =
+            location_from_text(suffix).or_else(|| compact_location_from_text(suffix))
+        {
+            return Some(location);
+        }
+    }
+    None
+}
+
 fn find_location_in_schedule_token(anchor: &Token) -> Option<(&Token, String)> {
     for value in anchor.parts.iter().chain(std::iter::once(&anchor.text)) {
+        if let Some(location) = location_suffix_after_section(value) {
+            return Some((anchor, location));
+        }
         let compact = compact_text(value);
         for segment in compact.split([',', '，', ';', '；', '|', '·']).rev() {
             if let Some(location) = location_from_text(segment) {
