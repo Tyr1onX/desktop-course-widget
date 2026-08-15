@@ -119,4 +119,48 @@ mod field_association_regression_tests {
         assert_eq!((parsed[0].weekday, parsed[0].start_section, parsed[0].end_section), (3, 1, 2));
         assert_eq!(parsed[0].weeks, (6..=13).collect::<Vec<_>>());
     }
+
+    #[test]
+    fn case_f_location_attached_directly_to_section_tail_is_recovered() {
+        let tokens = vec![
+            token("嵌入式接口技术[04]", 480.0, 100.0, 150.0, 22.0),
+            token("周明", 480.0, 126.0, 48.0, 22.0),
+            token(
+                "6-13周,星期3,第1节-第2节北区-第1教学楼-三阶",
+                480.0,
+                154.0,
+                280.0,
+                22.0,
+            ),
+        ];
+        let parsed = courses(&tokens);
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].name, "嵌入式接口技术[04]");
+        assert_eq!(parsed[0].teacher.as_deref(), Some("周明"));
+        assert_eq!(parsed[0].location.as_deref(), Some("北区-第1教学楼-三阶"));
+        assert_eq!((parsed[0].weekday, parsed[0].start_section, parsed[0].end_section), (3, 1, 2));
+        assert_eq!(parsed[0].weeks, (6..=13).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn case_g_explicit_no_location_tail_does_not_invent_a_location() {
+        let tokens = vec![
+            token("网络系统[03]", 480.0, 100.0, 120.0, 22.0),
+            token("赵宁", 480.0, 126.0, 48.0, 22.0),
+            token(
+                "9-14周,星期3,第3节-第4节无",
+                480.0,
+                154.0,
+                220.0,
+                22.0,
+            ),
+        ];
+        let parsed = courses(&tokens);
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].name, "网络系统[03]");
+        assert_eq!(parsed[0].teacher.as_deref(), Some("赵宁"));
+        assert_eq!(parsed[0].location, None);
+        assert_eq!((parsed[0].weekday, parsed[0].start_section, parsed[0].end_section), (3, 3, 4));
+        assert_eq!(parsed[0].weeks, (9..=14).collect::<Vec<_>>());
+    }
 }
