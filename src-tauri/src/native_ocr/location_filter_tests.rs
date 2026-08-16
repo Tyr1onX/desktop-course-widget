@@ -12,4 +12,23 @@ mod location_filter_tests {
             );
         }
     }
+
+    #[test]
+    fn trailing_ui_glyphs_do_not_hide_strong_locations() {
+        assert_eq!(
+            location_after_trailing_decoration("节，北区-第1教学楼-三阶🍩").as_deref(),
+            Some("北区-第1教学楼-三阶")
+        );
+        assert_eq!(
+            location_after_trailing_decoration("北区-第1教学楼-四阶⊙").as_deref(),
+            Some("北区-第1教学楼-四阶")
+        );
+    }
+
+    #[test]
+    fn decoration_noise_without_a_location_stays_empty() {
+        assert_eq!(location_after_trailing_decoration("节，回"), None);
+        assert_eq!(location_after_trailing_decoration("⊙"), None);
+        assert_eq!(location_after_trailing_decoration("🍩"), None);
+    }
 }
