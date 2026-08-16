@@ -1,13 +1,21 @@
 fn expand_multiline_tokens(tokens: Vec<Token>) -> Vec<Token> {
     let mut expanded = Vec::new();
     for token in tokens {
-        let lines = token
-            .lines
-            .iter()
-            .map(|line| compact_text(line))
-            .filter(|line| !line.is_empty())
-            .collect::<Vec<_>>();
+        let lines = merge_wrapped_schedule_lines(
+            token
+                .lines
+                .iter()
+                .map(|line| compact_text(line))
+                .filter(|line| !line.is_empty())
+                .collect::<Vec<_>>(),
+        );
         if lines.len() <= 1 {
+            let mut token = token;
+            if let Some(line) = lines.first() {
+                token.text = line.clone();
+                token.parts = vec![line.clone()];
+                token.lines = vec![line.clone()];
+            }
             expanded.push(token);
             continue;
         }
@@ -28,6 +36,54 @@ fn expand_multiline_tokens(tokens: Vec<Token>) -> Vec<Token> {
     }
     expanded.sort_by(token_reading_order);
     expanded
+}
+
+fn merge_wrapped_schedule_lines(lines: Vec<String>) -> Vec<String> {
+    let mut merged = Vec::<String>::new();
+    for line in lines {
+        let should_merge = merged
+            .last()
+            .is_some_and(|previous| should_merge_schedule_line(previous, &line));
+        if should_merge {
+            if let Some(previous) = merged.last_mut() {
+                previous.push_str(&line);
+            }
+        } else {
+            merged.push(line);
+        }
+    }
+    merged
+}
+
+fn should_merge_schedule_line(previous: &str, next: &str) -> bool {
+    let previous = compact_text(previous);
+    let next = compact_text(next);
+    if previous.is_empty()
+        || next.is_empty()
+        || weekday_from_schedule_text(&previous).is_none()
+    {
+        return false;
+    }
+
+    let previous_section = section_range_from_text(&previous);
+    let combined = format!("{previous}{next}");
+    let combined_section = section_range_from_text(&combined);
+
+    // A narrow visual wrap can split `第1节-第2节` exactly before the final `节`.
+    // Rejoin only when the next OCR line starts with that missing suffix and the
+    // combined text becomes a valid section range.
+    if previous_section.is_none()
+        && next.starts_with('节')
+        && combined_section.is_some()
+    {
+        return true;
+    }
+
+    // Some OCR boxes keep a complete schedule line and its location as two visual
+    // lines. They still belong to one OCR box, so a strongly validated location is
+    // safe to reattach without looking outside the card or guessing a room.
+    previous_section.is_some()
+        && (location_from_text(&next).is_some() || compact_location_from_text(&next).is_some())
 }
 
 fn is_footer_table_header(value: &str) -> bool {

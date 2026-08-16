@@ -21,6 +21,11 @@ mod field_association_regression_tests {
         anchor_courses(tokens, &anchors, &headers(), 1260, 700).0
     }
 
+    fn courses_from_raw(tokens: Vec<Token>) -> Vec<ImportCourse> {
+        let tokens = expand_multiline_tokens(tokens);
+        courses(&tokens)
+    }
+
     #[test]
     fn case_a_keeps_coded_title_teacher_and_location_in_one_local_card() {
         let tokens = vec![
@@ -156,6 +161,68 @@ mod field_association_regression_tests {
             ),
         ];
         let parsed = courses(&tokens);
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].name, "网络系统[03]");
+        assert_eq!(parsed[0].teacher.as_deref(), Some("赵宁"));
+        assert_eq!(parsed[0].location, None);
+        assert_eq!((parsed[0].weekday, parsed[0].start_section, parsed[0].end_section), (3, 3, 4));
+        assert_eq!(parsed[0].weeks, (9..=14).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn case_h_multiline_box_split_inside_section_range_keeps_its_location() {
+        let parsed = courses_from_raw(vec![
+            token("嵌入式接口技术[04]", 480.0, 100.0, 150.0, 22.0),
+            token("周明", 480.0, 126.0, 48.0, 22.0),
+            token(
+                "6-13周,星期3,第1节-第2\n节,北区-第1教学楼-三阶",
+                480.0,
+                154.0,
+                280.0,
+                44.0,
+            ),
+        ]);
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].name, "嵌入式接口技术[04]");
+        assert_eq!(parsed[0].teacher.as_deref(), Some("周明"));
+        assert_eq!(parsed[0].location.as_deref(), Some("北区-第1教学楼-三阶"));
+        assert_eq!((parsed[0].weekday, parsed[0].start_section, parsed[0].end_section), (3, 1, 2));
+        assert_eq!(parsed[0].weeks, (6..=13).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn case_i_multiline_box_rejoins_complete_schedule_and_location() {
+        let parsed = courses_from_raw(vec![
+            token("网络系统[03]", 480.0, 100.0, 120.0, 22.0),
+            token("林宇", 480.0, 126.0, 48.0, 22.0),
+            token(
+                "3-8周,星期3,第3节-第4节,\n北区-第1教学楼-四阶",
+                480.0,
+                154.0,
+                280.0,
+                44.0,
+            ),
+        ]);
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].name, "网络系统[03]");
+        assert_eq!(parsed[0].teacher.as_deref(), Some("林宇"));
+        assert_eq!(parsed[0].location.as_deref(), Some("北区-第1教学楼-四阶"));
+        assert_eq!(parsed[0].weeks, (3..=8).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn case_j_multiline_box_without_location_stays_empty() {
+        let parsed = courses_from_raw(vec![
+            token("网络系统[03]", 480.0, 100.0, 120.0, 22.0),
+            token("赵宁", 480.0, 126.0, 48.0, 22.0),
+            token(
+                "9-14周,星期3,第3节-第4\n节,",
+                480.0,
+                154.0,
+                220.0,
+                44.0,
+            ),
+        ]);
         assert_eq!(parsed.len(), 1);
         assert_eq!(parsed[0].name, "网络系统[03]");
         assert_eq!(parsed[0].teacher.as_deref(), Some("赵宁"));
