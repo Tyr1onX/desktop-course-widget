@@ -76,6 +76,25 @@ fn compact_location_from_text(value: &str) -> Option<String> {
     sports.is_match(&compact).then_some(compact)
 }
 
+fn location_after_trailing_decoration(value: &str) -> Option<String> {
+    if let Some(location) =
+        location_from_text(value).or_else(|| compact_location_from_text(value))
+    {
+        return Some(location);
+    }
+
+    let compact = compact_text(value);
+    let trimmed = compact.trim_end_matches(|character: char| {
+        !character.is_alphanumeric()
+            && !matches!(character, '-' | '－' | '—' | '–' | '‑')
+    });
+    if trimmed.len() == compact.len() {
+        return None;
+    }
+
+    location_from_text(trimmed).or_else(|| compact_location_from_text(trimmed))
+}
+
 fn location_suffix_after_section(value: &str) -> Option<String> {
     let compact = compact_text(value);
     let section = Regex::new(
@@ -89,9 +108,7 @@ fn location_suffix_after_section(value: &str) -> Option<String> {
         if suffix.is_empty() || matches!(suffix, "无" | "暂无" | "未安排") {
             continue;
         }
-        if let Some(location) =
-            location_from_text(suffix).or_else(|| compact_location_from_text(suffix))
-        {
+        if let Some(location) = location_after_trailing_decoration(suffix) {
             return Some(location);
         }
     }
@@ -105,7 +122,7 @@ fn find_location_in_schedule_token(anchor: &Token) -> Option<(&Token, String)> {
         }
         let compact = compact_text(value);
         for segment in compact.split([',', '，', ';', '；', '|', '·']).rev() {
-            if let Some(location) = location_from_text(segment) {
+            if let Some(location) = location_after_trailing_decoration(segment) {
                 return Some((anchor, location));
             }
         }
@@ -146,9 +163,7 @@ fn find_location_after_schedule<'a>(
             break;
         }
         for value in token.parts.iter().chain(std::iter::once(&token.text)) {
-            if let Some(location) = location_from_text(value)
-                .or_else(|| compact_location_from_text(value))
-            {
+            if let Some(location) = location_after_trailing_decoration(value) {
                 return Some((token, location));
             }
         }
