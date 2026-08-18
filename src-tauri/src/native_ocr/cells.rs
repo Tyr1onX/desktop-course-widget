@@ -24,13 +24,18 @@ fn course_card_seeds(
         .iter()
         .map(|anchor| {
             let anchor_token = &tokens[anchor.token_index];
-            let title_token_index =
-                nearest_card_title_token(tokens, anchor_token, column_step);
+            // Some OCR engines return a whole course card as one multiline token. In
+            // that case the schedule anchor already shares the card's true geometry;
+            // looking upward for a title can accidentally attach the previous card.
+            let title_token_index = if token_contains_embedded_course_title(anchor_token) {
+                Some(anchor.token_index)
+            } else {
+                nearest_card_title_token(tokens, anchor_token, column_step)
+            };
             let geometry_x = title_token_index
                 .map(|index| tokens[index].center_x())
                 .unwrap_or_else(|| anchor_token.center_x());
-            let weekday = weekday_at_x(headers, geometry_x, image_width)
-                .unwrap_or(anchor.weekday);
+            let weekday = weekday_at_x(headers, geometry_x, image_width).unwrap_or(anchor.weekday);
             CourseCardSeed {
                 anchor_token_index: anchor.token_index,
                 weekday,
@@ -48,7 +53,6 @@ fn course_card_geometry(
     headers: &[WeekdayHeader],
     image_width: f32,
 ) -> CourseCardGeometry {
-    let anchor = &anchors[anchor_index];
     let seed = &seeds[anchor_index];
     let anchor_token = &tokens[seed.anchor_token_index];
     let column_bounds = weekday_column_bounds(headers, seed.weekday, image_width);
@@ -93,52 +97,47 @@ fn course_card_geometry(
         .map(|index| tokens[seeds[index].anchor_token_index].center_y())
         .unwrap_or(header_bottom);
 
-    let upper_bound = seed
-        .title_token_index
-        .map(|index| tokens[index].top)
-        .or_else(|| {
-            title_start_before_anchor(
-                tokens,
-                column_bounds,
-                previous_anchor_y,
-                anchor_token,
-            )
-        })
-        .unwrap_or_else(|| {
-            previous_index
-                .map(|index| {
-                    (tokens[seeds[index].anchor_token_index].center_y()
-                        + anchor_token.center_y())
-                        / 2.0
-                })
-                .unwrap_or_else(|| {
-                    (anchor_token.center_y() - anchor_token.height.max(24.0) * 4.5)
-                        .max(header_bottom)
-                })
-        });
+    let upper_bound = if seed.title_token_index == Some(seed.anchor_token_index) {
+        // Whole-card multiline OCR token: its own top is the card top.
+        anchor_token.top
+    } else {
+        // Expand from the nearest title line to the beginning of a wrapped title. The
+        // selected line remains a fallback when the title reconstruction is ambiguous.
+        title_start_before_anchor(tokens, column_bounds, previous_anchor_y, anchor_token)
+            .or_else(|| seed.title_token_index.map(|index| tokens[index].top))
+            .unwrap_or_else(|| {
+                previous_index
+                    .map(|index| {
+                        (tokens[seeds[index].anchor_token_index].center_y()
+                            + anchor_token.center_y())
+                            / 2.0
+                    })
+                    .unwrap_or_else(|| {
+                        (anchor_token.center_y() - anchor_token.height.max(24.0) * 4.5)
+                            .max(header_bottom)
+                    })
+            })
+    };
 
     let mut lower_bound = next_index
         .and_then(|index| {
-            seeds[index]
-                .title_token_index
-                .map(|title_index| tokens[title_index].top)
-                .filter(|top| *top > anchor_token.center_y() + 0.5)
-        })
-        .or_else(|| {
-            next_index.and_then(|index| {
+            let next_seed = &seeds[index];
+            if next_seed.title_token_index == Some(next_seed.anchor_token_index) {
+                Some(tokens[next_seed.anchor_token_index].top)
+            } else {
                 title_start_before_anchor(
                     tokens,
                     column_bounds,
                     anchor_token.center_y(),
-                    &tokens[seeds[index].anchor_token_index],
+                    &tokens[next_seed.anchor_token_index],
                 )
-            })
+                .or_else(|| next_seed.title_token_index.map(|title_index| tokens[title_index].top))
+            }
+            .filter(|top| *top > anchor_token.center_y() + 0.5)
         })
         .or_else(|| {
             next_index.map(|index| {
-                (anchor_token.center_y()
-                    + tokens[seeds[index].anchor_token_index].center_y())
-                    / 2.0
+                (anchor_token.center_y() + tokens[seeds[index].anchor_token_index].center_y()) / 2.0
             })
         })
         .unwrap_or(anchor_token.center_y() + anchor_token.height.max(24.0) * 4.5);
@@ -147,13 +146,29 @@ fn course_card_geometry(
         lower_bound = anchor_token.center_y() + anchor_token.height.max(24.0) * 4.5;
     }
 
-    let _ = anchor;
+    // Keep the signature tied to the anchor list: card geometry is defined per parsed
+    // arrangement even when the current calculation only needs the seed/token geometry.
+    let _ = &anchors[anchor_index];
     CourseCardGeometry {
         weekday: seed.weekday,
         column_bounds,
         upper_bound,
         lower_bound,
     }
+}
+
+fn token_contains_embedded_course_title(token: &Token) -> bool {
+    if token.parts.len() < 2 {
+        return false;
+    }
+    let Some(schedule_index) = token.parts.iter().position(|value| {
+        weekday_from_schedule_text(value).is_some() && section_range_from_text(value).is_some()
+    }) else {
+        return false;
+    };
+    token.parts[..schedule_index]
+        .iter()
+        .any(|value| course_name_from_text(value).is_some())
 }
 
 fn nearest_card_title_token(
@@ -198,11 +213,7 @@ fn nearest_card_title_token(
     candidates.first().map(|(index, _, _)| *index)
 }
 
-fn weekday_at_x(
-    headers: &[WeekdayHeader],
-    x: f32,
-    image_width: f32,
-) -> Option<u8> {
+fn weekday_at_x(headers: &[WeekdayHeader], x: f32, image_width: f32) -> Option<u8> {
     headers
         .iter()
         .find(|header| {
@@ -246,10 +257,7 @@ fn is_auxiliary_course_annotation(value: &str) -> bool {
     if let Some(stripped) = rest.strip_prefix('（').or_else(|| rest.strip_prefix('(')) {
         rest = stripped;
     }
-    let Some(stripped) = rest
-        .strip_prefix('调')
-        .or_else(|| rest.strip_prefix('停'))
-    else {
+    let Some(stripped) = rest.strip_prefix('调').or_else(|| rest.strip_prefix('停')) else {
         return false;
     };
     stripped
