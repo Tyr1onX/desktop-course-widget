@@ -230,4 +230,23 @@ mod field_association_regression_tests {
         assert_eq!((parsed[0].weekday, parsed[0].start_section, parsed[0].end_section), (3, 3, 4));
         assert_eq!(parsed[0].weeks, (9..=14).collect::<Vec<_>>());
     }
+
+    #[test]
+    fn case_k_geometry_corrects_a_misread_weekday_and_keeps_the_local_location() {
+        let tokens = vec![
+            token("单片机原理及其应用[04]", 480.0, 100.0, 170.0, 22.0),
+            token("周明", 480.0, 126.0, 48.0, 22.0),
+            token("南湖-第1教学楼-三阶", 480.0, 148.0, 150.0, 22.0),
+            // The OCR text says Tuesday, but the token is centered well inside the
+            // Wednesday column. Reliable header geometry must win in that conflict.
+            token("周二第5-6节6-13周", 480.0, 154.0, 160.0, 22.0),
+        ];
+        let parsed = courses(&tokens);
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].name, "单片机原理及其应用[04]");
+        assert_eq!(parsed[0].teacher.as_deref(), Some("周明"));
+        assert_eq!(parsed[0].location.as_deref(), Some("南湖-第1教学楼-三阶"));
+        assert_eq!((parsed[0].weekday, parsed[0].start_section, parsed[0].end_section), (3, 5, 6));
+        assert_eq!(parsed[0].weeks, (6..=13).collect::<Vec<_>>());
+    }
 }
