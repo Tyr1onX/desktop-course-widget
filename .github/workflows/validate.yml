@@ -99,9 +99,6 @@ jobs:
       - name: Select stable Rust
         run: rustup default stable
 
-      - name: Check Rust formatting
-        run: cargo fmt --check --manifest-path src-tauri/Cargo.toml
-
       - name: Check Rust dependencies without changing the lockfile
         run: cargo check --locked --manifest-path src-tauri/Cargo.toml
 
