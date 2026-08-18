@@ -1,4 +1,5 @@
 include!("native_ocr/runtime.rs");
+include!("native_ocr/cells.rs");
 include!("native_ocr/courses.rs");
 include!("native_ocr/grid.rs");
 include!("native_ocr/metadata.rs");
@@ -11,6 +12,7 @@ include!("native_ocr/table_structure_tests.rs");
 include!("native_ocr/location_filter_tests.rs");
 include!("native_ocr/generalization_regression_tests.rs");
 include!("native_ocr/field_association_regression_tests.rs");
+include!("native_ocr/cell_geometry_regression_tests.rs");
 
 pub fn runtime_status() -> Result<(), String> {
     let model_root = resolve_model_root()?;
