@@ -31,7 +31,13 @@ fn course_card_seeds(
             let title_token_index = if token_contains_embedded_course_title(anchor_token) {
                 Some(anchor.token_index)
             } else {
-                nearest_card_title_token(tokens, anchor_token, column_step)
+                nearest_card_title_token(
+                    tokens,
+                    anchor_token,
+                    headers,
+                    image_width,
+                    column_step,
+                )
             };
             let weekday = course_card_weekday(
                 tokens,
@@ -40,7 +46,6 @@ fn course_card_seeds(
                 anchor.weekday,
                 headers,
                 image_width,
-                column_step,
             );
             let auxiliary = anchor_has_auxiliary_annotation(tokens, anchor_token, column_step);
             CourseCardSeed {
@@ -182,9 +187,11 @@ fn token_contains_embedded_course_title(token: &Token) -> bool {
 fn nearest_card_title_token(
     tokens: &[Token],
     anchor: &Token,
+    headers: &[WeekdayHeader],
+    image_width: f32,
     column_step: f32,
 ) -> Option<usize> {
-    let maximum_gap = anchor.height.max(18.0) * 4.8 + 24.0;
+    let maximum_gap = anchor.height.max(18.0) * 5.2 + 28.0;
     let mut candidates = tokens
         .iter()
         .enumerate()
@@ -199,17 +206,29 @@ fn nearest_card_title_token(
             (!is_bare_teacher_name(&name)).then_some((index, token, name))
         })
         .filter(|(_, token, _)| {
-            horizontal_interval_gap(anchor, token) <= column_step * 0.32
-                || (anchor.center_x() - token.center_x()).abs() <= column_step * 0.82
+            horizontal_interval_gap(anchor, token) <= column_step * 0.38
+                || (anchor.center_x() - token.center_x()).abs() <= column_step * 0.95
+        })
+        .map(|(index, token, name)| {
+            let score = card_title_support_score(
+                tokens,
+                anchor,
+                token,
+                &name,
+                headers,
+                image_width,
+                column_step,
+            );
+            (index, token, name, score)
         })
         .collect::<Vec<_>>();
 
     candidates.sort_by(|left, right| {
-        let left_gap = horizontal_interval_gap(anchor, left.1);
-        let right_gap = horizontal_interval_gap(anchor, right.1);
-        left_gap
-            .partial_cmp(&right_gap)
+        right
+            .3
+            .partial_cmp(&left.3)
             .unwrap_or(Ordering::Equal)
+            .then_with(|| has_course_code(&right.2).cmp(&has_course_code(&left.2)))
             .then_with(|| {
                 let left_vertical = (anchor.top - left.1.bottom()).abs();
                 let right_vertical = (anchor.top - right.1.bottom()).abs();
@@ -217,15 +236,90 @@ fn nearest_card_title_token(
                     .partial_cmp(&right_vertical)
                     .unwrap_or(Ordering::Equal)
             })
-            .then_with(|| has_course_code(&right.2).cmp(&has_course_code(&left.2)))
             .then_with(|| {
-                (anchor.center_x() - left.1.center_x())
-                    .abs()
-                    .partial_cmp(&(anchor.center_x() - right.1.center_x()).abs())
+                horizontal_interval_gap(anchor, left.1)
+                    .partial_cmp(&horizontal_interval_gap(anchor, right.1))
                     .unwrap_or(Ordering::Equal)
             })
     });
-    candidates.first().map(|(index, _, _)| *index)
+    candidates.first().map(|(index, _, _, _)| *index)
+}
+
+fn card_title_support_score(
+    tokens: &[Token],
+    anchor: &Token,
+    title: &Token,
+    title_name: &str,
+    headers: &[WeekdayHeader],
+    image_width: f32,
+    column_step: f32,
+) -> f32 {
+    let Some(weekday) = weekday_for_token(headers, title, image_width) else {
+        return 0.0;
+    };
+    let bounds = weekday_column_bounds(headers, weekday, image_width);
+    let upper = title.top - title.height.max(18.0) * 0.4;
+    let lower = anchor.bottom() + anchor.height.max(18.0) * 2.6 + 16.0;
+    let mut score = 3.0_f32;
+    if has_course_code(title_name) {
+        score += 2.5;
+    }
+    if title_name.chars().count() >= 6 {
+        score += 0.8;
+    }
+
+    let mut teacher_support = 0_u8;
+    let mut location_support = 0_u8;
+    let mut competing_schedule = 0_u8;
+    for token in tokens {
+        if std::ptr::eq(token, anchor)
+            || std::ptr::eq(token, title)
+            || token.center_y() < upper
+            || token.center_y() > lower
+            || token.center_x() < bounds.0
+            || token.center_x() >= bounds.1
+            || token_has_auxiliary_annotation(token)
+        {
+            continue;
+        }
+
+        let has_schedule = token
+            .parts
+            .iter()
+            .chain(std::iter::once(&token.text))
+            .any(|value| {
+                weekday_from_schedule_text(value).is_some()
+                    && section_range_from_text(value).is_some()
+            });
+        if has_schedule {
+            // A title that already has another schedule anchor in its own column is
+            // very likely a neighbouring card. This is the key distinction when the
+            // current anchor's OCR box and weekday text are both shifted into that
+            // neighbouring column.
+            competing_schedule = competing_schedule.saturating_add(1);
+            continue;
+        }
+
+        for value in token.parts.iter().chain(std::iter::once(&token.text)) {
+            if location_from_text(value).is_some() || compact_location_from_text(value).is_some() {
+                location_support = location_support.saturating_add(1);
+                break;
+            }
+            if is_teacher_text(value) || is_bare_teacher_name(value) {
+                teacher_support = teacher_support.saturating_add(1);
+                break;
+            }
+        }
+    }
+
+    score += location_support.min(2) as f32 * 3.2;
+    score += teacher_support.min(2) as f32 * 2.0;
+    score -= competing_schedule.min(2) as f32 * 5.5;
+
+    let vertical_gap = (anchor.top - title.bottom()).max(0.0);
+    score -= (vertical_gap / anchor.height.max(title.height).max(18.0)).min(5.0) * 0.22;
+    score -= (horizontal_interval_gap(anchor, title) / column_step.max(1.0)).min(1.0) * 0.5;
+    score
 }
 
 fn course_card_weekday(
@@ -235,106 +329,60 @@ fn course_card_weekday(
     parsed_weekday: u8,
     headers: &[WeekdayHeader],
     image_width: f32,
-    column_step: f32,
 ) -> u8 {
     if headers.is_empty() {
         return parsed_weekday;
     }
 
-    let mut scores = [0.0_f32; 8];
-    let mut evidence = [0_u8; 8];
-    let vertical_radius = anchor.height.max(18.0) * 6.0 + 28.0;
-    let top = anchor.center_y() - vertical_radius;
-    let bottom = anchor.center_y() + vertical_radius;
-
-    for (index, token) in tokens.iter().enumerate() {
-        if std::ptr::eq(token, anchor)
-            || token.center_y() < top
-            || token.center_y() > bottom
-            || is_weekday_header(&token.text)
-            || section_number_from_text(&token.text).is_some()
-            || token_has_auxiliary_annotation(token)
-        {
-            continue;
+    // Once a coherent card title has been selected, its grid column is stronger than
+    // both the OCR weekday text and a shifted schedule bbox. The previous broad vote
+    // over all nearby text allowed unrelated cards in adjacent columns to outvote the
+    // real card and is deliberately not used here.
+    if let Some(index) = title_token_index {
+        if let Some(weekday) = weekday_for_token(headers, &tokens[index], image_width) {
+            return weekday;
         }
-
-        let interval_gap = horizontal_interval_gap(anchor, token);
-        let center_distance = (anchor.center_x() - token.center_x()).abs();
-        if interval_gap > column_step * 0.34 && center_distance > column_step * 0.86 {
-            continue;
-        }
-
-        let mut weight = 0.0_f32;
-        for value in token.parts.iter().chain(std::iter::once(&token.text)) {
-            if location_from_text(value).is_some() || compact_location_from_text(value).is_some() {
-                weight = weight.max(4.0);
-            } else if course_name_from_text(value).is_some() {
-                weight = weight.max(3.0);
-            } else if is_bare_teacher_name(value) {
-                weight = weight.max(2.0);
-            }
-        }
-        if weight <= 0.0 {
-            continue;
-        }
-
-        if Some(index) == title_token_index {
-            weight += 0.5;
-        }
-        let Some(weekday) = weekday_at_x(headers, token.center_x(), image_width) else {
-            continue;
-        };
-        let proximity = (1.0 - center_distance / (column_step * 1.6).max(1.0)).clamp(0.45, 1.0);
-        scores[weekday as usize] += weight * proximity;
-        evidence[weekday as usize] = evidence[weekday as usize].saturating_add(1);
     }
 
-    // The anchor bbox itself is weak geometric evidence only. OCR commonly makes a
-    // schedule box too wide or shifts it into the neighbouring weekday column.
-    if let Some(anchor_geometry_weekday) = weekday_at_x(headers, anchor.center_x(), image_width) {
-        scores[anchor_geometry_weekday as usize] += 0.75;
+    if token_contains_embedded_course_title(anchor) {
+        if let Some(weekday) = weekday_for_token(headers, anchor, image_width) {
+            return weekday;
+        }
     }
-
-    let best = (1_u8..=7)
-        .filter(|weekday| headers.iter().any(|header| header.weekday == *weekday))
-        .max_by(|left, right| {
-            scores[*left as usize]
-                .partial_cmp(&scores[*right as usize])
-                .unwrap_or(Ordering::Equal)
-                .then_with(|| evidence[*left as usize].cmp(&evidence[*right as usize]))
-        });
-
-    let Some(best) = best else {
-        return parsed_weekday;
-    };
-    let best_score = scores[best as usize];
-    let parsed_score = scores[parsed_weekday as usize];
-    if evidence[best as usize] >= 2 && best_score >= parsed_score + 0.8 {
-        return best;
-    }
-    if best_score > 0.0 && evidence[best as usize] > evidence[parsed_weekday as usize] {
-        return best;
-    }
-
-    title_token_index
-        .and_then(|index| weekday_at_x(headers, tokens[index].center_x(), image_width))
-        .unwrap_or(parsed_weekday)
+    parsed_weekday
 }
 
 fn anchor_has_auxiliary_annotation(tokens: &[Token], anchor: &Token, column_step: f32) -> bool {
     if token_has_auxiliary_annotation(anchor) {
         return true;
     }
-    let maximum_gap = anchor.height.max(18.0) * 2.8 + 16.0;
+    let maximum_gap = anchor.height.max(18.0) * 5.0 + 28.0;
     tokens.iter().any(|token| {
         if std::ptr::eq(token, anchor) || !token_has_auxiliary_annotation(token) {
             return false;
         }
         let vertical_gap = anchor.top - token.bottom();
-        vertical_gap >= -token.height.max(anchor.height) * 0.5
-            && vertical_gap <= maximum_gap
-            && (horizontal_interval_gap(anchor, token) <= column_step * 0.28
-                || (anchor.center_x() - token.center_x()).abs() <= column_step * 0.55)
+        if vertical_gap < -token.height.max(anchor.height) * 0.6 || vertical_gap > maximum_gap {
+            return false;
+        }
+        if horizontal_interval_gap(anchor, token) > column_step * 0.36
+            && (anchor.center_x() - token.center_x()).abs() > column_step * 0.72
+        {
+            return false;
+        }
+
+        // Do not let a much earlier adjustment marker suppress a later normal course.
+        // A distinct schedule anchor between the marker and this anchor is a hard card
+        // boundary.
+        !tokens.iter().any(|between| {
+            !std::ptr::eq(between, anchor)
+                && !std::ptr::eq(between, token)
+                && between.center_y() > token.center_y() + 0.5
+                && between.center_y() < anchor.center_y() - 0.5
+                && horizontally_related(anchor, between)
+                && weekday_from_schedule_text(&between.text).is_some()
+                && section_range_from_text(&between.text).is_some()
+        })
     })
 }
 
@@ -354,6 +402,33 @@ fn horizontal_interval_gap(left: &Token, right: &Token) -> f32 {
     } else {
         0.0
     }
+}
+
+fn weekday_for_token(
+    headers: &[WeekdayHeader],
+    token: &Token,
+    image_width: f32,
+) -> Option<u8> {
+    headers
+        .iter()
+        .map(|header| {
+            let bounds = weekday_column_bounds(headers, header.weekday, image_width);
+            let overlap = (token.right().min(bounds.1) - token.left.max(bounds.0)).max(0.0);
+            let center_distance = (header.center_x - token.center_x()).abs();
+            (header.weekday, overlap, center_distance)
+        })
+        .max_by(|left, right| {
+            left.1
+                .partial_cmp(&right.1)
+                .unwrap_or(Ordering::Equal)
+                .then_with(|| {
+                    right
+                        .2
+                        .partial_cmp(&left.2)
+                        .unwrap_or(Ordering::Equal)
+                })
+        })
+        .map(|(weekday, _, _)| weekday)
 }
 
 fn weekday_at_x(headers: &[WeekdayHeader], x: f32, image_width: f32) -> Option<u8> {
