@@ -1,12 +1,6 @@
 name: Validate website
 
 on:
-  push:
-    branches:
-      - agent/apple-website-redesign
-    paths:
-      - 'website/**'
-      - '.github/workflows/validate-website.yml'
   pull_request:
     branches:
       - main
