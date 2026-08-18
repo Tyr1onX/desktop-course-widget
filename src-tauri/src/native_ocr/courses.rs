@@ -88,6 +88,13 @@ fn course_from_block(
     candidates.sort_by(|left, right| token_reading_order(left, right));
     let name_candidates = card_name_candidates(&candidates, anchor);
     let (name_token, name) = find_course_name(name_candidates.iter().copied(), anchor)?;
+    // Adjustment/cancellation rows are auxiliary timetable metadata, never a real
+    // course arrangement. Keep this output-boundary guard even when seed detection has
+    // already filtered most of them: OCR can place the marker far enough from the
+    // schedule line that geometric association is uncertain.
+    if is_auxiliary_course_annotation(&name) || token_has_auxiliary_annotation(name_token) {
+        return None;
+    }
     let field_candidates = candidates
         .iter()
         .copied()
