@@ -80,7 +80,8 @@ fn course_from_block(
 ) -> Option<ImportCourse> {
     let mut candidates = block.iter().chain(std::iter::once(anchor)).collect::<Vec<_>>();
     candidates.sort_by(|left, right| token_reading_order(left, right));
-    let (name_token, name) = find_course_name(candidates.iter().copied(), anchor)?;
+    let name_candidates = card_name_candidates(&candidates, anchor);
+    let (name_token, name) = find_course_name(name_candidates.iter().copied(), anchor)?;
     let field_candidates = candidates
         .iter()
         .copied()
@@ -164,6 +165,45 @@ fn course_from_block(
         location: location.map(|(_, value)| value),
         review: Some(ImportCourseReview { source_box, fields }),
     })
+}
+
+fn card_name_candidates<'a>(candidates: &[&'a Token], anchor: &'a Token) -> Vec<&'a Token> {
+    let mut ordered = candidates.to_vec();
+    ordered.sort_by(|left, right| token_reading_order(left, right));
+
+    let mut excluded = std::collections::HashSet::new();
+    let before_anchor = ordered
+        .iter()
+        .copied()
+        .filter(|token| token.center_y() < anchor.center_y() - 0.5)
+        .collect::<Vec<_>>();
+
+    for pair in before_anchor.windows(2) {
+        let previous = pair[0];
+        let current = pair[1];
+        let Some(previous_name) = name_fragment_from_token(previous) else {
+            continue;
+        };
+        let Some(current_name) = name_fragment_from_token(current) else {
+            continue;
+        };
+        let previous_is_strong_title = has_course_code(&previous_name)
+            || previous_name.chars().count() >= 5
+            || !is_bare_teacher_name(&previous_name);
+        let current_is_narrow_bare_name = is_bare_teacher_name(&current_name)
+            && current.width <= previous.width.max(1.0) * 0.72;
+        let vertical_gap = current.top - previous.bottom();
+        let nearby = vertical_gap
+            <= previous.height.max(current.height).max(18.0) * 1.6 + 8.0;
+        if previous_is_strong_title && current_is_narrow_bare_name && nearby {
+            excluded.insert(current as *const Token as usize);
+        }
+    }
+
+    ordered
+        .into_iter()
+        .filter(|token| !excluded.contains(&(*token as *const Token as usize)))
+        .collect()
 }
 
 fn title_start_before_anchor(
