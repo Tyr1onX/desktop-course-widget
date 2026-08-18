@@ -10,6 +10,12 @@ fn anchor_courses(
     let seeds = course_card_seeds(tokens, anchors, headers, image_width as f32);
 
     for (anchor_index, anchor) in anchors.iter().enumerate() {
+        if seeds
+            .get(anchor_index)
+            .is_some_and(|seed| seed.auxiliary)
+        {
+            continue;
+        }
         let anchor_token = &tokens[anchor.token_index];
         let card = course_card_geometry(
             tokens,
@@ -30,7 +36,7 @@ fn anchor_courses(
                     && token.center_y() < card.lower_bound
                     && !is_weekday_header(&token.text)
                     && section_number_from_text(&token.text).is_none()
-                    && !is_auxiliary_course_annotation(&token.text)
+                    && !token_has_auxiliary_annotation(token)
             })
             .map(|(_, token)| token.clone())
             .collect::<Vec<_>>();
@@ -219,7 +225,7 @@ fn title_start_before_anchor(
                 && token.center_x() < column_bounds.1
                 && token.center_y() > lower_limit + 0.5
                 && token.center_y() < anchor.center_y() - 0.5
-                && !is_auxiliary_course_annotation(&token.text)
+                && !token_has_auxiliary_annotation(token)
         })
         .filter_map(|token| name_fragment_from_token(token).map(|name| (token, name)))
         .collect::<Vec<_>>();
