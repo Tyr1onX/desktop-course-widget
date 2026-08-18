@@ -7,105 +7,36 @@ fn anchor_courses(
 ) -> (Vec<ImportCourse>, Vec<String>) {
     let mut courses = Vec::new();
     let mut warnings = Vec::new();
-    for anchor in anchors {
+    let seeds = course_card_seeds(tokens, anchors, headers, image_width as f32);
+
+    for (anchor_index, anchor) in anchors.iter().enumerate() {
         let anchor_token = &tokens[anchor.token_index];
-        let resolved_weekday = resolved_anchor_weekday(
-            anchor,
-            anchor_token,
+        let card = course_card_geometry(
+            tokens,
+            anchors,
+            &seeds,
+            anchor_index,
             headers,
             image_width as f32,
         );
-        let column_bounds = weekday_column_bounds(headers, resolved_weekday, image_width as f32);
-        let previous_anchor = anchors
-            .iter()
-            .filter(|candidate| {
-                resolved_anchor_weekday(
-                    candidate,
-                    &tokens[candidate.token_index],
-                    headers,
-                    image_width as f32,
-                ) == resolved_weekday
-                    && tokens[candidate.token_index].center_y() < anchor_token.center_y()
-            })
-            .max_by(|left, right| {
-                tokens[left.token_index]
-                    .center_y()
-                    .partial_cmp(&tokens[right.token_index].center_y())
-                    .unwrap_or(Ordering::Equal)
-            });
-        let next_anchor = anchors
-            .iter()
-            .filter(|candidate| {
-                resolved_anchor_weekday(
-                    candidate,
-                    &tokens[candidate.token_index],
-                    headers,
-                    image_width as f32,
-                ) == resolved_weekday
-                    && tokens[candidate.token_index].center_y() > anchor_token.center_y()
-            })
-            .min_by(|left, right| {
-                tokens[left.token_index]
-                    .center_y()
-                    .partial_cmp(&tokens[right.token_index].center_y())
-                    .unwrap_or(Ordering::Equal)
-            });
-        let header_bottom = headers
-            .iter()
-            .find(|header| header.weekday == resolved_weekday)
-            .map(|header| header.bottom)
-            .unwrap_or(0.0);
-        let previous_anchor_y = previous_anchor
-            .map(|candidate| tokens[candidate.token_index].center_y())
-            .unwrap_or(header_bottom);
-        let upper_bound = title_start_before_anchor(
-            tokens,
-            column_bounds,
-            previous_anchor_y,
-            anchor_token,
-        )
-        .unwrap_or_else(|| {
-            previous_anchor
-                .map(|candidate| {
-                    (tokens[candidate.token_index].center_y() + anchor_token.center_y()) / 2.0
-                })
-                .unwrap_or_else(|| {
-                    (anchor_token.center_y() - anchor_token.height.max(24.0) * 4.5)
-                        .max(header_bottom)
-                })
-        });
-        let lower_bound = next_anchor
-            .and_then(|candidate| {
-                title_start_before_anchor(
-                    tokens,
-                    column_bounds,
-                    anchor_token.center_y(),
-                    &tokens[candidate.token_index],
-                )
-            })
-            .or_else(|| {
-                next_anchor.map(|candidate| {
-                    (anchor_token.center_y() + tokens[candidate.token_index].center_y()) / 2.0
-                })
-            })
-            .unwrap_or(anchor_token.center_y() + anchor_token.height.max(24.0) * 4.5);
         let mut block = tokens
             .iter()
             .enumerate()
             .filter(|(index, token)| {
                 *index != anchor.token_index
-                    && token.center_x() >= column_bounds.0
-                    && token.center_x() < column_bounds.1
-                    && token.center_y() >= upper_bound
-                    && token.center_y() < lower_bound
+                    && token.center_x() >= card.column_bounds.0
+                    && token.center_x() < card.column_bounds.1
+                    && token.center_y() >= card.upper_bound
+                    && token.center_y() < card.lower_bound
                     && !is_weekday_header(&token.text)
                     && section_number_from_text(&token.text).is_none()
+                    && !is_auxiliary_course_annotation(&token.text)
             })
             .map(|(_, token)| token.clone())
             .collect::<Vec<_>>();
         block.sort_by(token_reading_order);
         if let Some(course) = course_from_block(
-            resolved_weekday,
+            card.weekday,
             anchor.start_section,
             anchor.end_section,
             anchor.weeks.clone(),
@@ -124,41 +55,6 @@ fn anchor_courses(
         }
     }
     (courses, warnings)
-}
-
-fn resolved_anchor_weekday(
-    anchor: &CourseAnchor,
-    anchor_token: &Token,
-    headers: &[WeekdayHeader],
-    image_width: f32,
-) -> u8 {
-    if headers.len() < 3 {
-        return anchor.weekday;
-    }
-
-    let x = anchor_token.center_x();
-    let Some(geometry_header) = headers.iter().find(|header| {
-        let bounds = weekday_column_bounds(headers, header.weekday, image_width);
-        x >= bounds.0 && x < bounds.1
-    }) else {
-        return anchor.weekday;
-    };
-    if geometry_header.weekday == anchor.weekday {
-        return anchor.weekday;
-    }
-
-    // OCR can misread the weekday character inside an otherwise correctly positioned
-    // course card. Only let geometry override that text when the schedule anchor sits
-    // well inside another reliable weekday column; anchors near a column boundary keep
-    // their textual weekday to avoid turning small box jitter into a false correction.
-    let bounds = weekday_column_bounds(headers, geometry_header.weekday, image_width);
-    let half_width = ((bounds.1 - bounds.0) / 2.0).max(1.0);
-    let normalized_distance = (x - geometry_header.center_x).abs() / half_width;
-    if normalized_distance <= 0.72 {
-        geometry_header.weekday
-    } else {
-        anchor.weekday
-    }
 }
 
 fn fallback_week_warning(course_name: &str, weeks: &[u8]) -> String {
@@ -283,6 +179,7 @@ fn title_start_before_anchor(
                 && token.center_x() < column_bounds.1
                 && token.center_y() > lower_limit + 0.5
                 && token.center_y() < anchor.center_y() - 0.5
+                && !is_auxiliary_course_annotation(&token.text)
         })
         .filter_map(|token| name_fragment_from_token(token).map(|name| (token, name)))
         .collect::<Vec<_>>();
