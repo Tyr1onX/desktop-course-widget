@@ -69,6 +69,23 @@ mod cell_geometry_regression_tests {
     }
 
     #[test]
+    fn coded_sibling_arrangement_inherits_the_only_consistent_location() {
+        let tokens = vec![
+            token("单片机原理及其应用[04]", 110.0, 100.0, 150.0, 22.0),
+            token("刘聪", 120.0, 126.0, 48.0, 22.0),
+            token("南湖-第1教学楼-三阶", 110.0, 150.0, 150.0, 22.0),
+            token("周一第5-6节6-13周", 110.0, 176.0, 160.0, 22.0),
+            token("单片机原理及其应用[04]", 470.0, 100.0, 150.0, 22.0),
+            token("刘聪", 480.0, 126.0, 48.0, 22.0),
+            token("周三第1-2节6-13周", 470.0, 176.0, 160.0, 22.0),
+        ];
+        let parsed = courses(&tokens);
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0].location.as_deref(), Some("南湖-第1教学楼-三阶"));
+        assert_eq!(parsed[1].location.as_deref(), Some("南湖-第1教学楼-三阶"));
+    }
+
+    #[test]
     fn adjustment_annotation_does_not_spawn_a_duplicate_course_card() {
         let tokens = vec![
             token("现代管理科学基础", 660.0, 100.0, 150.0, 22.0),
@@ -90,6 +107,19 @@ mod cell_geometry_regression_tests {
         assert_eq!(parsed[0].teacher.as_deref(), Some("刘宁"));
         assert_eq!(parsed[0].location.as_deref(), Some("教3-309"));
         assert_eq!(parsed[0].weeks, vec![1]);
+    }
+
+    #[test]
+    fn standalone_truncated_adjustment_card_never_reaches_course_output() {
+        let tokens = vec![
+            token("（调0006现代管理科学基础", 660.0, 100.0, 190.0, 22.0),
+            token("刘宁", 660.0, 126.0, 48.0, 22.0),
+            token("周四第8-9节1-17周", 660.0, 154.0, 170.0, 22.0),
+            token("教3-309", 660.0, 180.0, 90.0, 22.0),
+        ];
+        assert!(courses(&tokens).is_empty());
+        assert!(looks_like_auxiliary_course_name("（调0006现代管理科学基础"));
+        assert!(looks_like_auxiliary_course_name("(停1234)概率论"));
     }
 
     #[test]
