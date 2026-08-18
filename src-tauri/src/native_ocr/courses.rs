@@ -54,11 +54,24 @@ fn anchor_courses(
             image_width,
             image_height,
         ) {
+            // Keep a second independent output-boundary guard. An auxiliary marker can
+            // be spatially detached from its schedule anchor, and OCR punctuation can
+            // prevent the geometric seed filter from pairing them reliably.
+            if looks_like_auxiliary_course_name(&course.name) {
+                continue;
+            }
             if anchor.used_default_weeks {
                 warnings.push(fallback_week_warning(&course.name, &course.weeks));
             }
             courses.push(course);
         }
+    }
+
+    let filled_locations = fill_consistent_coded_sibling_locations(&mut courses);
+    if filled_locations > 0 {
+        warnings.push(format!(
+            "有 {filled_locations} 个地点由同课程、同教师、同周次的其他时段一致结果补全，请在创建前确认"
+        ));
     }
     (courses, warnings)
 }
@@ -92,7 +105,7 @@ fn course_from_block(
     // course arrangement. Keep this output-boundary guard even when seed detection has
     // already filtered most of them: OCR can place the marker far enough from the
     // schedule line that geometric association is uncertain.
-    if is_auxiliary_course_annotation(&name) || token_has_auxiliary_annotation(name_token) {
+    if looks_like_auxiliary_course_name(&name) || token_has_auxiliary_annotation(name_token) {
         return None;
     }
     let field_candidates = candidates
@@ -178,6 +191,77 @@ fn course_from_block(
         location: location.map(|(_, value)| value),
         review: Some(ImportCourseReview { source_box, fields }),
     })
+}
+
+fn looks_like_auxiliary_course_name(value: &str) -> bool {
+    if is_auxiliary_course_annotation(value) {
+        return true;
+    }
+    let compact = compact_text(value);
+    Regex::new(r"(?:^|[（(])(?:调|停)[0-9０-９OoIl]{3,8}")
+        .unwrap()
+        .is_match(&compact)
+}
+
+fn fill_consistent_coded_sibling_locations(courses: &mut [ImportCourse]) -> usize {
+    let mut fills = Vec::new();
+    for (index, course) in courses.iter().enumerate() {
+        if course
+            .location
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty())
+            || !has_course_code(&course.name)
+        {
+            continue;
+        }
+        let mut known_locations = std::collections::BTreeSet::new();
+        for (other_index, sibling) in courses.iter().enumerate() {
+            if other_index == index
+                || sibling.name != course.name
+                || sibling.teacher != course.teacher
+                || sibling.weeks != course.weeks
+                || sibling.parity != course.parity
+            {
+                continue;
+            }
+            if let Some(location) = sibling
+                .location
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                known_locations.insert(location.to_owned());
+            }
+        }
+        if known_locations.len() == 1 {
+            if let Some(location) = known_locations.into_iter().next() {
+                fills.push((index, location));
+            }
+        }
+    }
+
+    let fill_count = fills.len();
+    for (index, location) in fills {
+        let course = &mut courses[index];
+        course.location = Some(location.clone());
+        if let Some(review) = course.review.as_mut() {
+            if let Some(field) = review
+                .fields
+                .iter_mut()
+                .find(|field| field.field == ImportFieldKey::Location)
+            {
+                field.status = ImportReviewStatus::Review;
+                field.confidence = None;
+                field.raw_text = Some(location);
+                field.source_box = None;
+                field.reason = Some(
+                    "同课程、同教师、同周次的其他时段识别到唯一一致地点，已作为候选补全"
+                        .into(),
+                );
+            }
+        }
+    }
+    fill_count
 }
 
 fn card_name_candidates<'a>(candidates: &[&'a Token], anchor: &'a Token) -> Vec<&'a Token> {
