@@ -54,9 +54,6 @@ fn anchor_courses(
             image_width,
             image_height,
         ) {
-            // Keep a second independent output-boundary guard. An auxiliary marker can
-            // be spatially detached from its schedule anchor, and OCR punctuation can
-            // prevent the geometric seed filter from pairing them reliably.
             if looks_like_auxiliary_course_name(&course.name) {
                 continue;
             }
@@ -67,10 +64,17 @@ fn anchor_courses(
         }
     }
 
-    let filled_locations = fill_consistent_coded_sibling_locations(&mut courses);
+    let dropped_auxiliary = drop_auxiliary_duplicate_rows(&mut courses);
+    if dropped_auxiliary > 0 {
+        warnings.push(format!(
+            "已忽略 {dropped_auxiliary} 条与正式课程重复的调课/停课辅助记录"
+        ));
+    }
+
+    let filled_locations = fill_unique_coded_course_locations(&mut courses);
     if filled_locations > 0 {
         warnings.push(format!(
-            "有 {filled_locations} 个地点由同课程、同教师、同周次的其他时段一致结果补全，请在创建前确认"
+            "有 {filled_locations} 个地点由同课程其他时段的唯一一致地点补全，请在创建前确认"
         ));
     }
     (courses, warnings)
@@ -101,10 +105,6 @@ fn course_from_block(
     candidates.sort_by(|left, right| token_reading_order(left, right));
     let name_candidates = card_name_candidates(&candidates, anchor);
     let (name_token, name) = find_course_name(name_candidates.iter().copied(), anchor)?;
-    // Adjustment/cancellation rows are auxiliary timetable metadata, never a real
-    // course arrangement. Keep this output-boundary guard even when seed detection has
-    // already filtered most of them: OCR can place the marker far enough from the
-    // schedule line that geometric association is uncertain.
     if looks_like_auxiliary_course_name(&name) || token_has_auxiliary_annotation(name_token) {
         return None;
     }
@@ -203,7 +203,41 @@ fn looks_like_auxiliary_course_name(value: &str) -> bool {
         .is_match(&compact)
 }
 
-fn fill_consistent_coded_sibling_locations(courses: &mut [ImportCourse]) -> usize {
+fn auxiliary_base_course_name(value: &str) -> Option<String> {
+    let compact = compact_text(value);
+    let bracketed = Regex::new(
+        r"^[（(][^0-9０-９OoIl]{0,2}[0-9０-９OoIl]{3,8}[)）]?(.+)$",
+    )
+    .unwrap();
+    let explicit = Regex::new(r"^(?:调|停)[0-9０-９OoIl]{3,8}[)）]?(.+)$").unwrap();
+    for pattern in [&bracketed, &explicit] {
+        if let Some(captures) = pattern.captures(&compact) {
+            let remainder = captures.get(1)?.as_str().trim();
+            if remainder.chars().count() >= 2 {
+                return Some(remainder.to_owned());
+            }
+        }
+    }
+    None
+}
+
+fn drop_auxiliary_duplicate_rows(courses: &mut Vec<ImportCourse>) -> usize {
+    let normal_names = courses
+        .iter()
+        .filter(|course| auxiliary_base_course_name(&course.name).is_none())
+        .map(|course| compact_text(&course.name))
+        .collect::<std::collections::HashSet<_>>();
+    let before = courses.len();
+    courses.retain(|course| {
+        let Some(base) = auxiliary_base_course_name(&course.name) else {
+            return true;
+        };
+        !normal_names.contains(&compact_text(&base))
+    });
+    before.saturating_sub(courses.len())
+}
+
+fn fill_unique_coded_course_locations(courses: &mut [ImportCourse]) -> usize {
     let mut fills = Vec::new();
     for (index, course) in courses.iter().enumerate() {
         if course
@@ -214,14 +248,11 @@ fn fill_consistent_coded_sibling_locations(courses: &mut [ImportCourse]) -> usiz
         {
             continue;
         }
+
+        let course_key = compact_text(&course.name);
         let mut known_locations = std::collections::BTreeSet::new();
-        for (other_index, sibling) in courses.iter().enumerate() {
-            if other_index == index
-                || sibling.name != course.name
-                || sibling.teacher != course.teacher
-                || sibling.weeks != course.weeks
-                || sibling.parity != course.parity
-            {
+        for sibling in courses.iter() {
+            if compact_text(&sibling.name) != course_key {
                 continue;
             }
             if let Some(location) = sibling
@@ -233,6 +264,10 @@ fn fill_consistent_coded_sibling_locations(courses: &mut [ImportCourse]) -> usiz
                 known_locations.insert(location.to_owned());
             }
         }
+
+        // Only propagate when every recognized arrangement of the same coded course
+        // agrees on one location. If the course genuinely uses multiple rooms, leave
+        // missing fields untouched rather than guessing.
         if known_locations.len() == 1 {
             if let Some(location) = known_locations.into_iter().next() {
                 fills.push((index, location));
@@ -255,7 +290,7 @@ fn fill_consistent_coded_sibling_locations(courses: &mut [ImportCourse]) -> usiz
                 field.raw_text = Some(location);
                 field.source_box = None;
                 field.reason = Some(
-                    "同课程、同教师、同周次的其他时段识别到唯一一致地点，已作为候选补全"
+                    "同一带课程代码的课程在其他时段只识别到一个一致地点，已作为候选补全"
                         .into(),
                 );
             }
