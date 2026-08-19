@@ -10,7 +10,8 @@ permissions:
   contents: read
 
 env:
-  COURSE_WIDGET_BUILD_VERSION: 0.5.0-beta.2
+  COURSE_WIDGET_BUILD_VERSION: 0.5.0-beta.3
+  VITE_BUILD_SHA: ${{ github.sha }}
 
 concurrency:
   group: release-build-${{ github.workflow }}-${{ github.ref }}
