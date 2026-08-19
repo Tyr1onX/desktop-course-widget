@@ -10,12 +10,10 @@ fn anchor_courses(
     let seeds = course_card_seeds(tokens, anchors, headers, image_width as f32);
 
     for (anchor_index, anchor) in anchors.iter().enumerate() {
-        if seeds
-            .get(anchor_index)
-            .is_some_and(|seed| seed.auxiliary)
-        {
-            continue;
-        }
+        // A red 调/停 marker is an annotation attached to a real timetable
+        // arrangement, not permission to drop the arrangement itself. Auxiliary
+        // text is excluded from the card below and true synthetic duplicate rows
+        // are removed after parsing by drop_auxiliary_duplicate_rows.
         let anchor_token = &tokens[anchor.token_index];
         let card = course_card_geometry(
             tokens,
@@ -71,6 +69,13 @@ fn anchor_courses(
         ));
     }
 
+    let completed_names = complete_unique_truncated_course_names(&mut courses);
+    if completed_names > 0 {
+        warnings.push(format!(
+            "有 {completed_names} 个截断课程名由同表唯一完整名称补全，请在创建前确认"
+        ));
+    }
+
     let filled_locations = fill_unique_coded_course_locations(&mut courses);
     if filled_locations > 0 {
         warnings.push(format!(
@@ -105,7 +110,10 @@ fn course_from_block(
     candidates.sort_by(|left, right| token_reading_order(left, right));
     let name_candidates = card_name_candidates(&candidates, anchor);
     let (name_token, name) = find_course_name(name_candidates.iter().copied(), anchor)?;
-    if looks_like_auxiliary_course_name(&name) || token_has_auxiliary_annotation(name_token) {
+    // The OCR token that contains a valid course title may also contain a red
+    // 调/停 annotation. Reject only when the parsed title itself is an auxiliary
+    // row; do not reject a valid arrangement because its source token is annotated.
+    if looks_like_auxiliary_course_name(&name) {
         return None;
     }
     let field_candidates = candidates
@@ -235,6 +243,58 @@ fn drop_auxiliary_duplicate_rows(courses: &mut Vec<ImportCourse>) -> usize {
         !normal_names.contains(&compact_text(&base))
     });
     before.saturating_sub(courses.len())
+}
+
+fn complete_unique_truncated_course_names(courses: &mut [ImportCourse]) -> usize {
+    let names = courses
+        .iter()
+        .map(|course| course.name.clone())
+        .collect::<Vec<_>>();
+    let mut completions = Vec::new();
+
+    for (index, course) in courses.iter().enumerate() {
+        let compact = compact_text(&course.name);
+        let looks_truncated = ["（混", "（混合", "(混", "(混合"]
+            .iter()
+            .any(|suffix| compact.ends_with(suffix));
+        if !looks_truncated {
+            continue;
+        }
+
+        let candidates = names
+            .iter()
+            .filter(|name| {
+                let candidate = compact_text(name);
+                candidate.len() > compact.len() && candidate.starts_with(&compact)
+            })
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>();
+        if candidates.len() == 1 {
+            if let Some(name) = candidates.into_iter().next() {
+                completions.push((index, name));
+            }
+        }
+    }
+
+    let count = completions.len();
+    for (index, name) in completions {
+        let course = &mut courses[index];
+        course.name = name.clone();
+        if let Some(review) = course.review.as_mut() {
+            if let Some(field) = review
+                .fields
+                .iter_mut()
+                .find(|field| field.field == ImportFieldKey::Name)
+            {
+                field.status = ImportReviewStatus::Review;
+                field.confidence = None;
+                field.raw_text = Some(name);
+                field.source_box = None;
+                field.reason = Some("课程名在该时段被截断，已由同表唯一完整名称补全".into());
+            }
+        }
+    }
+    count
 }
 
 fn fill_unique_coded_course_locations(courses: &mut [ImportCourse]) -> usize {
