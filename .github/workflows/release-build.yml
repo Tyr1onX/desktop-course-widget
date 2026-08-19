@@ -1,9 +1,6 @@
-name: Windows Release Build
+name: Build Windows test installer
 
 on:
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:
@@ -11,7 +8,7 @@ permissions:
 
 env:
   COURSE_WIDGET_BUILD_VERSION: "0.5.0-beta.3.${{ github.run_number }}.${{ github.run_attempt }}"
-  VITE_BUILD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  VITE_BUILD_SHA: ${{ github.sha }}
 
 concurrency:
   group: release-build-${{ github.workflow }}-${{ github.ref }}
@@ -19,15 +16,14 @@ concurrency:
 
 jobs:
   build-release:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: windows-latest
     timeout-minutes: 50
 
     steps:
-      - name: Checkout release branch
+      - name: Checkout selected branch
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+          ref: ${{ github.ref_name }}
           fetch-depth: 0
 
       - name: Set up Node.js
