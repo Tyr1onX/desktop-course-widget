@@ -31,14 +31,16 @@ function updateDiagnostics(): void {
 
   const cards = [...surface.querySelectorAll<HTMLElement>('.import-course-review')]
   const names = cards.map(courseName).filter(Boolean)
-  const missingLocations = cards.filter((card) => (
-    card.querySelector('.import-course-copy')?.textContent?.includes('地点：未识别')
-  )).length
+  const missingLocationNames = cards
+    .filter((card) => card.querySelector('.import-course-copy')?.textContent?.includes('地点：未识别'))
+    .map(courseName)
+    .filter(Boolean)
   const auxiliaryNames = names.filter(looksLikeAuxiliaryRow)
   const diagnostic = [
     `Build ${shortBuildSha()}`,
     `rendered ${cards.length}`,
-    `missing-location ${missingLocations}`,
+    `missing-location ${missingLocationNames.length}`,
+    missingLocationNames.length ? `missing=${missingLocationNames.join(' / ')}` : '',
     `aux-like ${auxiliaryNames.length}`,
     auxiliaryNames.length ? `aux=${auxiliaryNames.join(' / ')}` : '',
   ].filter(Boolean).join(' · ')
