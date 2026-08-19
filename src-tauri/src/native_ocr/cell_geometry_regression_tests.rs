@@ -21,14 +21,33 @@ mod cell_geometry_regression_tests {
         anchor_courses(tokens, &anchors, &headers(), 1260, 760).0
     }
 
+    fn course(
+        name: &str,
+        teacher: &str,
+        weekday: u8,
+        weeks: Vec<u8>,
+        location: Option<&str>,
+    ) -> ImportCourse {
+        ImportCourse {
+            code: None,
+            name: name.into(),
+            teacher: Some(teacher.into()),
+            weekday,
+            start_section: 1,
+            end_section: 2,
+            weeks,
+            parity: "all".into(),
+            location: location.map(str::to_owned),
+            review: None,
+        }
+    }
+
     #[test]
     fn title_geometry_beats_a_schedule_box_shifted_into_the_previous_column() {
         let tokens = vec![
             token("单片机原理及其应用[04]", 480.0, 100.0, 170.0, 22.0),
             token("刘聪", 480.0, 126.0, 48.0, 22.0),
             token("南湖-第1教学楼-三阶", 480.0, 148.0, 150.0, 22.0),
-            // The OCR schedule bbox is shifted left far enough that its center belongs
-            // to Tuesday. The local card title and fields are still clearly in Wednesday.
             token("周二第5-6节6-13周", 365.0, 154.0, 160.0, 22.0),
         ];
         let parsed = courses(&tokens);
@@ -45,15 +64,10 @@ mod cell_geometry_regression_tests {
     #[test]
     fn local_field_cluster_beats_a_nearer_wrong_column_title() {
         let tokens = vec![
-            // A neighbouring Tuesday card can be vertically closer to a shifted
-            // schedule box than the real Wednesday title. One title token must not
-            // decide the whole card column by itself.
             token("相邻课程[02]", 300.0, 124.0, 150.0, 22.0),
             token("单片机原理及其应用[04]", 480.0, 100.0, 170.0, 22.0),
             token("刘聪", 490.0, 126.0, 48.0, 22.0),
             token("南湖-第1教学楼-三阶", 480.0, 180.0, 150.0, 22.0),
-            // Real-A shape: OCR text says Tuesday and the schedule bbox center also
-            // lands in Tuesday, while the title/teacher/location cluster is Wednesday.
             token("周二第1-2节6-13周", 340.0, 154.0, 180.0, 22.0),
         ];
         let parsed = courses(&tokens);
@@ -86,14 +100,54 @@ mod cell_geometry_regression_tests {
     }
 
     #[test]
+    fn unique_coded_course_location_can_cross_teacher_and_week_segments() {
+        let mut parsed = vec![
+            course(
+                "通信与网络[03]",
+                "李启豪",
+                1,
+                (3..=8).collect(),
+                Some("南湖-第1教学楼-四阶"),
+            ),
+            course(
+                "通信与网络[03]",
+                "李启豪",
+                3,
+                (3..=8).collect(),
+                None,
+            ),
+            course(
+                "通信与网络[03]",
+                "顾海军",
+                3,
+                (9..=14).collect(),
+                None,
+            ),
+        ];
+        assert_eq!(fill_unique_coded_course_locations(&mut parsed), 2);
+        assert!(parsed
+            .iter()
+            .all(|item| item.location.as_deref() == Some("南湖-第1教学楼-四阶")));
+    }
+
+    #[test]
+    fn conflicting_locations_are_never_propagated() {
+        let mut parsed = vec![
+            course("某课程[01]", "甲", 1, vec![1], Some("教1-101")),
+            course("某课程[01]", "甲", 2, vec![1], Some("教1-102")),
+            course("某课程[01]", "甲", 3, vec![1], None),
+        ];
+        assert_eq!(fill_unique_coded_course_locations(&mut parsed), 0);
+        assert_eq!(parsed[2].location, None);
+    }
+
+    #[test]
     fn adjustment_annotation_does_not_spawn_a_duplicate_course_card() {
         let tokens = vec![
             token("现代管理科学基础", 660.0, 100.0, 150.0, 22.0),
             token("刘宁", 660.0, 126.0, 48.0, 22.0),
             token("周四第8-9节1周", 660.0, 154.0, 160.0, 22.0),
             token("教3-309", 660.0, 180.0, 90.0, 22.0),
-            // A nearby ordinary-looking title makes the second schedule anchor capable
-            // of borrowing a clean name unless the auxiliary card is rejected first.
             token("现代管理科学基础", 660.0, 204.0, 150.0, 22.0),
             token("（调0006现代管理科学基础", 660.0, 228.0, 190.0, 22.0),
             token("周四第8-9节1-17周", 660.0, 254.0, 170.0, 22.0),
@@ -107,6 +161,27 @@ mod cell_geometry_regression_tests {
         assert_eq!(parsed[0].teacher.as_deref(), Some("刘宁"));
         assert_eq!(parsed[0].location.as_deref(), Some("教3-309"));
         assert_eq!(parsed[0].weeks, vec![1]);
+    }
+
+    #[test]
+    fn fuzzy_numbered_adjustment_duplicate_is_dropped_even_if_action_glyph_is_wrong() {
+        let mut parsed = vec![
+            course("现代管理科学基础", "刘宁", 4, vec![1], Some("教3-309")),
+            course(
+                "（阀0006现代管理科学基础",
+                "刘宁",
+                4,
+                (1..=17).collect(),
+                Some("教3-309"),
+            ),
+        ];
+        assert_eq!(drop_auxiliary_duplicate_rows(&mut parsed), 1);
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].name, "现代管理科学基础");
+        assert_eq!(
+            auxiliary_base_course_name("（阀0006现代管理科学基础").as_deref(),
+            Some("现代管理科学基础")
+        );
     }
 
     #[test]
