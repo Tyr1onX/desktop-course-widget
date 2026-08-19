@@ -2,6 +2,9 @@ import { defineConfig } from 'vite'
 import { resolve } from 'node:path'
 
 export default defineConfig({
+  define: {
+    __COURSE_WIDGET_BUILD_SHA__: JSON.stringify(process.env.GITHUB_SHA || 'local'),
+  },
   build: {
     rollupOptions: {
       input: {
