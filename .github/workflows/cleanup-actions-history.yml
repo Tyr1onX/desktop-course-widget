@@ -1,0 +1,40 @@
+name: Cleanup Actions history
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 2 * * 1'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove old workflow runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          keep_runs() {
+            workflow="$1"
+            keep="$2"
+            echo "Cleaning $workflow, keeping $keep runs"
+            gh run list \
+              --repo "${{ github.repository }}" \
+              --workflow "$workflow" \
+              --limit 1000 \
+              --json databaseId \
+              --jq ".[].databaseId" \
+              | tail -n +$((keep + 1)) \
+              | while read id; do
+                  gh run delete "$id" --repo "${{ github.repository }}" --confirm || true
+                done
+          }
+
+          keep_runs "Validate" 20
+          keep_runs "Windows Release Build" 10
+          keep_runs "Validate website" 10
+          keep_runs "Deploy project website" 10
+          keep_runs "Cleanup Actions history" 5
