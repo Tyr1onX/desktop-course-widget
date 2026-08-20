@@ -1,6 +1,9 @@
 name: Build Windows test installer
 
 on:
+  push:
+    branches:
+      - fix/weekday-header-row-detection
   workflow_dispatch:
 
 permissions:
