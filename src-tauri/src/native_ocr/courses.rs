@@ -159,20 +159,46 @@ fn course_seed_is_structurally_auxiliary(
         }
 
         // A new normal title between the marker and this schedule anchor starts a new
-        // card. Without this boundary, an annotation at the bottom of the previous
-        // course can incorrectly suppress the next real course in the same weekday.
-        let normal_title_between = tokens.iter().any(|between| {
-            !std::ptr::eq(between, anchor_token)
-                && !std::ptr::eq(between, marker)
-                && between.center_y() > marker.center_y() + 0.5
-                && between.center_y() < anchor_token.center_y() - 0.5
-                && horizontally_related(anchor_token, between)
-                && !token_has_auxiliary_annotation(between)
-                && name_fragment_from_token(between)
-                    .is_some_and(|name| !is_bare_teacher_name(&name))
-        });
-        !normal_title_between
+        // card. Short all-Chinese course titles overlap the bare-teacher grammar, so
+        // geometry must disambiguate a wider title followed by a narrower teacher line.
+        !normal_card_boundary_between(tokens, marker, anchor_token)
     })
+}
+
+fn normal_card_boundary_between(tokens: &[Token], marker: &Token, anchor: &Token) -> bool {
+    let mut candidates = tokens
+        .iter()
+        .filter(|token| {
+            !std::ptr::eq(*token, anchor)
+                && !std::ptr::eq(*token, marker)
+                && token.center_y() > marker.center_y() + 0.5
+                && token.center_y() < anchor.center_y() - 0.5
+                && horizontally_related(anchor, token)
+                && !token_has_auxiliary_annotation(token)
+        })
+        .filter_map(|token| name_fragment_from_token(token).map(|name| (token, name)))
+        .collect::<Vec<_>>();
+    candidates.sort_by(|left, right| token_reading_order(left.0, right.0));
+
+    for (index, (candidate, name)) in candidates.iter().enumerate() {
+        if !is_bare_teacher_name(name) {
+            return true;
+        }
+
+        let Some((next, next_name)) = candidates.get(index + 1) else {
+            continue;
+        };
+        let typical_height = candidate.height.max(next.height).max(18.0);
+        let vertical_gap = next.top - candidate.bottom();
+        let nearby = vertical_gap >= -typical_height * 0.8
+            && vertical_gap <= typical_height * 1.6 + 8.0;
+        let narrower_teacher = is_bare_teacher_name(next_name)
+            && next.width <= candidate.width.max(1.0) * 0.72;
+        if nearby && narrower_teacher {
+            return true;
+        }
+    }
+    false
 }
 
 fn fallback_week_warning(course_name: &str, weeks: &[u8]) -> String {
@@ -469,9 +495,13 @@ fn card_name_candidates<'a>(candidates: &[&'a Token], anchor: &'a Token) -> Vec<
         let Some(current_name) = name_fragment_from_token(current) else {
             continue;
         };
+        let short_title_teacher_pair = is_bare_teacher_name(&previous_name)
+            && is_bare_teacher_name(&current_name)
+            && current.width <= previous.width.max(1.0) * 0.72;
         let previous_is_strong_title = has_course_code(&previous_name)
             || previous_name.chars().count() >= 5
-            || !is_bare_teacher_name(&previous_name);
+            || !is_bare_teacher_name(&previous_name)
+            || short_title_teacher_pair;
         let current_is_narrow_bare_name = is_bare_teacher_name(&current_name)
             && current.width <= previous.width.max(1.0) * 0.72;
         let vertical_gap = current.top - previous.bottom();
