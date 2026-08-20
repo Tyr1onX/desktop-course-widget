@@ -7,14 +7,27 @@ fn anchor_courses(
 ) -> (Vec<ImportCourse>, Vec<String>) {
     let mut courses = Vec::new();
     let mut warnings = Vec::new();
+    let mut structurally_dropped_auxiliary = 0_usize;
     let seeds = course_card_seeds(tokens, anchors, headers, image_width as f32);
 
     for (anchor_index, anchor) in anchors.iter().enumerate() {
-        // A red 调/停 marker is an annotation attached to a real timetable
-        // arrangement, not permission to drop the arrangement itself. Auxiliary
-        // text is excluded from the card below and true synthetic duplicate rows
-        // are removed after parsing by drop_auxiliary_duplicate_rows.
+        let seed = &seeds[anchor_index];
         let anchor_token = &tokens[anchor.token_index];
+        if course_seed_is_structurally_auxiliary(
+            tokens,
+            anchor,
+            seed,
+            headers,
+            image_width as f32,
+        ) {
+            structurally_dropped_auxiliary += 1;
+            continue;
+        }
+
+        // A trailing red 调/停 marker is annotation on a real timetable arrangement,
+        // not permission to drop that arrangement. Only a marker that geometrically
+        // owns this schedule anchor is filtered above. Auxiliary text is still excluded
+        // from field extraction and fuzzy OCR duplicates are cleaned up afterwards.
         let card = course_card_geometry(
             tokens,
             anchors,
@@ -62,6 +75,12 @@ fn anchor_courses(
         }
     }
 
+    if structurally_dropped_auxiliary > 0 {
+        warnings.push(format!(
+            "已忽略 {structurally_dropped_auxiliary} 条调课/停课辅助记录"
+        ));
+    }
+
     let dropped_auxiliary = drop_auxiliary_duplicate_rows(&mut courses);
     if dropped_auxiliary > 0 {
         warnings.push(format!(
@@ -83,6 +102,77 @@ fn anchor_courses(
         ));
     }
     (courses, warnings)
+}
+
+fn course_seed_is_structurally_auxiliary(
+    tokens: &[Token],
+    anchor: &CourseAnchor,
+    seed: &CourseCardSeed,
+    headers: &[WeekdayHeader],
+    image_width: f32,
+) -> bool {
+    if !seed.auxiliary {
+        return false;
+    }
+
+    let anchor_token = &tokens[anchor.token_index];
+    if token_has_auxiliary_annotation(anchor_token) {
+        // Direct parser tests can still provide one multiline token. Keep a real
+        // course card when it contains a normal title before the schedule and merely
+        // trails an annotation; an auxiliary-leading token remains filtered.
+        return !token_contains_embedded_course_title(anchor_token);
+    }
+
+    let column_step = estimated_weekday_step(headers, image_width);
+    let maximum_gap = anchor_token.height.max(18.0) * 5.0 + 28.0;
+    tokens.iter().any(|marker| {
+        if std::ptr::eq(marker, anchor_token)
+            || !token_has_auxiliary_annotation(marker)
+            || marker.center_y() >= anchor_token.center_y() - 0.5
+        {
+            return false;
+        }
+
+        let vertical_gap = anchor_token.top - marker.bottom();
+        if vertical_gap < -marker.height.max(anchor_token.height) * 0.6
+            || vertical_gap > maximum_gap
+        {
+            return false;
+        }
+        if horizontal_interval_gap(anchor_token, marker) > column_step * 0.36
+            && (anchor_token.center_x() - marker.center_x()).abs() > column_step * 0.72
+        {
+            return false;
+        }
+
+        let schedule_boundary_between = tokens.iter().any(|between| {
+            !std::ptr::eq(between, anchor_token)
+                && !std::ptr::eq(between, marker)
+                && between.center_y() > marker.center_y() + 0.5
+                && between.center_y() < anchor_token.center_y() - 0.5
+                && horizontally_related(anchor_token, between)
+                && weekday_from_schedule_text(&between.text).is_some()
+                && section_range_from_text(&between.text).is_some()
+        });
+        if schedule_boundary_between {
+            return false;
+        }
+
+        // A new normal title between the marker and this schedule anchor starts a new
+        // card. Without this boundary, an annotation at the bottom of the previous
+        // course can incorrectly suppress the next real course in the same weekday.
+        let normal_title_between = tokens.iter().any(|between| {
+            !std::ptr::eq(between, anchor_token)
+                && !std::ptr::eq(between, marker)
+                && between.center_y() > marker.center_y() + 0.5
+                && between.center_y() < anchor_token.center_y() - 0.5
+                && horizontally_related(anchor_token, between)
+                && !token_has_auxiliary_annotation(between)
+                && name_fragment_from_token(between)
+                    .is_some_and(|name| !is_bare_teacher_name(&name))
+        });
+        !normal_title_between
+    })
 }
 
 fn fallback_week_warning(course_name: &str, weeks: &[u8]) -> String {

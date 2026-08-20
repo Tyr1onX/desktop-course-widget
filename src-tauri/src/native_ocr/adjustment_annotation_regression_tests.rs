@@ -32,7 +32,14 @@ mod adjustment_annotation_regression_tests {
         assert_eq!(parsed[0].name, "现代管理科学基础");
         assert_eq!(parsed[0].teacher.as_deref(), Some("刘宁"));
         assert_eq!(parsed[0].location.as_deref(), Some("教3-309"));
-        assert_eq!((parsed[0].weekday, parsed[0].start_section, parsed[0].end_section), (4, 8, 9));
+        assert_eq!(
+            (
+                parsed[0].weekday,
+                parsed[0].start_section,
+                parsed[0].end_section
+            ),
+            (4, 8, 9)
+        );
         assert_eq!(parsed[0].weeks, (3..=17).collect::<Vec<_>>());
     }
 
@@ -52,8 +59,45 @@ mod adjustment_annotation_regression_tests {
         assert_eq!(parsed[0].name, "操作系统基础（混合式）");
         assert_eq!(parsed[0].teacher.as_deref(), Some("吴晓诗"));
         assert_eq!(parsed[0].location.as_deref(), Some("教3-201"));
-        assert_eq!((parsed[0].weekday, parsed[0].start_section, parsed[0].end_section), (5, 3, 4));
+        assert_eq!(
+            (
+                parsed[0].weekday,
+                parsed[0].start_section,
+                parsed[0].end_section
+            ),
+            (5, 3, 4)
+        );
         assert_eq!(parsed[0].weeks, vec![2]);
+    }
+
+    #[test]
+    fn trailing_adjustment_marker_does_not_suppress_the_next_normal_card() {
+        let tokens = vec![
+            token("现代管理科学基础", 660.0, 100.0, 150.0, 22.0),
+            token("刘宁", 660.0, 126.0, 48.0, 22.0),
+            token("周四第8-9节1周", 660.0, 154.0, 160.0, 22.0),
+            token("教3-309", 660.0, 180.0, 90.0, 22.0),
+            token("（调0006）", 660.0, 206.0, 90.0, 22.0),
+            token("离散数学", 660.0, 240.0, 100.0, 22.0),
+            token("王明", 660.0, 266.0, 48.0, 22.0),
+            token("周四第10-11节2-17周", 660.0, 294.0, 180.0, 22.0),
+            token("教3-201", 660.0, 320.0, 90.0, 22.0),
+        ];
+        let anchors = structured_course_anchors(&tokens);
+        assert_eq!(anchors.len(), 2);
+        let parsed = anchor_courses(&tokens, &anchors, &headers(), 1260, 760).0;
+
+        assert_eq!(parsed.len(), 2);
+        let next = parsed
+            .iter()
+            .find(|course| course.name == "离散数学")
+            .expect("the following normal card must survive a previous trailing marker");
+        assert_eq!(
+            (next.weekday, next.start_section, next.end_section),
+            (4, 10, 11)
+        );
+        assert_eq!(next.location.as_deref(), Some("教3-201"));
+        assert_eq!(next.weeks, (2..=17).collect::<Vec<_>>());
     }
 
     fn course(name: &str) -> ImportCourse {
