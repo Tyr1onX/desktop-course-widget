@@ -112,6 +112,22 @@ jobs:
         shell: pwsh
         run: ./scripts/windows-window-smoke.ps1
 
+      - name: Verify build left the branch unchanged
+        shell: pwsh
+        run: |
+          git checkout -- package.json package-lock.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json
+          Remove-Item -Force -ErrorAction SilentlyContinue `
+            'src-tauri/resources/ocr-native/PP-OCRv5_mobile_det_fp16.mnn', `
+            'src-tauri/resources/ocr-native/PP-OCRv5_mobile_rec_fp16.mnn', `
+            'src-tauri/resources/ocr-native/ppocr_keys_v5.txt', `
+            'src-tauri/resources/ocr-native/manifest.json'
+          git diff --exit-code
+          $status = @(git status --porcelain)
+          if ($status.Count -ne 0) {
+            git status --short
+            throw 'Build left untracked or modified files in the review branch.'
+          }
+
       - name: Record packaged build identity
         shell: pwsh
         run: |
@@ -129,22 +145,6 @@ jobs:
             installerSha256 = $sha256
           } | ConvertTo-Json | Set-Content -Encoding utf8 build-metadata.json
           Get-Content build-metadata.json
-
-      - name: Verify build left the branch unchanged
-        shell: pwsh
-        run: |
-          git checkout -- package.json package-lock.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json
-          Remove-Item -Force -ErrorAction SilentlyContinue `
-            'src-tauri/resources/ocr-native/PP-OCRv5_mobile_det_fp16.mnn', `
-            'src-tauri/resources/ocr-native/PP-OCRv5_mobile_rec_fp16.mnn', `
-            'src-tauri/resources/ocr-native/ppocr_keys_v5.txt', `
-            'src-tauri/resources/ocr-native/manifest.json'
-          git diff --exit-code
-          $status = @(git status --porcelain)
-          if ($status.Count -ne 0) {
-            git status --short
-            throw 'Build left untracked or modified files in the review branch.'
-          }
 
       - name: Upload Windows installer
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
