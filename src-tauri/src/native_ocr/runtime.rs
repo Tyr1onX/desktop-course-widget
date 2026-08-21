@@ -214,6 +214,30 @@ fn restore_ascii_course_spacing(
     }
 }
 
+fn main_timetable_grid_bounds(
+    headers: &[WeekdayHeader],
+    image_width: u32,
+) -> Option<(f32, f32, f32)> {
+    if headers.is_empty() || image_width == 0 {
+        return None;
+    }
+
+    let mut left = f32::MAX;
+    let mut right = f32::MIN;
+    let mut top = 0.0_f32;
+    for header in headers {
+        let (column_left, column_right) =
+            weekday_column_bounds(headers, header.weekday, image_width as f32);
+        left = left.min(column_left);
+        right = right.max(column_right);
+        top = top.max(header.bottom);
+    }
+
+    let left = left.max(0.0);
+    let right = right.min(image_width as f32);
+    (right > left + 1.0).then_some((left, right, top))
+}
+
 fn tokens_to_draft(
     image_path: &Path,
     original_width: u32,
@@ -247,9 +271,20 @@ fn tokens_to_draft(
         working_height,
         sections_inferred,
     );
+    let (content_left, content_right, content_top) =
+        main_timetable_grid_bounds(&headers, working_width).ok_or_else(|| {
+            "无法确定主课表网格边界，请使用包含完整星期栏的课表截图".to_owned()
+        })?;
     let table_tokens = tokens
         .iter()
-        .filter(|token| token.center_y() <= content_bottom)
+        .filter(|token| {
+            let center_x = token.center_x();
+            let center_y = token.center_y();
+            center_x >= content_left
+                && center_x < content_right
+                && center_y > content_top
+                && center_y <= content_bottom
+        })
         .cloned()
         .collect::<Vec<_>>();
 
@@ -283,7 +318,7 @@ fn tokens_to_draft(
     }
     if courses.is_empty() {
         return Err(format!(
-            "识别到了 {} 个文字块和 {} 个星期栏，但没有整理出课程（节次标记 {} 个，课程锚点 {} 个）",
+            "识别到了 {} 个文字块和 {} 个星期栏，但主课表网格内没有整理出课程（节次标记 {} 个，课程锚点 {} 个）",
             tokens.len(),
             headers.len(),
             sections.len(),
