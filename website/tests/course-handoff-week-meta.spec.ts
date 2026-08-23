@@ -3,9 +3,10 @@ import { expect, test } from '@playwright/test'
 const experiencePath = '/desktop-course-widget/experience/'
 const hostSelector = '.course-stage--experience .real-widget-host'
 const stepSelector = '.course-stage--experience .course-demo-step'
+type HandoffTestTarget = 'current' | 'week-4' | 'after-semester'
 
-async function openExperience(page: import('@playwright/test').Page) {
-  await page.goto(experiencePath, { waitUntil: 'networkidle' })
+async function openExperience(page: import('@playwright/test').Page, handoffTest = false) {
+  await page.goto(`${experiencePath}${handoffTest ? '?handoff-test=1' : ''}`, { waitUntil: 'networkidle' })
   await expect(page.locator(hostSelector)).toBeVisible()
   await expect(page.locator(`${hostSelector} .focus-course h2`)).toHaveText('计算机网络')
 }
@@ -14,6 +15,16 @@ async function pauseAutomaticDemo(page: import('@playwright/test').Page) {
   const toggle = page.locator('.course-stage--experience .course-demo-toggle')
   if (await toggle.textContent() === '暂停') await toggle.click()
   await expect(toggle).toHaveText('继续')
+}
+
+async function requestHandoffTestTarget(page: import('@playwright/test').Page, target: HandoffTestTarget) {
+  await page.evaluate((nextTarget) => {
+    const transition = (window as typeof window & {
+      __courseHandoffTestTransition?: (target: HandoffTestTarget) => void
+    }).__courseHandoffTestTransition
+    if (!transition) throw new Error('course handoff test transition hook is unavailable')
+    transition(nextTarget)
+  }, target)
 }
 
 async function waitForStableHandoff(page: import('@playwright/test').Page) {
@@ -88,21 +99,22 @@ test.describe('teaching week footer handoff', () => {
     await expectHandoffCleanup(page)
   })
 
-  test('updates the footer when a handoff crosses a teaching-week boundary', async ({ page }) => {
-    await openExperience(page)
+  test('updates the footer when a handoff crosses from week 3 to week 4', async ({ page }) => {
+    await openExperience(page, true)
     await pauseAutomaticDemo(page)
     await expectWeekMeta(page, '教学周 3 / 18', '9月21日 – 9月27日')
 
-    await page.locator(stepSelector).nth(3).click()
+    await requestHandoffTestTarget(page, 'week-4')
+    await expect(page.locator(hostSelector)).toHaveAttribute('data-demo-transition-state', 'running')
     await waitForStableHandoff(page)
 
-    await expect(page.locator(`${hostSelector} .state-label`)).toHaveText('今天无课')
-    await expectWeekMeta(page, '教学周 2 / 18', '9月14日 – 9月20日')
+    await expect(page.locator(`${hostSelector} .focus-course h2`)).toHaveText('高等数学')
+    await expectWeekMeta(page, '教学周 4 / 18', '9月28日 – 10月4日')
     await expectHandoffCleanup(page)
   })
 
-  test('removes and restores the footer without a delayed second height change', async ({ page }) => {
-    await openExperience(page)
+  test('removes the footer at semester end and restores it without a delayed second height change', async ({ page }) => {
+    await openExperience(page, true)
     await pauseAutomaticDemo(page)
     const host = page.locator(hostSelector)
     await expectWeekMeta(page, '教学周 3 / 18', '9月21日 – 9月27日')
@@ -116,9 +128,10 @@ test.describe('teaching week footer handoff', () => {
       ;(window as typeof window & { __weekMetaPhases?: string[] }).__weekMetaPhases = phases
     }, hostSelector)
 
-    await page.locator(stepSelector).nth(4).click()
+    await requestHandoffTestTarget(page, 'after-semester')
+    await expect(host).toHaveAttribute('data-demo-transition-state', 'running')
     await waitForStableHandoff(page)
-    await expect(page.locator(`${hostSelector} .state-label`)).toHaveText('学期尚未开始')
+    await expect(page.locator(`${hostSelector} .state-label`)).toHaveText('本学期课程已结束')
     await expect(page.locator(`${hostSelector} .widget-week-meta`)).toHaveCount(0)
 
     const settledHeight = await host.locator('.course-widget').evaluate((widget) => widget.getBoundingClientRect().height)
@@ -129,7 +142,8 @@ test.describe('teaching week footer handoff', () => {
     expect(phases.filter((phase) => phase === 'resizing')).toHaveLength(1)
     await expectHandoffCleanup(page)
 
-    await page.locator(stepSelector).nth(0).click()
+    await requestHandoffTestTarget(page, 'current')
+    await expect(host).toHaveAttribute('data-demo-transition-state', 'running')
     await waitForStableHandoff(page)
     await expectWeekMeta(page, '教学周 3 / 18', '9月21日 – 9月27日')
     await expectHandoffCleanup(page)
