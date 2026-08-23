@@ -1,0 +1,13 @@
+.settings-rail-mark {
+  overflow: hidden;
+  background: transparent;
+  box-shadow: none;
+}
+
+.settings-rail-mark img {
+  display: block;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  object-fit: cover;
+}
