@@ -45,7 +45,7 @@ jobs:
             if curl -fsS http://127.0.0.1:4173/settings.html >/dev/null; then break; fi
             sleep 1
           done
-          cat > /tmp/capture.mjs <<'EOF'
+          cat > capture-ui-preview.mjs <<'EOF'
           import { chromium } from 'playwright';
           const browser = await chromium.launch({ headless: true });
           const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
@@ -64,7 +64,8 @@ jobs:
           if (await widget.count()) await widget.screenshot({ path: 'artifacts/ui-preview/widget-original.png' });
           await browser.close();
           EOF
-          node /tmp/capture.mjs
+          node ./capture-ui-preview.mjs
+          rm capture-ui-preview.mjs
 
       - name: Upload screenshots
         uses: actions/upload-artifact@v4
