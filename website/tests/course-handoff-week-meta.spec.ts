@@ -132,6 +132,7 @@ test.describe('teaching week footer handoff', () => {
     await expect(host).toHaveAttribute('data-demo-transition-state', 'running')
     await waitForStableHandoff(page)
     await expect(page.locator(`${hostSelector} .state-label`)).toHaveText('本学期课程已结束')
+    await expect(page.locator(`${hostSelector} .focus-course`)).toHaveCount(0)
     await expect(page.locator(`${hostSelector} .widget-week-meta`)).toHaveCount(0)
 
     const settledHeight = await host.locator('.course-widget').evaluate((widget) => widget.getBoundingClientRect().height)
