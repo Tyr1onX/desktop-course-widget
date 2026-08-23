@@ -1,0 +1,71 @@
+name: UI Preview Screenshot
+
+on:
+  push:
+    branches:
+      - ui/vnext-first-pass
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web interface
+        run: npm run build
+
+      - name: Install Playwright
+        run: |
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Capture real rendered UI
+        run: |
+          mkdir -p artifacts/ui-preview
+          npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/keke-preview.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID || true' EXIT
+          for i in {1..60}; do
+            if curl -fsS http://127.0.0.1:4173/settings.html >/dev/null; then break; fi
+            sleep 1
+          done
+          cat > /tmp/capture.mjs <<'EOF'
+          import { chromium } from 'playwright';
+          const browser = await chromium.launch({ headless: true });
+          const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+          await page.goto('http://127.0.0.1:4173/settings.html', { waitUntil: 'networkidle' });
+          await page.waitForTimeout(800);
+          await page.screenshot({ path: 'artifacts/ui-preview/settings-main.png', fullPage: true });
+          const importButton = page.locator('[data-vnext-route="import"]');
+          if (await importButton.count()) {
+            await importButton.click();
+            await page.waitForTimeout(500);
+            await page.screenshot({ path: 'artifacts/ui-preview/settings-import.png', fullPage: true });
+          }
+          await page.goto('http://127.0.0.1:4173/widget.html', { waitUntil: 'networkidle' });
+          await page.waitForTimeout(500);
+          const widget = page.locator('.course-widget');
+          if (await widget.count()) await widget.screenshot({ path: 'artifacts/ui-preview/widget-original.png' });
+          await browser.close();
+          EOF
+          node /tmp/capture.mjs
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-preview-screenshots
+          path: artifacts/ui-preview/*.png
+          if-no-files-found: error
