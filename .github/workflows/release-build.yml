@@ -130,13 +130,6 @@ jobs:
       - name: Build Windows NSIS installer
         run: npm run tauri:build
 
-      - name: Verify packaged native OCR resources
-        shell: pwsh
-        run: |
-          $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
-          if (-not $installer) { throw 'Windows NSIS installer was not produced.' }
-          ./scripts/verify-native-ocr-package.ps1 -Installer $installer.FullName
-
       - name: Verify installer branding contract
         run: node scripts/check-installer-branding.mjs
 
@@ -146,6 +139,13 @@ jobs:
           $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
           if (-not $installer) { throw 'Windows NSIS installer was not produced.' }
           ./scripts/windows-installer-smoke.ps1 -Installer $installer.FullName
+
+      - name: Verify packaged native OCR resources
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'Windows NSIS installer was not produced.' }
+          ./scripts/verify-native-ocr-package.ps1 -Installer $installer.FullName
 
       - name: Smoke test release executable windows
         shell: pwsh
