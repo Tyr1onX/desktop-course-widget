@@ -246,7 +246,7 @@ export class CourseHandoffSession implements CourseHandoffHandle {
     await this.nextFrame()
     if (!this.isActive()) return
 
-    const targetHeight = nextBody.getBoundingClientRect().height
+    const targetBodyHeight = nextBody.getBoundingClientRect().height
     const outgoingPrimary = transitionPrimary(currentBody)
     const outgoingSecondary = transitionSecondary(currentBody)
     const targetPrimary = nextBody.querySelector<HTMLElement>('.focus-course') ?? transitionPrimary(nextBody)
@@ -291,20 +291,20 @@ export class CourseHandoffSession implements CourseHandoffHandle {
     stage.classList.add('is-size-settling')
 
     let resizeStartHeight = currentHeight
-    let resizeTargetHeight = targetHeight
+    let targetHeight = targetBodyHeight
     if (removesWeekMeta) {
       resizeStartHeight += currentWeekMetaHeight
       stage.style.height = `${resizeStartHeight}px`
       syncWeekMeta(this.currentWidget, this.nextWidget)
     }
-    if (addsWeekMeta) resizeTargetHeight += nextWeekMetaHeight
+    if (addsWeekMeta) targetHeight += nextWeekMetaHeight
 
     this.contentInstalled = true
     this.phase('content-installed')
 
     const resizeAnimation = this.animate(stage, [
       { height: `${resizeStartHeight}px` },
-      { height: `${resizeTargetHeight}px` },
+      { height: `${targetHeight}px` },
     ], { duration: this.timings.resize, easing: 'cubic-bezier(.22, 1, .36, 1)', fill: 'both' })
     this.phase('resizing')
 
@@ -333,7 +333,7 @@ export class CourseHandoffSession implements CourseHandoffHandle {
     }
     enteringPrimary.forEach((part) => clearElementAnimations(part))
 
-    stage.style.height = `${resizeTargetHeight}px`
+    stage.style.height = `${targetHeight}px`
     clearElementAnimations(stage)
     syncWeekMeta(this.currentWidget, this.nextWidget)
     stage.replaceWith(nextBody)
