@@ -590,15 +590,7 @@ button { color: inherit; }
   padding-bottom: 14px;
   border-bottom: 1px solid rgba(31, 35, 40, 0.07);
 }
-.import-review-surface .surface-intro::before {
-  display: block;
-  margin-bottom: 7px;
-  content: '1 · 选择文件';
-  color: #6f7883;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: .04em;
-}
+.import-review-surface .import-step-title { font-size: 14px; }
 .import-review-surface:has(.import-summary) .import-picker {
   flex-direction: row;
   align-items: center;
@@ -631,14 +623,6 @@ button { color: inherit; }
   padding-top: 16px;
   border-top: 1px solid rgba(31, 35, 40, 0.07);
 }
-.import-review-heading h3::before {
-  margin-right: 6px;
-  content: '2 · 检查解析结果';
-  color: #6f7883;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: .035em;
-}
 .import-course-review { border-color: #e4e7eb; border-radius: 10px; }
 .import-course-review > summary { padding: 10px 12px; }
 .import-course-review.has-issues { border-color: #dfad70; background: #fffaf2; box-shadow: 0 0 0 1px rgba(223, 173, 112, 0.08); }
@@ -648,8 +632,7 @@ button { color: inherit; }
 .import-course-review-grid { background: rgba(248, 249, 251, 0.7); }
 .import-parser-warnings { border: 1px solid rgba(181, 124, 36, 0.12); }
 .side-surface:has(.import-review-surface) .surface-actions--end { justify-content: space-between; }
-.side-surface:has(.import-review-surface) .surface-actions--end::before {
-  content: '3 · 确认创建';
+.import-step-label {
   color: #7b838d;
   font-size: 10px;
   font-weight: 700;
