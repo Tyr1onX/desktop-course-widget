@@ -664,7 +664,7 @@ function importSurfaceMarkup(): string {
   return surfaceShell('检查并导入课表', `
     <div class="surface-scroll simple-surface import-review-surface">
       <div class="surface-intro">
-        <h3>从 Excel 创建独立课表</h3>
+        <h3 class="import-step-title">1 · 选择文件</h3>
         <p>先逐项检查识别结果，再创建新课表；已有课表不会被覆盖。</p>
       </div>
       <button class="import-picker" type="button" data-action="choose-excel">
@@ -688,7 +688,7 @@ function importSurfaceMarkup(): string {
           </section>
         ` : ''}
         <div class="import-review-heading">
-          <div><h3>逐项检查</h3><p>展开课程可修改星期、节次、周次、地点和老师。</p></div>
+          <div><h3>2 · 检查解析结果</h3><p>展开课程可修改星期、节次、周次、地点和老师。</p></div>
           <span>${draft.courses.length} 项</span>
         </div>
         <div class="import-review-list">${reviewCards}</div>
@@ -696,6 +696,7 @@ function importSurfaceMarkup(): string {
       <p class="surface-message" role="status">${escapeHtml(surfaceMessage)}</p>
     </div>
     <footer class="surface-actions surface-actions--end">
+      <span class="import-step-label">3 · 确认创建</span>
       <button class="primary-button" type="button" data-action="create-imported-schedule"${draft && issueCount === 0 && !importCreatePending ? '' : ' disabled'}>确认并创建课表</button>
     </footer>
   `, true)
