@@ -280,6 +280,7 @@ export class CourseHandoffSession implements CourseHandoffHandle {
     }
 
     this.syncHeader()
+    if (currentWeekMeta && nextWeekMeta) syncWeekMeta(this.currentWidget, this.nextWidget)
     const nextFollowing = transitionSecondary(nextBody)
     if (sharedHandoffCompleted && nextFollowing) {
       nextFollowing.style.opacity = '0'
