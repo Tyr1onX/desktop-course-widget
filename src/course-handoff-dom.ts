@@ -9,8 +9,9 @@
  * - `.state-label`, `.empty-state`, or `.opening-date` for non-course states.
  *
  * When widget markup changes, update this module and the execution-level coverage in
- * `website/tests/course-handoff.spec.ts` together. These selectors are an intentional
- * shared contract between the desktop presentation and website experience demo.
+ * `website/tests/course-handoff.spec.ts` and `website/tests/course-handoff-week-meta.spec.ts`
+ * together. These selectors are an intentional shared contract between the desktop
+ * presentation and website experience demo.
  */
 export function courseIdentityKey(widget: HTMLElement | null) {
   if (!widget) return ''
