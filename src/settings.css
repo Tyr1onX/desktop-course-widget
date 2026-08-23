@@ -497,3 +497,167 @@ button { color: inherit; }
 .import-course-review-grid input,
 .import-course-review-grid select { width: 100%; min-width: 0; }
 .import-course-issues { margin: -2px 13px 13px; padding: 9px 10px 9px 26px; border-radius: 8px; background: #fff3e2; color: #855917; }
+
+/* Existing UI structural and visual refinement */
+.schedule-toolbar {
+  column-gap: 18px;
+  padding-inline: 20px;
+  border-bottom-color: rgba(31, 35, 40, 0.075);
+}
+
+.schedule-selector {
+  border: 1px solid transparent;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+.schedule-selector:hover { border-color: rgba(31, 35, 40, 0.06); background: rgba(31, 35, 40, 0.045); }
+
+.week-switcher {
+  gap: 6px;
+  padding: 3px;
+  border: 1px solid rgba(31, 35, 40, 0.065);
+  border-radius: 12px;
+  background: rgba(247, 248, 250, 0.8);
+}
+.week-label {
+  min-width: 132px;
+  padding-block: 7px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 1px 2px rgba(31, 35, 40, 0.035);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.week-button { width: 31px; height: 31px; color: #66707b; }
+.toolbar-actions { gap: 7px; }
+
+.schedule-head {
+  height: 64px;
+  border-bottom-color: rgba(31, 35, 40, 0.05);
+}
+.month-heading { color: #9298a1; }
+.day-heading { gap: 3px; color: #858b94; }
+.day-heading span { font-size: 11px; letter-spacing: .02em; }
+.day-heading strong { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 999px; font-size: 15px; font-variant-numeric: tabular-nums; }
+.day-heading.is-today span { color: #4f5965; }
+.day-heading.is-today strong { color: #1769e0; background: #eaf2ff; }
+
+.lesson-column { border-right: 1px solid rgba(31, 35, 40, 0.045); }
+.lesson-label { color: #a0a6ae; }
+.lesson-label strong { color: #7c838d; font-size: 14px; font-weight: 520; }
+.lesson-label span { color: #a0a6ae; }
+.day-column {
+  border-left: 1px solid rgba(31, 35, 40, 0.035);
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent calc(var(--row-height) - 1px),
+    rgba(31, 35, 40, 0.035) calc(var(--row-height) - 1px),
+    rgba(31, 35, 40, 0.035) var(--row-height)
+  );
+}
+
+.course-card {
+  border-color: color-mix(in srgb, var(--course-color), #52606f 12%);
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(31, 35, 40, 0.045);
+  transition: transform 120ms ease, filter 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+.course-card:hover {
+  transform: translateY(-1px);
+  filter: brightness(0.985) saturate(1.025);
+  box-shadow: 0 3px 9px rgba(31, 35, 40, 0.075);
+}
+.course-card strong { color: #27313b; font-weight: 670; }
+.course-card span { color: rgba(39, 49, 59, 0.66); }
+.course-card.is-selected { box-shadow: 0 0 0 1px color-mix(in srgb, var(--course-color), #263649 40%), 0 4px 12px rgba(31, 35, 40, 0.09); }
+
+.week-empty {
+  top: 50%;
+  color: #9aa1aa;
+  font-size: 12px;
+}
+
+.schedule-dimmer { background: rgba(35, 42, 52, 0.13); }
+.side-surface {
+  border-left-color: rgba(31, 35, 40, 0.1);
+  box-shadow: -18px 0 48px rgba(31, 35, 40, 0.115);
+}
+.surface-header { padding-inline: 22px 18px; border-bottom-color: rgba(31, 35, 40, 0.075); }
+.surface-header h2 { font-size: 16px; font-weight: 690; letter-spacing: -.01em; }
+.surface-actions { border-top-color: rgba(31, 35, 40, 0.075); }
+
+.import-review-surface .surface-intro {
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(31, 35, 40, 0.07);
+}
+.import-review-surface .surface-intro::before {
+  display: block;
+  margin-bottom: 7px;
+  content: '1 · 选择文件';
+  color: #6f7883;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+.import-review-surface:has(.import-summary) .import-picker {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 14px;
+  padding: 11px 13px;
+  border-style: solid;
+  border-color: #d8dee7;
+  background: #fbfcfe;
+}
+.import-review-surface:has(.import-summary) .import-picker strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.import-review-surface:has(.import-summary) .import-picker span {
+  flex: 0 0 auto;
+  margin-top: 0;
+  font-size: 10px;
+}
+.import-summary { margin: 14px 0 4px; }
+.import-summary div { border: 1px solid rgba(31, 35, 40, 0.045); background: #f6f7f9; }
+.import-summary strong { font-size: 14px; font-variant-numeric: tabular-nums; }
+.import-review-heading {
+  align-items: center;
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(31, 35, 40, 0.07);
+}
+.import-review-heading h3::before {
+  margin-right: 6px;
+  content: '2 · 检查解析结果';
+  color: #6f7883;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .035em;
+}
+.import-course-review { border-color: #e4e7eb; border-radius: 10px; }
+.import-course-review > summary { padding: 10px 12px; }
+.import-course-review.has-issues { border-color: #dfad70; background: #fffaf2; box-shadow: 0 0 0 1px rgba(223, 173, 112, 0.08); }
+.import-course-review[open] { box-shadow: 0 5px 16px rgba(31, 35, 40, 0.055); }
+.import-course-review.has-issues[open] { box-shadow: 0 5px 16px rgba(145, 95, 30, 0.08); }
+.import-course-state { font-weight: 620; }
+.import-course-review-grid { background: rgba(248, 249, 251, 0.7); }
+.import-parser-warnings { border: 1px solid rgba(181, 124, 36, 0.12); }
+.side-surface:has(.import-review-surface) .surface-actions--end { justify-content: space-between; }
+.side-surface:has(.import-review-surface) .surface-actions--end::before {
+  content: '3 · 确认创建';
+  color: #7b838d;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .035em;
+}
+
+@media (max-width: 1020px) {
+  .schedule-toolbar { padding-inline: 12px; column-gap: 10px; }
+  .week-switcher { gap: 3px; }
+  .week-label { min-width: 122px; }
+}
