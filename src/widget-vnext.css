@@ -1,0 +1,49 @@
+.course-widget .widget-week-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(10px * var(--widget-scale));
+  margin-top: calc(16px * var(--widget-scale));
+  padding-top: calc(10px * var(--widget-scale));
+  border-top: 1px solid rgba(78, 105, 132, 0.1);
+  color: #647b92;
+  font-family: "Segoe UI Variable", "Microsoft YaHei UI", sans-serif;
+  font-size: calc(10.5px * var(--widget-scale));
+  font-weight: 620;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.course-widget .widget-week-count,
+.course-widget .widget-week-range {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.course-widget .widget-week-count {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(6px * var(--widget-scale));
+}
+
+.course-widget .widget-week-count::before {
+  width: calc(8px * var(--widget-scale));
+  height: calc(8px * var(--widget-scale));
+  border: 1.5px solid #0a75e8;
+  border-radius: calc(2px * var(--widget-scale));
+  content: '';
+  box-shadow: inset 0 calc(2px * var(--widget-scale)) 0 rgba(10, 117, 232, 0.16);
+}
+
+.course-widget.theme-dark .widget-week-meta {
+  border-top-color: rgba(205, 224, 244, 0.1);
+  color: #aebfd0;
+}
+
+@media (max-width: 350px) {
+  .course-widget .widget-week-meta {
+    gap: 6px;
+    font-size: calc(10px * var(--widget-scale));
+  }
+}
