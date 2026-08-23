@@ -37,7 +37,7 @@ function parsedPreviewMarkup(items: ReviewSnapshot[]): string {
     return `
       <div class="import-workbench-empty">
         <strong>等待解析</strong>
-        <span>选择 Excel 后，这里会先展示识别到的课程安排。</span>
+        <span>选择课表文件后，这里会先展示识别到的课程安排。</span>
       </div>
     `
   }
@@ -102,10 +102,33 @@ function panel(title: string, subtitle: string, className: string): HTMLElement 
   return section
 }
 
+function refreshGeneratedPreviews(root: HTMLElement): void {
+  const items = reviewSnapshots(root)
+  const compactPreview = root.querySelector<HTMLElement>('.import-compact-preview')
+  const resultPreview = root.querySelector<HTMLElement>('.import-result-preview')
+  const parsedMarkup = parsedPreviewMarkup(items)
+  const resultMarkup = resultPreviewMarkup(items)
+
+  if (compactPreview && compactPreview.dataset.snapshot !== parsedMarkup) {
+    compactPreview.dataset.snapshot = parsedMarkup
+    compactPreview.innerHTML = parsedMarkup
+  }
+  if (resultPreview && resultPreview.dataset.snapshot !== resultMarkup) {
+    resultPreview.dataset.snapshot = resultMarkup
+    resultPreview.innerHTML = resultMarkup
+  }
+}
+
 function enhanceImportWorkbench(): void {
   enhanceQueued = false
   const root = app?.querySelector<HTMLElement>('.import-review-surface')
-  if (!root || root.dataset.workbenchEnhanced === 'true') return
+  if (!root) return
+
+  const existingWorkbench = root.querySelector<HTMLElement>('.import-workbench-grid')
+  if (existingWorkbench) {
+    refreshGeneratedPreviews(root)
+    return
+  }
 
   const surface = root.closest<HTMLElement>('.side-surface')
   if (!surface) return
@@ -126,7 +149,11 @@ function enhanceImportWorkbench(): void {
   const workbench = document.createElement('div')
   workbench.className = 'import-workbench-grid'
 
-  const sourcePanel = panel('1 · 选择课表', '文件仅在本机解析', 'import-source-panel')
+  const sourcePanel = panel(
+    picker ? '1 · 选择课表' : '1 · 课表信息',
+    picker ? '文件仅在本机解析' : '确认名称与第一教学周',
+    'import-source-panel',
+  )
   if (intro) sourcePanel.append(intro)
   if (picker) sourcePanel.append(picker)
   if (basics) sourcePanel.append(basics)
@@ -135,14 +162,18 @@ function enhanceImportWorkbench(): void {
   if (summary) previewPanel.append(summary)
   const compactPreview = document.createElement('div')
   compactPreview.className = 'import-compact-preview'
-  compactPreview.innerHTML = parsedPreviewMarkup(items)
+  const parsedMarkup = parsedPreviewMarkup(items)
+  compactPreview.dataset.snapshot = parsedMarkup
+  compactPreview.innerHTML = parsedMarkup
   previewPanel.append(compactPreview)
   if (warnings) previewPanel.append(warnings)
 
   const resultPanel = panel('3 · 导入后', '确认前先看最终形态', 'import-result-panel')
   const resultPreview = document.createElement('div')
   resultPreview.className = 'import-result-preview'
-  resultPreview.innerHTML = resultPreviewMarkup(items)
+  const resultMarkup = resultPreviewMarkup(items)
+  resultPreview.dataset.snapshot = resultMarkup
+  resultPreview.innerHTML = resultMarkup
   resultPanel.append(resultPreview)
 
   workbench.append(sourcePanel, previewPanel, resultPanel)
