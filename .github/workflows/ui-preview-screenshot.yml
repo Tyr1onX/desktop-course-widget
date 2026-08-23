@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - ui/vnext-first-pass
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
