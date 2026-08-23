@@ -23,7 +23,7 @@ interface SourceCourse {
 export interface ScheduleSource {
   schemaVersion?: number
   semesterStart: string
-  semesterEnd?: string
+  semesterEnd?: string | null
   courses: SourceCourse[]
 }
 
@@ -124,14 +124,32 @@ function isSameLocalDate(left: Date, right: Date) {
 const formatMonthDay = (date: Date) => `${date.getMonth() + 1}月${date.getDate()}日`
 const formatCourseDate = (date: Date) => `${formatMonthDay(date)} · ${weekdayNames[date.getDay()]}`
 
-function semesterStart() {
-  const [year, month, day] = schedule.semesterStart?.split('-').map(Number) ?? []
+function parseScheduleDate(value?: string | null) {
+  const [year, month, day] = value?.split('-').map(Number) ?? []
   if (!year || !month || !day) return undefined
   return new Date(year, month - 1, day)
 }
 
-function maximumWeek() {
+function semesterStart() {
+  return parseScheduleDate(schedule.semesterStart)
+}
+
+function configuredSemesterEnd() {
+  return parseScheduleDate(schedule.semesterEnd)
+}
+
+function courseMaximumWeek() {
   return Math.max(0, ...courses.flatMap((course) => course.weeks))
+}
+
+function maximumWeek() {
+  const start = semesterStart()
+  const end = configuredSemesterEnd()
+  if (start && end && end >= start) {
+    const inclusiveDays = Math.floor((startOfDay(end).getTime() - start.getTime()) / 86_400_000) + 1
+    return Math.max(1, Math.ceil(inclusiveDays / 7))
+  }
+  return courseMaximumWeek()
 }
 
 function teachingWeek(date: Date) {
@@ -141,8 +159,10 @@ function teachingWeek(date: Date) {
 }
 
 function semesterEnd() {
+  const configuredEnd = configuredSemesterEnd()
+  if (configuredEnd) return configuredEnd
   const start = semesterStart()
-  const lastWeek = maximumWeek()
+  const lastWeek = courseMaximumWeek()
   return start && lastWeek ? addDays(start, lastWeek * 7 - 1) : undefined
 }
 
@@ -345,6 +365,17 @@ function focusMarkup(model: WidgetModel) {
   return `<section class="focus-course ${model.mode === 'current' ? 'is-current' : ''}"><p class="focus-kicker">${kicker}</p>${courseDate}<h2>${model.focus.name}</h2>${courseDetails(model.focus)}${countdown(model)}</section>`
 }
 
+function weekInfoMarkup(model: WidgetModel) {
+  const start = semesterStart()
+  const end = semesterEnd()
+  const totalWeeks = maximumWeek()
+  const week = teachingWeek(model.date)
+  if (!start || !end || !week || week < 1 || week > totalWeeks || semesterState(model.date, start, end) !== 'in-progress') return ''
+  const weekStart = addDays(start, (week - 1) * 7)
+  const weekEnd = addDays(weekStart, 6)
+  return `<footer class="widget-week-meta" aria-label="教学周与日期范围"><span>教学周 ${week} / ${totalWeeks}</span><span>${formatMonthDay(weekStart)} – ${formatMonthDay(weekEnd)}</span></footer>`
+}
+
 export function createWidget(options: WidgetOptions, onNavigate?: () => void) {
   const model = options.runtime === 'live' ? liveModel(options) : prototypeModel(options)
   const visibleFollowing = ['current', 'next', 'browsing'].includes(model.mode) ? model.following.slice(0, options.followCount) : []
@@ -367,6 +398,7 @@ export function createWidget(options: WidgetOptions, onNavigate?: () => void) {
     ${model.emptyMessage ? `<p class="empty-state">${model.emptyMessage}</p>` : ''}
     ${followingMarkup(visibleFollowing, model.following.length)}
     </div>
+    ${weekInfoMarkup(model)}
   `
 
   widget.querySelectorAll<HTMLButtonElement>('[data-nav]').forEach((button) => button.addEventListener('click', () => {

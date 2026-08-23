@@ -4,6 +4,8 @@ import {
   findSharedCourseSource,
   resetHandoffBody,
   syncNode,
+  syncWeekMeta,
+  syncWeekMetaNode,
   transitionPrimary,
   transitionSecondary,
 } from './course-handoff-dom'
@@ -30,6 +32,29 @@ function transitionPrimaryParts(root: ParentNode | null) {
   ))
 }
 
+function directWeekMeta(widget: HTMLElement) {
+  return widget.querySelector<HTMLElement>(':scope > .widget-week-meta')
+}
+
+function outerBlockHeight(element: HTMLElement) {
+  const style = getComputedStyle(element)
+  const marginTop = Number.parseFloat(style.marginTop) || 0
+  const marginBottom = Number.parseFloat(style.marginBottom) || 0
+  return element.getBoundingClientRect().height + marginTop + marginBottom
+}
+
+function measureDetachedWeekMeta(widget: HTMLElement, template: HTMLElement | null) {
+  if (!template) return 0
+  if (template.isConnected) return outerBlockHeight(template)
+  const probe = template.cloneNode(true) as HTMLElement
+  probe.style.visibility = 'hidden'
+  probe.setAttribute('aria-hidden', 'true')
+  widget.append(probe)
+  const height = outerBlockHeight(probe)
+  probe.remove()
+  return height
+}
+
 export class CourseHandoffSession implements CourseHandoffHandle {
   readonly finished: Promise<CourseHandoffResult>
 
@@ -42,6 +67,7 @@ export class CourseHandoffSession implements CourseHandoffHandle {
   private readonly animations = new Set<Animation>()
   private readonly delays = new Map<number, () => void>()
   private readonly resolveFinished: (result: CourseHandoffResult) => void
+  private readonly currentWeekMetaSnapshot: HTMLElement | null
 
   private active = true
   private resolved = false
@@ -57,6 +83,8 @@ export class CourseHandoffSession implements CourseHandoffHandle {
     this.durationScale = Number.isFinite(options.durationScale) ? Math.max(0, options.durationScale ?? 1) : 1
     this.timings = { ...COURSE_HANDOFF_DEFAULT_TIMINGS, ...options.timings }
     this.onPhase = options.onPhase
+    const currentWeekMeta = directWeekMeta(this.currentWidget)
+    this.currentWeekMetaSnapshot = currentWeekMeta ? currentWeekMeta.cloneNode(true) as HTMLElement : null
     let resolver!: (result: CourseHandoffResult) => void
     this.finished = new Promise<CourseHandoffResult>((resolve) => { resolver = resolve })
     this.resolveFinished = resolver
@@ -168,7 +196,12 @@ export class CourseHandoffSession implements CourseHandoffHandle {
       const keeper = settleTo === 'target' ? target ?? current : current ?? target
       stage.querySelectorAll<HTMLElement>('.course-shared-morph, .course-shared-float, .course-transition-overlay').forEach((item) => item.remove())
       if (keeper) {
-        if (keeper === target) this.syncHeader()
+        if (keeper === target) {
+          this.syncHeader()
+          syncWeekMeta(this.currentWidget, this.nextWidget)
+        } else {
+          syncWeekMetaNode(this.currentWidget, this.currentWeekMetaSnapshot)
+        }
         resetHandoffBody(keeper)
         stage.replaceWith(keeper)
       } else {
@@ -192,6 +225,13 @@ export class CourseHandoffSession implements CourseHandoffHandle {
       return
     }
 
+    const currentWeekMeta = directWeekMeta(this.currentWidget)
+    const nextWeekMeta = directWeekMeta(this.nextWidget)
+    const currentWeekMetaHeight = measureDetachedWeekMeta(this.currentWidget, currentWeekMeta)
+    const nextWeekMetaHeight = measureDetachedWeekMeta(this.currentWidget, nextWeekMeta)
+    const removesWeekMeta = Boolean(currentWeekMeta) && !nextWeekMeta
+    const addsWeekMeta = !currentWeekMeta && Boolean(nextWeekMeta)
+
     const currentHeight = currentBody.getBoundingClientRect().height
     const stage = document.createElement('div')
     stage.className = 'widget-body-handoff'
@@ -206,7 +246,7 @@ export class CourseHandoffSession implements CourseHandoffHandle {
     await this.nextFrame()
     if (!this.isActive()) return
 
-    const targetHeight = nextBody.getBoundingClientRect().height
+    const targetBodyHeight = nextBody.getBoundingClientRect().height
     const outgoingPrimary = transitionPrimary(currentBody)
     const outgoingSecondary = transitionSecondary(currentBody)
     const targetPrimary = nextBody.querySelector<HTMLElement>('.focus-course') ?? transitionPrimary(nextBody)
@@ -240,6 +280,7 @@ export class CourseHandoffSession implements CourseHandoffHandle {
     }
 
     this.syncHeader()
+    if (currentWeekMeta && nextWeekMeta) syncWeekMeta(this.currentWidget, this.nextWidget)
     const nextFollowing = transitionSecondary(nextBody)
     if (sharedHandoffCompleted && nextFollowing) {
       nextFollowing.style.opacity = '0'
@@ -249,11 +290,21 @@ export class CourseHandoffSession implements CourseHandoffHandle {
     resetHandoffBody(nextBody)
     stage.replaceChildren(nextBody)
     stage.classList.add('is-size-settling')
+
+    let resizeStartHeight = currentHeight
+    let targetHeight = targetBodyHeight
+    if (removesWeekMeta) {
+      resizeStartHeight += currentWeekMetaHeight
+      stage.style.height = `${resizeStartHeight}px`
+      syncWeekMeta(this.currentWidget, this.nextWidget)
+    }
+    if (addsWeekMeta) targetHeight += nextWeekMetaHeight
+
     this.contentInstalled = true
     this.phase('content-installed')
 
     const resizeAnimation = this.animate(stage, [
-      { height: `${currentHeight}px` },
+      { height: `${resizeStartHeight}px` },
       { height: `${targetHeight}px` },
     ], { duration: this.timings.resize, easing: 'cubic-bezier(.22, 1, .36, 1)', fill: 'both' })
     this.phase('resizing')
@@ -285,6 +336,7 @@ export class CourseHandoffSession implements CourseHandoffHandle {
 
     stage.style.height = `${targetHeight}px`
     clearElementAnimations(stage)
+    syncWeekMeta(this.currentWidget, this.nextWidget)
     stage.replaceWith(nextBody)
     this.stage = null
     resetHandoffBody(nextBody)

@@ -41,6 +41,7 @@ export function upcomingUrgency(minutesUntilStart: number): UpcomingUrgency {
 function courseRange(widget: HTMLElement): { start: number; end: number } | null {
   const text = widget.querySelector<HTMLElement>('.focus-course .course-time')?.textContent ?? ''
   const [startText, endText] = text.split(/[–-]/).map((value) => value.trim())
+  if (!startText || !endText) return null
   const start = minutesFromClock(startText)
   const end = minutesFromClock(endText)
   return start === null || end === null ? null : { start, end }

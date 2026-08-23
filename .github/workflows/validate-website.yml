@@ -6,6 +6,10 @@ on:
       - main
     paths:
       - 'website/**'
+      - 'src/widget.ts'
+      - 'src/course-handoff*.ts'
+      - 'src/course-handoff.css'
+      - 'src/widget-page.ts'
       - '.github/workflows/validate-website.yml'
   workflow_dispatch:
 

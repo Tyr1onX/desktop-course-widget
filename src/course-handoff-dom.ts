@@ -3,13 +3,15 @@
  *
  * Widgets supplied to this module are expected to come from `createWidget` and keep:
  * - `.widget-body` as the replaceable content root;
+ * - `.widget-week-meta` as the optional auxiliary footer sibling synchronized with the target widget;
  * - `.focus-course` with `h2`, `.course-time`, `.course-location`, and `.course-date`;
  * - `.following .timeline li` with `strong`, `time`, and optional `small` course metadata;
  * - `.state-label`, `.empty-state`, or `.opening-date` for non-course states.
  *
  * When widget markup changes, update this module and the execution-level coverage in
- * `website/tests/course-handoff.spec.ts` together. These selectors are an intentional
- * shared contract between the desktop presentation and website experience demo.
+ * `website/tests/course-handoff.spec.ts` and `website/tests/course-handoff-week-meta.spec.ts`
+ * together. These selectors are an intentional shared contract between the desktop
+ * presentation and website experience demo.
  */
 export function courseIdentityKey(widget: HTMLElement | null) {
   if (!widget) return ''
@@ -54,6 +56,30 @@ export function syncNode(current: Node, next: Node): void {
   for (let index = currentChildren.length; index < nextChildren.length; index += 1) {
     current.appendChild(nextChildren[index].cloneNode(true))
   }
+}
+
+function directWeekMeta(widget: HTMLElement) {
+  return widget.querySelector<HTMLElement>(':scope > .widget-week-meta')
+}
+
+export function syncWeekMetaNode(widget: HTMLElement, nextMeta: HTMLElement | null) {
+  const currentMeta = directWeekMeta(widget)
+  if (currentMeta && nextMeta) {
+    syncNode(currentMeta, nextMeta)
+    return currentMeta
+  }
+  if (currentMeta) {
+    currentMeta.remove()
+    return null
+  }
+  if (!nextMeta) return null
+  const clone = nextMeta.cloneNode(true) as HTMLElement
+  widget.append(clone)
+  return clone
+}
+
+export function syncWeekMeta(currentWidget: HTMLElement, nextWidget: HTMLElement) {
+  return syncWeekMetaNode(currentWidget, directWeekMeta(nextWidget))
 }
 
 export function syncStableWidget(current: HTMLElement, next: HTMLElement) {

@@ -1,4 +1,5 @@
 import { transitionCourse, type CourseHandoffHandle } from '../../../../src/course-handoff'
+import type { WidgetOptions } from '../../../../src/widget'
 import {
   createButton,
   createLatestWidget,
@@ -6,6 +7,11 @@ import {
   type Cleanup,
   type DemoPreset,
 } from './website-demo-core'
+
+type HandoffTestTarget = 'current' | 'week-4' | 'after-semester'
+type HandoffTestWindow = Window & {
+  __courseHandoffTestTransition?: (target: HandoffTestTarget) => void
+}
 
 export function setupExperienceHeroDemo(
   root: HTMLElement,
@@ -134,10 +140,36 @@ export function setupExperienceHeroDemo(
   function requestPreset(index: number, immediate = false) {
     if (disposed || index < 0 || index >= presets.length) return
     currentIndex = index
-    Object.assign(activeOptions, optionsFor(presets[index], { showNav: false }))
+    Object.assign(activeOptions, optionsFor(presets[index], { showNav: false }), { now: undefined })
     status.textContent = `${statusPrefix} · ${presets[index].label}`
     updateControls()
     requestActiveOptions(immediate)
+  }
+
+  const handoffTestMode = new URLSearchParams(window.location.search).get('handoff-test') === '1'
+  if (handoffTestMode) {
+    ;(window as HandoffTestWindow).__courseHandoffTestTransition = (target) => {
+      let targetOptions: WidgetOptions
+      if (target === 'week-4') {
+        targetOptions = {
+          ...optionsFor(presets[0], { showNav: false }),
+          runtime: 'live',
+          now: new Date(2026, 8, 28, 7, 30),
+        }
+      } else if (target === 'after-semester') {
+        targetOptions = {
+          ...optionsFor(presets[0], { showNav: false }),
+          runtime: 'live',
+          now: new Date(2027, 0, 11, 12, 0),
+        }
+      } else {
+        targetOptions = { ...optionsFor(presets[0], { showNav: false }), now: undefined }
+      }
+      currentIndex = 0
+      Object.assign(activeOptions, targetOptions)
+      updateControls()
+      requestActiveOptions()
+    }
   }
 
   const onStepClick = (event: Event) => {
@@ -171,6 +203,7 @@ export function setupExperienceHeroDemo(
     requestVersion += 1
     stopTimer()
     cancelActiveHandoff('target')
+    if (handoffTestMode) delete (window as HandoffTestWindow).__courseHandoffTestTransition
     stepButtons.forEach((button) => button.removeEventListener('click', onStepClick))
     toggleButton.removeEventListener('click', onToggle)
     stage.removeEventListener('mouseenter', onMouseEnter)
