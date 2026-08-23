@@ -1,4 +1,5 @@
 import './settings-vnext-shell.css'
+import appIconUrl from '../src-tauri/icons/128x128.png?url'
 
 const app = document.querySelector<HTMLDivElement>('#app')
 let enhanceQueued = false
@@ -113,7 +114,7 @@ function buildRail(main: HTMLElement): HTMLElement {
   rail.setAttribute('aria-label', '课刻导航')
   rail.innerHTML = `
     <div class="settings-rail-brand">
-      <span class="settings-rail-mark" aria-hidden="true">课</span>
+      <span class="settings-rail-mark" aria-hidden="true"><img src="${appIconUrl}" alt="" /></span>
       <span><strong>课刻</strong><small>Course Widget</small></span>
     </div>
     <nav class="settings-rail-nav" aria-label="主要功能">
