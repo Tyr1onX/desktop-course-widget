@@ -18,6 +18,7 @@ import {
   weeksToText,
 } from '../src/import-review'
 import { installImportReviewRuntime, rememberImportDraft } from '../src/import-review-controller'
+import { createWidget, defaultOptions, setActiveSchedule, type ScheduleSource, type WidgetOptions } from '../src/widget'
 
 const result = document.querySelector<HTMLElement>('#result')
 
@@ -112,8 +113,145 @@ function assertConfiguredLessonSections(stage: string): void {
   )
 }
 
+function assertImportStepHeadings(): void {
+  assert(
+    document.querySelector<HTMLElement>('.import-step-title')?.textContent?.trim() === '1 · 选择文件',
+    'first import step must be real DOM text',
+  )
+  assert(
+    document.querySelector<HTMLElement>('.import-review-heading h3')?.textContent?.trim() === '2 · 检查解析结果',
+    'second import step must replace the old 逐项检查 title',
+  )
+  assert(
+    document.querySelector<HTMLElement>('.import-step-label')?.textContent?.trim() === '3 · 确认创建',
+    'third import step must be real DOM text',
+  )
+}
+
+function widgetSchedule(options: {
+  semesterStart?: string
+  semesterEnd?: string | null
+  maxCourseWeek?: number
+} = {}): ScheduleSource {
+  const maxCourseWeek = options.maxCourseWeek ?? 18
+  return {
+    semesterStart: options.semesterStart ?? '2024-05-13',
+    ...(options.semesterEnd === undefined ? {} : { semesterEnd: options.semesterEnd }),
+    courses: [{
+      name: '测试课程',
+      teacher: '',
+      weekday: 1,
+      start: '08:00',
+      end: '09:40',
+      location: '',
+      weeks: Array.from({ length: maxCourseWeek }, (_, index) => index + 1),
+      parity: 'all',
+    }],
+  }
+}
+
+function assertWeekMeta(widget: HTMLElement, weekText: string, rangeText: string, stage: string): void {
+  const spans = [...widget.querySelectorAll<HTMLElement>('.widget-week-meta span')]
+  assert(spans.length === 2, `${stage}: week metadata should render exactly two values`)
+  assert(spans[0]?.textContent?.trim() === weekText, `${stage}: unexpected teaching week text`)
+  assert(spans[1]?.textContent?.trim() === rangeText, `${stage}: unexpected week range text`)
+}
+
+function assertNoWeekMeta(widget: HTMLElement, stage: string): void {
+  assert(widget.querySelector('.widget-week-meta') === null, `${stage}: week metadata should be hidden outside semester`)
+}
+
+function runWidgetWeekInfoCases(): void {
+  setActiveSchedule(widgetSchedule({
+    semesterStart: '2026-09-07',
+    semesterEnd: '2027-01-10',
+    maxCourseWeek: 3,
+  }))
+  const ordinary = createWidget({
+    ...defaultOptions,
+    runtime: 'live',
+    now: new Date(2026, 8, 23, 12, 0),
+  })
+  assertWeekMeta(ordinary, '教学周 3 / 18', '9月21日 – 9月27日', 'ordinary week with semesterEnd')
+
+  setActiveSchedule(widgetSchedule({
+    semesterStart: '2024-05-13',
+    semesterEnd: '2024-09-15',
+    maxCourseWeek: 18,
+  }))
+  const crossMonth = createWidget({
+    ...defaultOptions,
+    runtime: 'live',
+    now: new Date(2024, 4, 29, 12, 0),
+  })
+  assertWeekMeta(crossMonth, '教学周 3 / 18', '5月27日 – 6月2日', 'cross-month week')
+
+  setActiveSchedule(widgetSchedule({
+    semesterStart: '2024-05-13',
+    maxCourseWeek: 16,
+  }))
+  const fallback = createWidget({
+    ...defaultOptions,
+    runtime: 'live',
+    now: new Date(2024, 4, 29, 12, 0),
+  })
+  assertWeekMeta(fallback, '教学周 3 / 16', '5月27日 – 6月2日', 'course max-week fallback')
+
+  setActiveSchedule(widgetSchedule({
+    semesterStart: '2024-05-13',
+    semesterEnd: '2024-09-15',
+    maxCourseWeek: 18,
+  }))
+  const navigationOptions: WidgetOptions = {
+    ...defaultOptions,
+    runtime: 'live',
+    now: new Date(2024, 4, 19, 12, 0),
+    showNav: true,
+  }
+  let navigatedWidget: HTMLElement
+  const rerenderNavigatedWidget = () => {
+    navigatedWidget = createWidget(navigationOptions, rerenderNavigatedWidget)
+  }
+  rerenderNavigatedWidget()
+  assertWeekMeta(navigatedWidget!, '教学周 1 / 18', '5月13日 – 5月19日', 'navigation initial week')
+
+  const next = navigatedWidget!.querySelector<HTMLButtonElement>('[data-nav="next"]')
+  assert(next, 'next-day navigation button should exist')
+  next.click()
+  assertWeekMeta(navigatedWidget!, '教学周 2 / 18', '5月20日 – 5月26日', 'next day crossing week')
+
+  const previous = navigatedWidget!.querySelector<HTMLButtonElement>('[data-nav="previous"]')
+  assert(previous, 'previous-day navigation button should exist')
+  previous.click()
+  assertWeekMeta(navigatedWidget!, '教学周 1 / 18', '5月13日 – 5月19日', 'previous day returning week')
+
+  navigationOptions.browseDate = new Date(2024, 5, 3, 12, 0)
+  rerenderNavigatedWidget()
+  assertWeekMeta(navigatedWidget!, '教学周 4 / 18', '6月3日 – 6月9日', 'browsing another teaching week')
+
+  setActiveSchedule(widgetSchedule({
+    semesterStart: '2024-05-13',
+    semesterEnd: '2024-09-15',
+    maxCourseWeek: 18,
+  }))
+  const before = createWidget({
+    ...defaultOptions,
+    runtime: 'live',
+    now: new Date(2024, 4, 12, 12, 0),
+  })
+  assertNoWeekMeta(before, 'before semester')
+
+  const after = createWidget({
+    ...defaultOptions,
+    runtime: 'live',
+    now: new Date(2024, 8, 16, 12, 0),
+  })
+  assertNoWeekMeta(after, 'after semester')
+}
+
 async function run(): Promise<void> {
   window.confirm = () => true
+  assertImportStepHeadings()
   rememberImportDraft(draft)
   await waitFor(
     () => document.querySelectorAll('.import-review-toolbar').length === 1,
@@ -179,6 +317,8 @@ async function run(): Promise<void> {
   assert(createButton && !createButton.disabled, 'warning-only draft should allow explicit creation')
   createButton.click()
   assert(warningConfirmCalls === 1, 'create warning confirmation listener must bind exactly once')
+
+  runWidgetWeekInfoCases()
 }
 
 try {
