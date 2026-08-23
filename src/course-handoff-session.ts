@@ -83,7 +83,8 @@ export class CourseHandoffSession implements CourseHandoffHandle {
     this.durationScale = Number.isFinite(options.durationScale) ? Math.max(0, options.durationScale ?? 1) : 1
     this.timings = { ...COURSE_HANDOFF_DEFAULT_TIMINGS, ...options.timings }
     this.onPhase = options.onPhase
-    this.currentWeekMetaSnapshot = directWeekMeta(this.currentWidget)?.cloneNode(true) as HTMLElement | null
+    const currentWeekMeta = directWeekMeta(this.currentWidget)
+    this.currentWeekMetaSnapshot = currentWeekMeta ? currentWeekMeta.cloneNode(true) as HTMLElement : null
     let resolver!: (result: CourseHandoffResult) => void
     this.finished = new Promise<CourseHandoffResult>((resolve) => { resolver = resolve })
     this.resolveFinished = resolver
