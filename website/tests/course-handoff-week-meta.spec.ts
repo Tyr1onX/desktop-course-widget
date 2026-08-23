@@ -104,12 +104,39 @@ test.describe('teaching week footer handoff', () => {
     await pauseAutomaticDemo(page)
     await expectWeekMeta(page, '教学周 3 / 18', '9月21日 – 9月27日')
 
+    await page.evaluate((selector) => {
+      const host = document.querySelector<HTMLElement>(selector)!
+      const snapshots: Array<{ phase: string; count: number; text: string }> = []
+      host.addEventListener('course-handoff:phase', (event) => {
+        const phase = (event as CustomEvent<{ phase: string }>).detail.phase
+        const footers = host.querySelectorAll<HTMLElement>('.widget-week-meta')
+        snapshots.push({
+          phase,
+          count: footers.length,
+          text: footers[0]?.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+        })
+      })
+      ;(window as typeof window & { __crossWeekMetaSnapshots?: Array<{ phase: string; count: number; text: string }> }).__crossWeekMetaSnapshots = snapshots
+    }, hostSelector)
+
     await requestHandoffTestTarget(page, 'week-4')
     await expect(page.locator(hostSelector)).toHaveAttribute('data-demo-transition-state', 'running')
     await waitForStableHandoff(page)
 
     await expect(page.locator(`${hostSelector} .focus-course h2`)).toHaveText('高等数学')
     await expectWeekMeta(page, '教学周 4 / 18', '9月28日 – 10月4日')
+    const snapshots = await page.evaluate(() => (
+      window as typeof window & { __crossWeekMetaSnapshots?: Array<{ phase: string; count: number; text: string }> }
+    ).__crossWeekMetaSnapshots ?? [])
+    expect(snapshots.length).toBeGreaterThan(0)
+    expect(snapshots.every(({ count }) => count === 1)).toBe(true)
+    for (const phase of ['content-installed', 'resizing']) {
+      const snapshot = snapshots.find((item) => item.phase === phase)
+      expect(snapshot, `${phase} snapshot must exist`).toBeTruthy()
+      expect(snapshot?.text).toContain('教学周 4 / 18')
+      expect(snapshot?.text).toContain('9月28日 – 10月4日')
+      expect(snapshot?.text).not.toContain('教学周 3 / 18')
+    }
     await expectHandoffCleanup(page)
   })
 
