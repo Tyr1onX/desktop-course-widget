@@ -77,43 +77,55 @@ function formatMonthDay(value: Date): string {
   return `${value.getMonth() + 1}月${value.getDate()}日`
 }
 
+function weekdayPrefix(dateLine: string): string {
+  const [prefix] = dateLine.split('·')
+  return prefix?.trim() || dateLine.trim()
+}
+
+function clearWeekContext(widget: HTMLElement): void {
+  widget.querySelector<HTMLElement>('.widget-week-range')?.remove()
+  const dateLine = widget.querySelector<HTMLElement>('.date-line')
+  const original = dateLine?.dataset.weekOriginal
+  if (dateLine && original) {
+    dateLine.textContent = original
+    delete dateLine.dataset.weekOriginal
+  }
+}
+
 function renderWeekMeta(): void {
   renderQueued = false
   const widget = app?.querySelector<HTMLElement>('.course-widget')
   if (!widget) return
 
+  const dateLine = widget.querySelector<HTMLElement>('.date-line')
+  const heading = widget.querySelector<HTMLElement>('.widget-heading')
   const date = dateFromWidget(widget)
   const start = parseLocalDate(schedule.semesterStart)
   const week = date ? teachingWeek(date) : undefined
   const total = maximumWeek()
-  const existing = widget.querySelector<HTMLElement>('.widget-week-meta')
 
-  if (!date || !start || !week || total < 1 || week > total) {
-    existing?.remove()
+  if (!dateLine || !heading || !date || !start || !week || total < 1 || week > total) {
+    clearWeekContext(widget)
     return
   }
+
+  if (!dateLine.dataset.weekOriginal) dateLine.dataset.weekOriginal = dateLine.textContent?.trim() ?? ''
 
   const weekStart = addDays(start, (week - 1) * 7)
   const weekEnd = addDays(weekStart, 6)
-  const countText = `教学周 ${week} / ${total}`
+  const prefix = weekdayPrefix(dateLine.dataset.weekOriginal)
+  const countText = `${prefix} · 第${week} / ${total}教学周`
   const rangeText = `${formatMonthDay(weekStart)} – ${formatMonthDay(weekEnd)}`
 
-  if (existing) {
-    const count = existing.querySelector<HTMLElement>('[data-week-count]')
-    const range = existing.querySelector<HTMLElement>('[data-week-range]')
-    if (count?.textContent !== countText) count!.textContent = countText
-    if (range?.textContent !== rangeText) range!.textContent = rangeText
-    return
-  }
+  if (dateLine.textContent !== countText) dateLine.textContent = countText
 
-  const footer = document.createElement('footer')
-  footer.className = 'widget-week-meta'
-  footer.setAttribute('aria-label', '教学周信息')
-  footer.innerHTML = `
-    <span class="widget-week-count" data-week-count>${countText}</span>
-    <span class="widget-week-range" data-week-range>${rangeText}</span>
-  `
-  widget.append(footer)
+  let range = heading.querySelector<HTMLElement>('.widget-week-range')
+  if (!range) {
+    range = document.createElement('p')
+    range.className = 'widget-week-range'
+    dateLine.insertAdjacentElement('afterend', range)
+  }
+  if (range.textContent !== rangeText) range.textContent = rangeText
 }
 
 function queueRender(): void {
