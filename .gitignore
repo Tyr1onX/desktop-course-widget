@@ -19,6 +19,9 @@ __pycache__/
 # the Rust command manifest during compilation and are not source files.
 src-tauri/permissions/
 
+# Deterministic NSIS branding bitmaps generated before each Tauri build.
+src-tauri/installer/*.bmp
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
