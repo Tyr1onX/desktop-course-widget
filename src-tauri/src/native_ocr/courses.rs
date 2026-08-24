@@ -8,9 +8,15 @@ fn anchor_courses(
     let mut courses = Vec::new();
     let mut warnings = Vec::new();
     let mut structurally_dropped_auxiliary = 0_usize;
-    let seeds = course_card_seeds(tokens, anchors, headers, image_width as f32);
+    let owned_anchors = arrangement_anchors_with_card_ownership(
+        tokens,
+        anchors,
+        headers,
+        image_width as f32,
+    );
+    let seeds = course_card_seeds(tokens, &owned_anchors, headers, image_width as f32);
 
-    for (anchor_index, anchor) in anchors.iter().enumerate() {
+    for (anchor_index, anchor) in owned_anchors.iter().enumerate() {
         let seed = &seeds[anchor_index];
         let anchor_token = &tokens[anchor.token_index];
         if course_seed_is_structurally_auxiliary(
@@ -30,7 +36,7 @@ fn anchor_courses(
         // from field extraction and fuzzy OCR duplicates are cleaned up afterwards.
         let card = course_card_geometry(
             tokens,
-            anchors,
+            &owned_anchors,
             &seeds,
             anchor_index,
             headers,
@@ -102,6 +108,99 @@ fn anchor_courses(
         ));
     }
     (courses, warnings)
+}
+
+fn arrangement_anchors_with_card_ownership(
+    tokens: &[Token],
+    anchors: &[CourseAnchor],
+    headers: &[WeekdayHeader],
+    image_width: f32,
+) -> Vec<CourseAnchor> {
+    // structured_schedule_text_for_anchor can recover a wrapped schedule by looking
+    // downward from a token. That recovery is useful for schedule fragments, but a
+    // title/teacher token must not itself become a second arrangement owner merely
+    // because a real schedule token exists below it. Keep only anchors whose source
+    // token contains an actual weekday or section signal before CourseCard ownership.
+    let direct_anchors = anchors
+        .iter()
+        .filter(|anchor| {
+            let source = &tokens[anchor.token_index];
+            weekday_from_schedule_text(&source.text).is_some()
+                || section_range_from_text(&source.text).is_some()
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if direct_anchors.len() < 2 {
+        return direct_anchors;
+    }
+
+    let seeds = course_card_seeds(tokens, &direct_anchors, headers, image_width);
+    direct_anchors
+        .iter()
+        .enumerate()
+        .filter(|(anchor_index, _)| {
+            !course_anchor_is_same_card_schedule_shadow(
+                tokens,
+                &direct_anchors,
+                &seeds,
+                *anchor_index,
+            )
+        })
+        .map(|(_, anchor)| anchor.clone())
+        .collect()
+}
+
+fn course_anchor_is_same_card_schedule_shadow(
+    tokens: &[Token],
+    anchors: &[CourseAnchor],
+    seeds: &[CourseCardSeed],
+    anchor_index: usize,
+) -> bool {
+    let anchor = &anchors[anchor_index];
+    let seed = &seeds[anchor_index];
+    let Some(title_token_index) = seed.title_token_index else {
+        return false;
+    };
+    if seed.auxiliary || anchor.used_default_weeks {
+        return false;
+    }
+    let source = &tokens[anchor.token_index];
+
+    anchors.iter().enumerate().any(|(other_index, other)| {
+        if other_index == anchor_index || other.used_default_weeks {
+            return false;
+        }
+        let other_seed = &seeds[other_index];
+        if other_seed.auxiliary
+            || other_seed.title_token_index != Some(title_token_index)
+            || other_seed.weekday != seed.weekday
+            || other.start_section != anchor.start_section
+            || other.end_section != anchor.end_section
+            || other.parity != anchor.parity
+            || !weeks_are_strict_subset(&anchor.weeks, &other.weeks)
+        {
+            return false;
+        }
+
+        // This is deliberately source-geometry ownership, not result-level dedupe:
+        // two real split-week rows occupy different schedule lines and survive. A
+        // shorter OCR week fragment is suppressed only when both schedule detections
+        // overlap the same physical line inside the same CourseCard.
+        schedule_source_boxes_overlap(source, &tokens[other.token_index])
+    })
+}
+
+fn weeks_are_strict_subset(left: &[u8], right: &[u8]) -> bool {
+    left.len() < right.len() && left.iter().all(|week| right.contains(week))
+}
+
+fn schedule_source_boxes_overlap(left: &Token, right: &Token) -> bool {
+    let overlap_width = (left.right().min(right.right()) - left.left.max(right.left)).max(0.0);
+    let overlap_height = (left.bottom().min(right.bottom()) - left.top.max(right.top)).max(0.0);
+    let minimum_width = left.width.min(right.width).max(1.0);
+    let minimum_height = left.height.min(right.height).max(1.0);
+
+    overlap_width / minimum_width >= 0.55 && overlap_height / minimum_height >= 0.55
 }
 
 fn course_seed_is_structurally_auxiliary(

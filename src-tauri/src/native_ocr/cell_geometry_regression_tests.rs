@@ -142,6 +142,92 @@ mod cell_geometry_regression_tests {
     }
 
     #[test]
+    fn overlapping_week_fragment_from_same_course_card_keeps_full_range() {
+        let tokens = vec![
+            token("现代管理科学基础", 660.0, 100.0, 150.0, 22.0),
+            token("刘宁", 660.0, 126.0, 48.0, 22.0),
+            token("周四第8-9节1周", 660.0, 154.0, 160.0, 22.0),
+            token("周四第8-9节1-17周", 662.0, 156.0, 174.0, 22.0),
+            token("教3-309", 660.0, 184.0, 90.0, 22.0),
+        ];
+        let anchors = structured_course_anchors(&tokens);
+        assert!(anchors.len() >= 2);
+        let parsed = anchor_courses(&tokens, &anchors, &headers(), 1260, 760).0;
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].name, "现代管理科学基础");
+        assert_eq!(parsed[0].teacher.as_deref(), Some("刘宁"));
+        assert_eq!(parsed[0].location.as_deref(), Some("教3-309"));
+        assert_eq!(
+            (parsed[0].weekday, parsed[0].start_section, parsed[0].end_section),
+            (4, 8, 9)
+        );
+        assert_eq!(parsed[0].weeks, (1..=17).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn same_card_disjoint_week_segments_remain_separate_arrangements() {
+        let tokens = vec![
+            token("课程A", 660.0, 100.0, 120.0, 22.0),
+            token("教师甲", 660.0, 126.0, 70.0, 22.0),
+            token("周四第8-9节1-8周", 660.0, 154.0, 168.0, 22.0),
+            token("周四第8-9节9-17周", 660.0, 184.0, 176.0, 22.0),
+            token("教3-309", 660.0, 214.0, 90.0, 22.0),
+        ];
+        let parsed = courses(&tokens);
+        assert_eq!(parsed.len(), 2);
+        let mut week_sets = parsed
+            .iter()
+            .map(|course| course.weeks.clone())
+            .collect::<Vec<_>>();
+        week_sets.sort();
+        assert_eq!(
+            week_sets,
+            vec![(1..=8).collect::<Vec<_>>(), (9..=17).collect::<Vec<_>>()]
+        );
+    }
+
+    #[test]
+    fn same_card_odd_even_arrangements_remain_separate() {
+        let tokens = vec![
+            token("课程A", 660.0, 100.0, 120.0, 22.0),
+            token("教师甲", 660.0, 126.0, 70.0, 22.0),
+            token("周四第8-9节1-17周(单周)", 660.0, 154.0, 190.0, 22.0),
+            token("周四第8-9节1-17周(双周)", 660.0, 184.0, 190.0, 22.0),
+            token("教3-309", 660.0, 214.0, 90.0, 22.0),
+        ];
+        let parsed = courses(&tokens);
+        assert_eq!(parsed.len(), 2);
+        let mut parities = parsed
+            .iter()
+            .map(|course| course.parity.as_str())
+            .collect::<Vec<_>>();
+        parities.sort();
+        assert_eq!(parities, vec!["even", "odd"]);
+    }
+
+    #[test]
+    fn distinct_cards_keep_split_weeks_teacher_and_location() {
+        let tokens = vec![
+            token("课程A", 660.0, 100.0, 120.0, 22.0),
+            token("教师甲", 660.0, 126.0, 70.0, 22.0),
+            token("周四第8-9节1-8周", 660.0, 154.0, 168.0, 22.0),
+            token("教3-301", 660.0, 180.0, 90.0, 22.0),
+            token("课程A", 660.0, 236.0, 120.0, 22.0),
+            token("教师乙", 660.0, 262.0, 70.0, 22.0),
+            token("周四第8-9节9-17周", 660.0, 290.0, 176.0, 22.0),
+            token("教3-302", 660.0, 316.0, 90.0, 22.0),
+        ];
+        let parsed = courses(&tokens);
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0].teacher.as_deref(), Some("教师甲"));
+        assert_eq!(parsed[0].location.as_deref(), Some("教3-301"));
+        assert_eq!(parsed[0].weeks, (1..=8).collect::<Vec<_>>());
+        assert_eq!(parsed[1].teacher.as_deref(), Some("教师乙"));
+        assert_eq!(parsed[1].location.as_deref(), Some("教3-302"));
+        assert_eq!(parsed[1].weeks, (9..=17).collect::<Vec<_>>());
+    }
+
+    #[test]
     fn adjustment_annotation_does_not_spawn_a_duplicate_course_card() {
         let tokens = vec![
             token("现代管理科学基础", 660.0, 100.0, 150.0, 22.0),
