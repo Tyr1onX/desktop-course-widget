@@ -38,6 +38,36 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Inspect npm audit findings
+        shell: pwsh
+        run: |
+          $auditJson = npm audit --json 2>$null | Out-String
+          $auditExit = $LASTEXITCODE
+          if ([string]::IsNullOrWhiteSpace($auditJson)) {
+            Write-Warning "npm audit produced no JSON output (exit $auditExit)."
+            exit 0
+          }
+          $audit = $auditJson | ConvertFrom-Json
+          $metadata = $audit.metadata.vulnerabilities
+          Write-Host "npm audit: info=$($metadata.info) low=$($metadata.low) moderate=$($metadata.moderate) high=$($metadata.high) critical=$($metadata.critical)"
+          foreach ($property in $audit.vulnerabilities.PSObject.Properties) {
+            $item = $property.Value
+            $via = @($item.via | ForEach-Object {
+              if ($_ -is [string]) { $_ }
+              elseif ($_.title) { "$($_.source): $($_.title)" }
+            }) -join '; '
+            Write-Host "npm audit finding: package=$($property.Name) severity=$($item.severity) direct=$($item.isDirect) range=$($item.range) fixAvailable=$($item.fixAvailable) via=$via"
+          }
+          @(
+            '### npm audit (non-blocking)',
+            '',
+            "- exit: $auditExit",
+            "- moderate: $($metadata.moderate)",
+            "- high: $($metadata.high)",
+            "- critical: $($metadata.critical)"
+          ) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+          exit 0
+
       - name: Prepare v0.5.0 beta candidate version
         run: node scripts/set-build-version.mjs $env:COURSE_WIDGET_BUILD_VERSION
 
@@ -100,6 +130,16 @@ jobs:
       - name: Build Windows NSIS installer
         run: npm run tauri:build
 
+      - name: Verify installer branding contract
+        run: node scripts/check-installer-branding.mjs
+
+      - name: Smoke test installed Windows package
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'Windows NSIS installer was not produced.' }
+          ./scripts/windows-installer-smoke.ps1 -Installer $installer.FullName
+
       - name: Verify packaged native OCR resources
         shell: pwsh
         run: |
@@ -107,7 +147,7 @@ jobs:
           if (-not $installer) { throw 'Windows NSIS installer was not produced.' }
           ./scripts/verify-native-ocr-package.ps1 -Installer $installer.FullName
 
-      - name: Smoke test packaged windows
+      - name: Smoke test release executable windows
         shell: pwsh
         run: ./scripts/windows-window-smoke.ps1
 

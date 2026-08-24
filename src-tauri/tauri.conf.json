@@ -7,7 +7,7 @@
     "frontendDist": "../dist",
     "devUrl": "http://127.0.0.1:1420/widget.html",
     "beforeDevCommand": "npm run web:dev -- --host 127.0.0.1 --port 1420",
-    "beforeBuildCommand": "npm run web:build"
+    "beforeBuildCommand": "node scripts/generate-installer-branding.mjs && npm run web:build"
   },
   "app": {
     "windows": [
@@ -111,6 +111,11 @@
     "windows": {
       "nsis": {
         "installMode": "currentUser",
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico",
+        "headerImage": "installer/header.bmp",
+        "uninstallerHeaderImage": "installer/header.bmp",
+        "sidebarImage": "installer/sidebar.bmp",
         "languages": [
           "SimpChinese"
         ]
