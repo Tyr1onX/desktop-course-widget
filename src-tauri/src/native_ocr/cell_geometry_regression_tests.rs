@@ -165,7 +165,7 @@ mod cell_geometry_regression_tests {
     }
 
     #[test]
-    fn real_b_sample_adjustment_split_distinct_rows_drop_only_the_subset_shadow() {
+    fn real_b_misread_containing_range_is_not_silently_suppressed() {
         let tokens = vec![
             token("现代管理科学基础", 660.0, 100.0, 150.0, 22.0),
             token("周四第8,9节第1-1周单周", 660.0, 128.0, 190.0, 22.0),
@@ -173,23 +173,21 @@ mod cell_geometry_regression_tests {
             token("教3-309", 660.0, 184.0, 90.0, 22.0),
             token("(调0006)", 660.0, 212.0, 82.0, 20.0),
             token("现代管理科学基础", 660.0, 250.0, 150.0, 22.0),
-            // This mirrors the failing candidate's parsed evidence: the second visual
-            // row is separate from the first row, yet OCR yields a containing range.
+            // If OCR really emits 1-17 for the second distinct visual row, keep the
+            // conflict visible for review. The parser must not erase the real week-1 row.
             token("周四第8,9节第1-17周", 660.0, 278.0, 190.0, 22.0),
             token("刘宁", 660.0, 306.0, 48.0, 22.0),
             token("教3-309", 660.0, 334.0, 90.0, 22.0),
             token("(调0006)", 660.0, 362.0, 82.0, 20.0),
         ];
         let parsed = courses(&tokens);
-        assert_eq!(parsed.len(), 1);
-        assert_eq!(parsed[0].name, "现代管理科学基础");
-        assert_eq!(parsed[0].teacher.as_deref(), Some("刘宁"));
-        assert_eq!(parsed[0].location.as_deref(), Some("教3-309"));
-        assert_eq!(parsed[0].weeks, (1..=17).collect::<Vec<_>>());
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0].weeks, vec![1]);
+        assert_eq!(parsed[1].weeks, (1..=17).collect::<Vec<_>>());
     }
 
     #[test]
-    fn real_b_sample_correct_disjoint_adjustment_split_is_not_collapsed() {
+    fn real_b_sample_preserves_one_and_three_through_seventeen_arrangements() {
         let tokens = vec![
             token("现代管理科学基础", 660.0, 100.0, 150.0, 22.0),
             token("周四第8,9节第1-1周单周", 660.0, 128.0, 190.0, 22.0),
@@ -202,14 +200,28 @@ mod cell_geometry_regression_tests {
             token("教3-309", 660.0, 334.0, 90.0, 22.0),
             token("(调0006)", 660.0, 362.0, 82.0, 20.0),
         ];
-        let parsed = courses(&tokens);
+
+        let anchors = structured_course_anchors(&tokens);
+        let target = anchors
+            .iter()
+            .filter(|anchor| {
+                anchor.weekday == 4 && anchor.start_section == 8 && anchor.end_section == 9
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(target.len(), 2);
+        assert_eq!(target[0].metadata_text, "周四第8,9节第1-1周单周");
+        assert_eq!(target[0].weeks, vec![1]);
+        assert_eq!(target[1].metadata_text, "周四第8,9节第3-17周");
+        assert_eq!(target[1].weeks, (3..=17).collect::<Vec<_>>());
+
+        let parsed = anchor_courses(&tokens, &anchors, &headers(), 1260, 760).0;
         assert_eq!(parsed.len(), 2);
         assert_eq!(parsed[0].weeks, vec![1]);
         assert_eq!(parsed[1].weeks, (3..=17).collect::<Vec<_>>());
     }
 
     #[test]
-    fn adjustment_id_never_overrides_different_teacher_or_location() {
+    fn same_adjustment_id_with_different_teacher_remains_distinct() {
         let tokens = vec![
             token("课程A", 660.0, 100.0, 120.0, 22.0),
             token("周四第8-9节1周", 660.0, 128.0, 160.0, 22.0),
@@ -219,7 +231,7 @@ mod cell_geometry_regression_tests {
             token("课程A", 660.0, 250.0, 120.0, 22.0),
             token("周四第8-9节1-17周", 660.0, 278.0, 180.0, 22.0),
             token("李四", 660.0, 306.0, 48.0, 22.0),
-            token("教3-302", 660.0, 334.0, 90.0, 22.0),
+            token("教3-301", 660.0, 334.0, 90.0, 22.0),
             token("(调0042)", 660.0, 362.0, 82.0, 20.0),
         ];
         let parsed = courses(&tokens);
@@ -227,6 +239,28 @@ mod cell_geometry_regression_tests {
         assert_eq!(parsed[0].teacher.as_deref(), Some("张三"));
         assert_eq!(parsed[0].location.as_deref(), Some("教3-301"));
         assert_eq!(parsed[1].teacher.as_deref(), Some("李四"));
+        assert_eq!(parsed[1].location.as_deref(), Some("教3-301"));
+    }
+
+    #[test]
+    fn same_adjustment_id_with_different_location_remains_distinct() {
+        let tokens = vec![
+            token("课程A", 660.0, 100.0, 120.0, 22.0),
+            token("周四第8-9节1周", 660.0, 128.0, 160.0, 22.0),
+            token("张三", 660.0, 156.0, 48.0, 22.0),
+            token("教3-301", 660.0, 184.0, 90.0, 22.0),
+            token("(调0042)", 660.0, 212.0, 82.0, 20.0),
+            token("课程A", 660.0, 250.0, 120.0, 22.0),
+            token("周四第8-9节1-17周", 660.0, 278.0, 180.0, 22.0),
+            token("张三", 660.0, 306.0, 48.0, 22.0),
+            token("教3-302", 660.0, 334.0, 90.0, 22.0),
+            token("(调0042)", 660.0, 362.0, 82.0, 20.0),
+        ];
+        let parsed = courses(&tokens);
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0].teacher.as_deref(), Some("张三"));
+        assert_eq!(parsed[0].location.as_deref(), Some("教3-301"));
+        assert_eq!(parsed[1].teacher.as_deref(), Some("张三"));
         assert_eq!(parsed[1].location.as_deref(), Some("教3-302"));
     }
 
