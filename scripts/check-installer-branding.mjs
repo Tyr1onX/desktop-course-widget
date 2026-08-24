@@ -8,11 +8,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const generator = join(root, 'scripts', 'generate-installer-branding.mjs')
 const installerDir = join(root, 'src-tauri', 'installer')
 const iconPath = join(root, 'src-tauri', 'icons', 'icon.png')
-
-const assets = [
-  { name: 'header.bmp', width: 150, height: 57 },
-  { name: 'sidebar.bmp', width: 164, height: 314 },
-]
+const sidebar = { name: 'sidebar.bmp', width: 164, height: 314 }
 
 function sha256(buffer) {
   return createHash('sha256').update(buffer).digest('hex')
@@ -20,14 +16,10 @@ function sha256(buffer) {
 
 function readBitmapContract(asset) {
   const path = join(installerDir, asset.name)
-  if (!existsSync(path)) {
-    throw new Error(`${asset.name} was not generated`)
-  }
+  if (!existsSync(path)) throw new Error(`${asset.name} was not generated`)
 
   const buffer = readFileSync(path)
-  if (buffer.length < 54) {
-    throw new Error(`${asset.name} is too small to contain a BMP header`)
-  }
+  if (buffer.length < 54) throw new Error(`${asset.name} is too small to contain a BMP header`)
 
   const magic = buffer.subarray(0, 2).toString('ascii')
   const dibHeaderSize = buffer.readUInt32LE(14)
@@ -45,15 +37,7 @@ function readBitmapContract(asset) {
   if (bitDepth !== 24) throw new Error(`${asset.name} bit depth is ${bitDepth}, expected 24`)
   if (compression !== 0) throw new Error(`${asset.name} compression is ${compression}, expected BI_RGB (0)`)
 
-  return {
-    name: asset.name,
-    width,
-    height,
-    bitDepth,
-    compression,
-    bytes: buffer.length,
-    sha256: sha256(buffer),
-  }
+  return { name: asset.name, width, height, bitDepth, compression, bytes: buffer.length, sha256: sha256(buffer) }
 }
 
 function readPngDimensions(path) {
@@ -62,15 +46,15 @@ function readPngDimensions(path) {
   if (buffer.length < 24 || !buffer.subarray(0, 8).equals(signature)) {
     throw new Error('installer logo source is not a PNG')
   }
-  return {
-    width: buffer.readUInt32BE(16),
-    height: buffer.readUInt32BE(20),
-  }
+  return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) }
 }
 
 function generateAndSnapshot() {
   execFileSync(process.execPath, [generator], { cwd: root, stdio: 'pipe' })
-  return assets.map(readBitmapContract)
+  if (existsSync(join(installerDir, 'header.bmp'))) {
+    throw new Error('retired installer header.bmp was regenerated')
+  }
+  return readBitmapContract(sidebar)
 }
 
 const generatorSource = readFileSync(generator, 'utf8')
@@ -78,11 +62,18 @@ if (!generatorSource.includes("src-tauri', 'icons', 'icon.png")) {
   throw new Error('installer branding generator no longer uses the real icon.png source')
 }
 if (!generatorSource.includes('compositeImageBilinear')) {
-  throw new Error('installer logo is no longer using the direct deterministic bilinear raster path')
+  throw new Error('installer logo is no longer using deterministic bilinear rasterization')
 }
-for (const forbidden of ['drawCurve(', '0.45,', 'status rows', 'const SCALE =']) {
+for (const forbidden of [
+  'drawTimetable',
+  'drawVerticalLine',
+  'drawHorizontalLine',
+  'fillRoundedRect',
+  'GRID',
+  'COURSE',
+]) {
   if (generatorSource.includes(forbidden)) {
-    throw new Error(`installer branding generator reintroduced rejected/soft visual path: ${forbidden}`)
+    throw new Error(`installer branding reintroduced retired illustrative geometry: ${forbidden}`)
   }
 }
 
@@ -91,35 +82,21 @@ if (icon.width < 128 || icon.height < 128) {
   throw new Error(`installer logo source is unexpectedly small: ${icon.width}x${icon.height}`)
 }
 
-const builtSnapshot = assets.every((asset) => existsSync(join(installerDir, asset.name)))
-  ? assets.map(readBitmapContract)
-  : null
+const builtSnapshot = existsSync(join(installerDir, sidebar.name)) ? readBitmapContract(sidebar) : null
 const first = generateAndSnapshot()
 const second = generateAndSnapshot()
 
-for (let index = 0; index < assets.length; index += 1) {
-  const before = first[index]
-  const after = second[index]
-  if (before.sha256 !== after.sha256) {
-    throw new Error(
-      `${before.name} is not deterministic: ${before.sha256} != ${after.sha256}`,
-    )
-  }
-
-  if (builtSnapshot && builtSnapshot[index].sha256 !== before.sha256) {
-    throw new Error(
-      `${before.name} left by the Tauri build is stale: ` +
-        `${builtSnapshot[index].sha256} != current generator ${before.sha256}`,
-    )
-  }
+if (first.sha256 !== second.sha256) {
+  throw new Error(`${sidebar.name} is not deterministic: ${first.sha256} != ${second.sha256}`)
+}
+if (builtSnapshot && builtSnapshot.sha256 !== first.sha256) {
+  throw new Error(
+    `${sidebar.name} left by the Tauri build is stale: ${builtSnapshot.sha256} != current generator ${first.sha256}`,
+  )
 }
 
 console.log(`real installer icon source: ${icon.width}x${icon.height}`)
-for (const asset of second) {
-  console.log(
-    `${asset.name}: ${asset.width}x${asset.height}, ${asset.bitDepth}-bit, BI_RGB, sha256=${asset.sha256}`,
-  )
-}
 console.log(
-  'installer visual asset contract passed; build assets match the current deterministic generator',
+  `${second.name}: ${second.width}x${second.height}, ${second.bitDepth}-bit, BI_RGB, sha256=${second.sha256}`,
 )
+console.log('minimal installer branding contract passed; no custom header asset is present')

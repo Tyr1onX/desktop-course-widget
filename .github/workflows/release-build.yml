@@ -145,13 +145,11 @@ jobs:
       - name: Verify installer branding contract
         run: node scripts/check-installer-branding.mjs
 
-      - name: Upload installer visual assets
+      - name: Upload installer visual asset
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
           name: desktop-course-widget-installer-visual-assets
-          path: |
-            src-tauri/installer/header.bmp
-            src-tauri/installer/sidebar.bmp
+          path: src-tauri/installer/sidebar.bmp
           if-no-files-found: error
           retention-days: 7
 

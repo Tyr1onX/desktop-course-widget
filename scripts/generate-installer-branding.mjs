@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { inflateSync } from 'node:zlib'
@@ -8,11 +8,7 @@ const outDir = join(root, 'src-tauri', 'installer')
 const iconPath = join(root, 'src-tauri', 'icons', 'icon.png')
 mkdirSync(outDir, { recursive: true })
 
-const BRAND_BLUE = [10, 117, 232]
-const COLD_WHITE = [249, 251, 253]
-const COOL_GRAY = [246, 249, 251]
-const GRID = [197, 211, 224]
-const PALE_BLUE = [219, 235, 249]
+const SIDEBAR_BACKGROUND = [247, 249, 252]
 
 function canvas(width, height, color) {
   const pixels = new Uint8Array(width * height * 3)
@@ -31,61 +27,6 @@ function blendPixel(image, x, y, color, alpha = 1) {
     image.pixels[index + channel] = Math.round(
       image.pixels[index + channel] * (1 - alpha) + color[channel] * alpha,
     )
-  }
-}
-
-function fillRoundedRect(image, x, y, width, height, radius, color, alpha = 1) {
-  const left = Math.floor(x)
-  const top = Math.floor(y)
-  const right = Math.ceil(x + width)
-  const bottom = Math.ceil(y + height)
-  const r = Math.max(0, Math.floor(radius))
-  const r2 = r * r
-
-  for (let py = top; py < bottom; py += 1) {
-    for (let px = left; px < right; px += 1) {
-      const localX = px - left
-      const localY = py - top
-      const maxX = right - left - 1
-      const maxY = bottom - top - 1
-      let dx = 0
-      let dy = 0
-
-      if (localX < r) dx = r - localX - 0.5
-      else if (localX > maxX - r) dx = localX - (maxX - r) - 0.5
-
-      if (localY < r) dy = r - localY - 0.5
-      else if (localY > maxY - r) dy = localY - (maxY - r) - 0.5
-
-      if (dx === 0 || dy === 0 || dx * dx + dy * dy <= r2) {
-        blendPixel(image, px, py, color, alpha)
-      }
-    }
-  }
-}
-
-function drawVerticalLine(image, x, y0, y1, color, alpha = 1) {
-  const px = Math.round(x)
-  const top = Math.max(0, Math.round(Math.min(y0, y1)))
-  const bottom = Math.min(image.height - 1, Math.round(Math.max(y0, y1)))
-  for (let y = top; y <= bottom; y += 1) blendPixel(image, px, y, color, alpha)
-}
-
-function drawHorizontalLine(image, y, x0, x1, color, alpha = 1) {
-  const py = Math.round(y)
-  const left = Math.max(0, Math.round(Math.min(x0, x1)))
-  const right = Math.min(image.width - 1, Math.round(Math.max(x0, x1)))
-  for (let x = left; x <= right; x += 1) blendPixel(image, x, py, color, alpha)
-}
-
-function drawTimetableFragment(image, left, top, cellWidth, cellHeight, columns, rows) {
-  const right = left + cellWidth * columns
-  const bottom = top + cellHeight * rows
-  for (let column = 0; column <= columns; column += 1) {
-    drawVerticalLine(image, left + cellWidth * column, top, bottom, GRID, 0.94)
-  }
-  for (let row = 0; row <= rows; row += 1) {
-    drawHorizontalLine(image, top + cellHeight * row, left, right, GRID, 0.94)
   }
 }
 
@@ -274,44 +215,22 @@ function bmp24(width, height, rgb) {
 
 const logo = decodePng(readFileSync(iconPath))
 
-function makeHeader() {
-  const width = 150
-  const height = 57
-  const image = canvas(width, height, COLD_WHITE)
-
-  compositeImageBilinear(image, logo, 11, 11, 34, 34)
-
-  // A cropped timetable fragment survives NSIS/DPI scaling better than many faint details.
-  drawTimetableFragment(image, 91, 7, 23, 15, 3, 3)
-  fillRoundedRect(image, 115, 24, 40, 11, 3, BRAND_BLUE, 0.88)
-
-  return bmp24(width, height, image.pixels)
-}
-
 function makeSidebar() {
   const width = 164
   const height = 314
-  const image = canvas(width, height, COOL_GRAY)
+  const image = canvas(width, height, SIDEBAR_BACKGROUND)
 
-  compositeImageBilinear(image, logo, 20, 22, 48, 48)
-
-  // The grid intentionally extends beyond the right edge: it reads as a product crop,
-  // not as a tiny complete diagram. Every line lands on a final integer pixel.
-  drawTimetableFragment(image, 50, 146, 42, 36, 3, 4)
-
-  // One clear primary arrangement and one secondary arrangement, aligned to grid cells.
-  fillRoundedRect(image, 53, 220, 36, 65, 5, BRAND_BLUE, 0.9)
-  fillRoundedRect(image, 95, 184, 36, 30, 5, PALE_BLUE)
+  // One real brand asset on a quiet field. No explanatory or timetable-like decoration.
+  compositeImageBilinear(image, logo, 50, 64, 64, 64)
 
   return bmp24(width, height, image.pixels)
 }
 
-const header = makeHeader()
 const sidebar = makeSidebar()
-writeFileSync(join(outDir, 'header.bmp'), header)
+rmSync(join(outDir, 'header.bmp'), { force: true })
 writeFileSync(join(outDir, 'sidebar.bmp'), sidebar)
 
 console.log(
-  `installer branding v3: source icon=${logo.width}x${logo.height}, direct bilinear logo raster, ` +
-    `header.bmp ${header.length} bytes, sidebar.bmp ${sidebar.length} bytes`,
+  `installer branding minimal: source icon=${logo.width}x${logo.height}, ` +
+    `sidebar.bmp ${sidebar.length} bytes; custom header image disabled`,
 )

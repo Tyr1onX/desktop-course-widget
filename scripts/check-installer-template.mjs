@@ -19,12 +19,16 @@ if (nsis.template !== 'installer/installer-v2.nsi') {
 for (const [field, expected] of [
   ['installerIcon', 'icons/icon.ico'],
   ['uninstallerIcon', 'icons/icon.ico'],
-  ['headerImage', 'installer/header.bmp'],
-  ['uninstallerHeaderImage', 'installer/header.bmp'],
   ['sidebarImage', 'installer/sidebar.bmp'],
 ]) {
   if (nsis[field] !== expected) {
     throw new Error(`NSIS ${field} changed: ${JSON.stringify(nsis[field])}`)
+  }
+}
+
+for (const field of ['headerImage', 'uninstallerHeaderImage']) {
+  if (field in nsis) {
+    throw new Error(`NSIS ${field} must stay unset for the native header layout`)
   }
 }
 
@@ -40,7 +44,7 @@ const requiredFragments = [
   '!insertmacro MUI_PAGE_FINISH',
   '!define MUI_FINISHPAGE_RUN',
   '!define MUI_FINISHPAGE_RUN_FUNCTION RunMainBinary',
-  '!define MUI_HEADERIMAGE_UNBITMAP "${UNINSTALLERHEADERIMAGE}"',
+  '!define MUI_WELCOMEFINISHPAGE_BITMAP "${SIDEBARIMAGE}"',
   '!define MUI_UNICON "${UNINSTALLERICON}"',
   'WriteUninstaller "$INSTDIR\\uninstall.exe"',
   'WriteRegStr SHCTX "${UNINSTKEY}" "UninstallString" "$\\"$INSTDIR\\uninstall.exe$\\""',
@@ -64,5 +68,5 @@ if (installPage < 0 || finishPage <= installPage) {
 }
 
 console.log(
-  'installer template contract passed: currentUser + Tauri uninstall registry + uninstaller branding bindings preserved; finish page auto-advance enabled',
+  'installer template contract passed: currentUser + native headers + installer sidebar + uninstaller icon + uninstall registry preserved; finish page auto-advance enabled',
 )
