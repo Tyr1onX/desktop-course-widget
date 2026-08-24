@@ -1,3 +1,144 @@
+fn expand_multiline_tokens(tokens: Vec<Token>) -> Vec<Token> {
+    let mut expanded = Vec::new();
+    for token in tokens {
+        let lines = merge_wrapped_schedule_lines(
+            token
+                .lines
+                .iter()
+                .map(|line| compact_text(line))
+                .filter(|line| !line.is_empty())
+                .collect::<Vec<_>>(),
+        );
+        if lines.len() <= 1 {
+            let mut token = token;
+            if let Some(line) = lines.first() {
+                token.text = line.clone();
+                token.parts = vec![line.clone()];
+                token.lines = vec![line.clone()];
+            }
+            expanded.push(token);
+            continue;
+        }
+
+        let line_height = (token.height / lines.len() as f32).max(1.0);
+        for (index, line) in lines.into_iter().enumerate() {
+            expanded.push(Token {
+                text: line.clone(),
+                parts: vec![line.clone()],
+                lines: vec![line],
+                confidence: token.confidence,
+                left: token.left,
+                top: token.top + line_height * index as f32,
+                width: token.width,
+                height: line_height,
+            });
+        }
+    }
+    expanded.sort_by(token_reading_order);
+    expanded
+}
+
+fn merge_wrapped_schedule_lines(lines: Vec<String>) -> Vec<String> {
+    let mut merged = Vec::<String>::new();
+    for line in lines {
+        let should_merge = merged
+            .last()
+            .is_some_and(|previous| should_merge_schedule_line(previous, &line));
+        if should_merge {
+            if let Some(previous) = merged.last_mut() {
+                previous.push_str(&line);
+            }
+        } else {
+            merged.push(line);
+        }
+    }
+    merged
+}
+
+fn should_merge_schedule_line(previous: &str, next: &str) -> bool {
+    let previous = compact_text(previous);
+    let next = compact_text(next);
+    if previous.is_empty()
+        || next.is_empty()
+        || weekday_from_schedule_text(&previous).is_none()
+    {
+        return false;
+    }
+
+    let previous_section = section_range_from_text(&previous);
+    let combined = format!("{previous}{next}");
+    let combined_section = section_range_from_text(&combined);
+
+    // A narrow visual wrap can split `第1节-第2节` exactly before the final `节`.
+    // Rejoin only when the next OCR line starts with that missing suffix and the
+    // combined text becomes a valid section range.
+    if previous_section.is_none()
+        && next.starts_with('节')
+        && combined_section.is_some()
+    {
+        return true;
+    }
+
+    // Some OCR boxes keep a complete schedule line and its location as two visual
+    // lines. They still belong to one OCR box, so a strongly validated location is
+    // safe to reattach without looking outside the card or guessing a room.
+    previous_section.is_some()
+        && (location_from_text(&next).is_some() || compact_location_from_text(&next).is_some())
+}
+
+fn is_footer_table_header(value: &str) -> bool {
+    let compact = compact_text(value);
+    let normalized = compact
+        .chars()
+        .filter(|character| {
+            !character.is_ascii_punctuation()
+                && !matches!(
+                    character,
+                    '，' | '。' | '：' | '；' | '、' | '（' | '）' | '【' | '】'
+                )
+        })
+        .collect::<String>();
+
+    matches!(
+        normalized.as_str(),
+        "调停课信息"
+            | "调停补课信息"
+            | "实践课信息"
+            | "实践课或无上课时间信息"
+            | "实习课信息"
+            | "实习时间"
+            | "先修模块"
+            | "未安排上课时间的课程"
+            | "原上课时间地点教师"
+            | "现上课时间地点教师"
+            | "申请时间"
+            | "课程名称"
+            | "教师姓名"
+            | "模块代码"
+            | "学分"
+            | "起止周"
+    ) || (normalized.contains('调')
+        && normalized.contains('停')
+        && normalized.contains("课信息"))
+        || (normalized.contains("实践课") && normalized.contains("信息"))
+        || (normalized.contains("实习课") && normalized.contains("信息"))
+        || normalized.contains("未安排上课时间")
+}
+
+fn token_is_course_boundary(token: &Token) -> bool {
+    token
+        .parts
+        .iter()
+        .chain(std::iter::once(&token.text))
+        .any(|value| {
+            is_location_text(value)
+                || compact_location_from_text(value).is_some()
+                || looks_like_schedule_metadata(value)
+                || section_range_from_text(value).is_some()
+                || weekday_from_schedule_text(value).is_some()
+        })
+}
+
 fn optional_field_evidence(
     field: ImportFieldKey,
     token: Option<&Token>,
@@ -184,24 +325,70 @@ fn is_time_text(value: &str) -> bool {
 }
 
 fn is_teacher_text(value: &str) -> bool {
-    value.contains("老师") || value.contains("教师") || value.ends_with("教授")
+    let compact = compact_text(value);
+    if matches!(compact.as_str(), "教师" | "老师" | "教师姓名") {
+        return true;
+    }
+    if Regex::new(r"^(?:教师|老师)[:：].{1,30}$")
+        .unwrap()
+        .is_match(&compact)
+    {
+        return true;
+    }
+    let count = compact.chars().count();
+    (2..=24).contains(&count)
+        && (compact.ends_with("老师") || compact.ends_with("教授"))
 }
 
 fn is_location_text(value: &str) -> bool {
-    [
-        "教学楼",
-        "教室",
-        "校区",
-        "楼",
-        "室",
-        "阶",
-        "馆",
-        "南湖",
-        "南岭",
-        "中心",
-    ]
-    .iter()
-    .any(|marker| value.contains(marker))
+    let compact = compact_text(value)
+        .trim_matches([':', '：', '，', ',', '。', '；', ';'])
+        .to_owned();
+    if compact.is_empty() {
+        return false;
+    }
+    if compact_location_from_text(&compact).is_some() {
+        return true;
+    }
+    if Regex::new(r"^(?:地点|上课地点)[:：].{1,40}$")
+        .unwrap()
+        .is_match(&compact)
+    {
+        return true;
+    }
+
+    if let Some((_, tail)) = compact.rsplit_once(['，', ',', '；', ';']) {
+        if !tail.is_empty() && is_location_text(tail) {
+            return true;
+        }
+    }
+
+    if Regex::new(r"^[A-Za-z]{1,3}[-]?\d{2,4}$")
+        .unwrap()
+        .is_match(&compact)
+    {
+        return true;
+    }
+
+    let explicit_building = Regex::new(
+        r"^[\u{4e00}-\u{9fff}A-Za-z0-9-]{0,18}(?:教学楼|实验楼|实训楼|逸夫楼|图书馆|体育馆|体育场|操场|教室)[A-Za-z0-9一二三四五六七八九十阶-]{0,12}$",
+    )
+    .unwrap();
+    if explicit_building.is_match(&compact) {
+        return true;
+    }
+
+    let building_room = Regex::new(
+        r"^[\u{4e00}-\u{9fff}A-Za-z0-9-]{1,16}(?:楼|馆)[A-Za-z]?\d{1,4}$",
+    )
+    .unwrap();
+    if building_room.is_match(&compact) {
+        return true;
+    }
+
+    Regex::new(r"^[\u{4e00}-\u{9fff}A-Za-z0-9-]{1,16}校区[\u{4e00}-\u{9fff}A-Za-z0-9-]{1,20}$")
+        .unwrap()
+        .is_match(&compact)
 }
 
 fn is_common_header(value: &str) -> bool {
@@ -218,6 +405,24 @@ fn is_common_header(value: &str) -> bool {
         "教学周",
         "课表",
         "学期",
+        "学分",
+        "起止周",
+        "上课时间",
+        "申请时间",
+        "编号",
+        "调停课信息",
+        "调、停（补）课信息",
+        "调停（补）课信息",
+        "实践课信息",
+        "实践课（或无上课时间）信息",
+        "实习课信息",
+        "实习时间",
+        "先修模块",
+        "未安排上课时间的课程",
+        "原上课时间地点教师",
+        "现上课时间地点教师",
+        "教师姓名",
+        "模块代码",
     ]
     .contains(&value)
 }

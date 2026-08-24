@@ -10,7 +10,8 @@ permissions:
   contents: read
 
 env:
-  COURSE_WIDGET_BUILD_VERSION: 0.5.0-beta.2
+  COURSE_WIDGET_BUILD_VERSION: "0.5.0-beta.3.${{ github.run_number }}.${{ github.run_attempt }}"
+  VITE_BUILD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
 concurrency:
   group: release-build-${{ github.workflow }}-${{ github.ref }}
@@ -68,7 +69,7 @@ jobs:
           ) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
           exit 0
 
-      - name: Prepare v0.5.0 beta candidate version
+      - name: Prepare unique v0.5.0 beta candidate version
         run: node scripts/set-build-version.mjs $env:COURSE_WIDGET_BUILD_VERSION
 
       - name: Select stable Rust
@@ -167,10 +168,36 @@ jobs:
             throw 'Build left untracked or modified files in the review branch.'
           }
 
+      - name: Record packaged build identity
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'Windows NSIS installer was not produced.' }
+          $sha256 = (Get-FileHash -Algorithm SHA256 $installer.FullName).Hash.ToLowerInvariant()
+          [ordered]@{
+            version = $env:COURSE_WIDGET_BUILD_VERSION
+            sourceHeadSha = $env:VITE_BUILD_SHA
+            workflowSha = $env:GITHUB_SHA
+            runId = $env:GITHUB_RUN_ID
+            runNumber = $env:GITHUB_RUN_NUMBER
+            runAttempt = $env:GITHUB_RUN_ATTEMPT
+            installer = $installer.Name
+            installerSha256 = $sha256
+          } | ConvertTo-Json | Set-Content -Encoding utf8 build-metadata.json
+          Get-Content build-metadata.json
+
       - name: Upload Windows installer
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
           name: desktop-course-widget-windows-release
           path: src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload packaged build identity
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: desktop-course-widget-build-metadata
+          path: build-metadata.json
           if-no-files-found: error
           retention-days: 7

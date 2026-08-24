@@ -1,0 +1,61 @@
+#[cfg(test)]
+mod generalization_regression_tests {
+    use super::*;
+
+    #[test]
+    fn dynamic_week_warning_matches_actual_fallback_range() {
+        let weeks = (1..=17).collect::<Vec<_>>();
+        assert_eq!(
+            fallback_week_warning("测试课程", &weeks),
+            "测试课程 的周次未完整识别，已暂按 1～17 周填写"
+        );
+    }
+
+    #[test]
+    fn compact_ascii_room_codes_are_strong_location_evidence() {
+        for value in ["A301", "F301"] {
+            assert!(is_location_text(value));
+            assert!(course_name_from_text(value).is_none());
+        }
+    }
+
+    #[test]
+    fn course_name_validity_does_not_depend_on_two_digit_codes() {
+        for value in [
+            "算法设计[3]",
+            "算法设计[003]",
+            "算法设计[A03]",
+            "算法设计[CS101]",
+        ] {
+            assert_eq!(course_name_from_text(value).as_deref(), Some(value));
+        }
+    }
+
+    #[test]
+    fn multiline_english_and_mixed_titles_keep_display_spacing() {
+        assert_eq!(
+            normalized_ascii_spacing("College English\nIII"),
+            Some(("CollegeEnglishIII".into(), "College English III".into()))
+        );
+        assert_eq!(
+            normalized_ascii_spacing("人工智能\nPython 应用"),
+            Some(("人工智能Python应用".into(), "人工智能 Python 应用".into()))
+        );
+    }
+
+    #[test]
+    fn sports_venue_prefix_requires_strong_location_suffix() {
+        for name in ["体育馆建筑设计", "体育馆运营管理", "体育馆结构设计"] {
+            assert_eq!(course_name_from_text(name).as_deref(), Some(name));
+        }
+
+        for (value, expected) in [
+            ("体育馆A课程甲", "课程甲"),
+            ("体育馆2课程乙", "课程乙"),
+            ("体育馆-2课程丙", "课程丙"),
+            ("体育馆101课程丁", "课程丁"),
+        ] {
+            assert_eq!(strip_traditional_grid_prefix(value), expected);
+        }
+    }
+}
