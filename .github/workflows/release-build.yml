@@ -153,6 +153,23 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Capture installer review screenshots
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'Windows NSIS installer was not produced.' }
+          ./scripts/capture-installer-review.ps1 `
+            -Installer $installer.FullName `
+            -OutputDir (Join-Path $env:RUNNER_TEMP 'installer-review')
+
+      - name: Upload installer review screenshots
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: desktop-course-widget-installer-review
+          path: ${{ runner.temp }}/installer-review/*.png
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Smoke test installed Windows package
         shell: pwsh
         run: |
