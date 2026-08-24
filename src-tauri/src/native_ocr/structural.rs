@@ -560,7 +560,8 @@ fn structured_course_anchors(tokens: &[Token]) -> Vec<CourseAnchor> {
 
 fn structured_schedule_text_for_anchor(tokens: &[Token], token_index: usize) -> String {
     let anchor = &tokens[token_index];
-    if !parse_weeks_segmented(&anchor.text).2 {
+    let has_truncated_week_tail = truncated_week_range_after_section(&anchor.text).is_some();
+    if !parse_weeks_segmented(&anchor.text).2 && !has_truncated_week_tail {
         return anchor.text.clone();
     }
 
@@ -591,6 +592,28 @@ fn structured_schedule_text_for_anchor(tokens: &[Token], token_index: usize) -> 
         }
     }
     combined
+}
+
+fn truncated_week_range_after_section(text: &str) -> Option<(u8, u8)> {
+    let compact = compact_text(text);
+    section_range_from_text(&compact)?;
+
+    let section_end = compact.rfind('节')? + '节'.len_utf8();
+    let tail = compact[section_end..].trim_matches(|character: char| {
+        matches!(
+            character,
+            '(' | ')' | '（' | '）' | '{' | '}' | '[' | ']' | '【' | '】' | ',' | '，' | ';' | '；' | ':' | '：'
+        )
+    });
+    if tail.is_empty() || tail.contains('周') {
+        return None;
+    }
+
+    let pattern = Regex::new(r"^第?(\d{1,2})(?:[-—~－–‑]+|至|到)(\d{1,2})$").unwrap();
+    let captures = pattern.captures(tail)?;
+    let start = captures.get(1)?.as_str().parse::<u8>().ok()?;
+    let end = captures.get(2)?.as_str().parse::<u8>().ok()?;
+    (start > 0 && end >= start && end <= 30).then_some((start, end))
 }
 
 fn parse_weeks_segmented(text: &str) -> (Vec<u8>, String, bool) {
@@ -725,6 +748,13 @@ fn parse_weeks_segmented(text: &str) -> (Vec<u8>, String, bool) {
         occupied.push(span);
     }
 
+    if weeks.is_empty() {
+        if let Some((start, end)) = truncated_week_range_after_section(&compact) {
+            add_weeks(&mut weeks, start..=end, SegmentParity::All);
+            saw_all = true;
+        }
+    }
+
     let used_default = weeks.is_empty();
     if used_default {
         return ((1..=DEFAULT_LAST_WEEK).collect(), "all".into(), true);
@@ -768,8 +798,8 @@ mod structural_generalization_tests {
         let second = working_dimensions(1440, 6000);
         assert!(first.0 >= 800, "1080x4000 became {first:?}");
         assert!(second.0 >= 800, "1440x6000 became {second:?}");
-        assert!(first.0 as u64 * first.1 as u64 <= TALL_SOFT_MAX_PIXELS);
-        assert!(second.0 as u64 * second.1 as u64 <= TALL_SOFT_MAX_PIXELS);
+        assert!(first.0 as u64 * first.1 as u64 <= TALL_SOFT_MAX_WORKING_PIXELS);
+        assert!(second.0 as u64 * second.1 as u64 <= TALL_SOFT_MAX_WORKING_PIXELS);
         assert_eq!(detector_max_side_for_dimensions(1080, 4000), 1280);
         assert_eq!(detector_max_side_for_dimensions(1440, 6000), 1280);
         assert_eq!(detector_max_side_for_dimensions(1600, 1000), 960);
@@ -810,6 +840,94 @@ mod structural_generalization_tests {
             vec![1, 3, 5, 7, 10, 12, 14, 16]
         );
         assert_eq!(parse_weeks_segmented("1,3,5,7周").0, vec![1, 3, 5, 7]);
+    }
+
+    #[test]
+    fn truncated_week_range_is_recovered_only_after_sections() {
+        let (weeks, parity, used_default) = parse_weeks_segmented("周四第8.9节(第3-17");
+        assert_eq!(weeks, (3..=17).collect::<Vec<_>>());
+        assert_eq!(parity, "all");
+        assert!(!used_default);
+
+        let (weeks, parity, used_default) = parse_weeks_segmented("周四第8,9节第3-17周");
+        assert_eq!(weeks, (3..=17).collect::<Vec<_>>());
+        assert_eq!(parity, "all");
+        assert!(!used_default);
+
+        let (weeks, parity, used_default) = parse_weeks_segmented("周四第8-9节");
+        assert_eq!(weeks, (1..=DEFAULT_LAST_WEEK).collect::<Vec<_>>());
+        assert_eq!(parity, "all");
+        assert!(used_default);
+
+        let (weeks, parity, used_default) = parse_weeks_segmented("周一第6,7节第5-5");
+        assert_eq!(weeks, vec![5]);
+        assert_eq!(parity, "all");
+        assert!(!used_default);
+
+        let (weeks, parity, used_default) = parse_weeks_segmented("周二第8,9节第1-17周单周");
+        assert_eq!(weeks, vec![1, 3, 5, 7, 9, 11, 13, 15, 17]);
+        assert_eq!(parity, "odd");
+        assert!(!used_default);
+    }
+
+    #[test]
+    fn truncated_week_tail_still_accepts_a_parity_continuation() {
+        let tokens = vec![
+            token("周四第8,9节{第1-1", 660.0, 128.0, 190.0, 22.0),
+            token("周单周)", 660.0, 154.0, 90.0, 22.0),
+        ];
+        let metadata = structured_schedule_text_for_anchor(&tokens, 0);
+        assert_eq!(metadata, "周四第8,9节{第1-1周单周)");
+        let (weeks, parity, used_default) = parse_weeks_segmented(&metadata);
+        assert_eq!(weeks, vec![1]);
+        assert_eq!(parity, "odd");
+        assert!(!used_default);
+    }
+
+    #[test]
+    fn real_b_truncated_week_tail_keeps_two_disjoint_arrangements() {
+        let tokens = vec![
+            token("课程A", 660.0, 100.0, 120.0, 22.0),
+            token("周四第8,9节{第1-1", 660.0, 128.0, 190.0, 22.0),
+            token("周单周)", 660.0, 154.0, 90.0, 22.0),
+            token("教师甲", 660.0, 180.0, 70.0, 22.0),
+            token("教3-301", 660.0, 206.0, 90.0, 22.0),
+            token("(调0042)", 660.0, 232.0, 82.0, 20.0),
+            token("课程A", 660.0, 270.0, 120.0, 22.0),
+            token("周四第8.9节(第3-17", 660.0, 298.0, 190.0, 22.0),
+            token("教师甲", 660.0, 326.0, 70.0, 22.0),
+            token("教3-301", 660.0, 352.0, 90.0, 22.0),
+            token("(调0042)", 660.0, 378.0, 82.0, 20.0),
+        ];
+
+        let anchors = structured_course_anchors(&tokens);
+        let target = anchors
+            .iter()
+            .filter(|anchor| {
+                anchor.weekday == 4 && anchor.start_section == 8 && anchor.end_section == 9
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(target.len(), 2);
+        assert_eq!(target[0].weeks, vec![1]);
+        assert_eq!(target[0].parity, "odd");
+        assert_eq!(target[1].metadata_text, "周四第8.9节(第3-17");
+        assert_eq!(target[1].weeks, (3..=17).collect::<Vec<_>>());
+        assert_eq!(target[1].parity, "all");
+        assert!(!target[1].used_default_weeks);
+
+        let headers = (1..=6)
+            .map(|weekday| WeekdayHeader {
+                weekday,
+                center_x: 180.0 + (weekday as f32 - 1.0) * 180.0,
+                bottom: 80.0,
+            })
+            .collect::<Vec<_>>();
+        let parsed = anchor_courses(&tokens, &anchors, &headers, 1260, 760).0;
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0].weeks, vec![1]);
+        assert_eq!(parsed[0].parity, "odd");
+        assert_eq!(parsed[1].weeks, (3..=17).collect::<Vec<_>>());
+        assert_eq!(parsed[1].parity, "all");
     }
 
     #[test]
