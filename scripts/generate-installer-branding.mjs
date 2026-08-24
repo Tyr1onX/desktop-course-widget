@@ -8,29 +8,23 @@ const outDir = join(root, 'src-tauri', 'installer')
 const iconPath = join(root, 'src-tauri', 'icons', 'icon.png')
 mkdirSync(outDir, { recursive: true })
 
-const SCALE = 4
 const BRAND_BLUE = [10, 117, 232]
-const COLD_WHITE = [248, 250, 252]
-const COOL_GRAY = [243, 246, 249]
-const GRID = [214, 224, 234]
-const PALE_BLUE = [225, 239, 252]
-const PALE_BLUE_GRAY = [230, 237, 245]
+const COLD_WHITE = [249, 251, 253]
+const COOL_GRAY = [246, 249, 251]
+const GRID = [197, 211, 224]
+const PALE_BLUE = [219, 235, 249]
 
-function solidCanvas(width, height, color) {
-  const w = width * SCALE
-  const h = height * SCALE
-  const pixels = new Uint8Array(w * h * 3)
+function canvas(width, height, color) {
+  const pixels = new Uint8Array(width * height * 3)
   for (let index = 0; index < pixels.length; index += 3) {
     pixels[index] = color[0]
     pixels[index + 1] = color[1]
     pixels[index + 2] = color[2]
   }
-  return { width: w, height: h, pixels }
+  return { width, height, pixels }
 }
 
 function blendPixel(image, x, y, color, alpha = 1) {
-  x = Math.round(x)
-  y = Math.round(y)
   if (x < 0 || y < 0 || x >= image.width || y >= image.height) return
   const index = (y * image.width + x) * 3
   for (let channel = 0; channel < 3; channel += 1) {
@@ -40,51 +34,58 @@ function blendPixel(image, x, y, color, alpha = 1) {
   }
 }
 
-function fillRect(image, x0, y0, x1, y1, color, alpha = 1) {
-  x0 = Math.round(x0 * SCALE)
-  y0 = Math.round(y0 * SCALE)
-  x1 = Math.round(x1 * SCALE)
-  y1 = Math.round(y1 * SCALE)
-  for (let y = y0; y < y1; y += 1) {
-    for (let x = x0; x < x1; x += 1) blendPixel(image, x, y, color, alpha)
-  }
-}
+function fillRoundedRect(image, x, y, width, height, radius, color, alpha = 1) {
+  const left = Math.floor(x)
+  const top = Math.floor(y)
+  const right = Math.ceil(x + width)
+  const bottom = Math.ceil(y + height)
+  const r = Math.max(0, Math.floor(radius))
+  const r2 = r * r
 
-function fillCircle(image, cx, cy, radius, color, alpha = 1) {
-  cx *= SCALE
-  cy *= SCALE
-  radius *= SCALE
-  const minX = Math.floor(cx - radius)
-  const maxX = Math.ceil(cx + radius)
-  const minY = Math.floor(cy - radius)
-  const maxY = Math.ceil(cy + radius)
-  const radiusSquared = radius * radius
+  for (let py = top; py < bottom; py += 1) {
+    for (let px = left; px < right; px += 1) {
+      const localX = px - left
+      const localY = py - top
+      const maxX = right - left - 1
+      const maxY = bottom - top - 1
+      let dx = 0
+      let dy = 0
 
-  for (let y = minY; y <= maxY; y += 1) {
-    for (let x = minX; x <= maxX; x += 1) {
-      const dx = x - cx
-      const dy = y - cy
-      if (dx * dx + dy * dy <= radiusSquared) blendPixel(image, x, y, color, alpha)
+      if (localX < r) dx = r - localX - 0.5
+      else if (localX > maxX - r) dx = localX - (maxX - r) - 0.5
+
+      if (localY < r) dy = r - localY - 0.5
+      else if (localY > maxY - r) dy = localY - (maxY - r) - 0.5
+
+      if (dx === 0 || dy === 0 || dx * dx + dy * dy <= r2) {
+        blendPixel(image, px, py, color, alpha)
+      }
     }
   }
 }
 
-function fillRoundedRect(image, x0, y0, x1, y1, radius, color, alpha = 1) {
-  fillRect(image, x0 + radius, y0, x1 - radius, y1, color, alpha)
-  fillRect(image, x0, y0 + radius, x1, y1 - radius, color, alpha)
-  fillCircle(image, x0 + radius, y0 + radius, radius, color, alpha)
-  fillCircle(image, x1 - radius, y0 + radius, radius, color, alpha)
-  fillCircle(image, x0 + radius, y1 - radius, radius, color, alpha)
-  fillCircle(image, x1 - radius, y1 - radius, radius, color, alpha)
+function drawVerticalLine(image, x, y0, y1, color, alpha = 1) {
+  const px = Math.round(x)
+  const top = Math.max(0, Math.round(Math.min(y0, y1)))
+  const bottom = Math.min(image.height - 1, Math.round(Math.max(y0, y1)))
+  for (let y = top; y <= bottom; y += 1) blendPixel(image, px, y, color, alpha)
 }
 
-function drawLine(image, x0, y0, x1, y1, width, color, alpha = 1) {
-  const dx = x1 - x0
-  const dy = y1 - y0
-  const steps = Math.max(1, Math.ceil(Math.hypot(dx, dy) * SCALE))
-  for (let index = 0; index <= steps; index += 1) {
-    const t = index / steps
-    fillCircle(image, x0 + dx * t, y0 + dy * t, width / 2, color, alpha)
+function drawHorizontalLine(image, y, x0, x1, color, alpha = 1) {
+  const py = Math.round(y)
+  const left = Math.max(0, Math.round(Math.min(x0, x1)))
+  const right = Math.min(image.width - 1, Math.round(Math.max(x0, x1)))
+  for (let x = left; x <= right; x += 1) blendPixel(image, x, py, color, alpha)
+}
+
+function drawTimetableFragment(image, left, top, cellWidth, cellHeight, columns, rows) {
+  const right = left + cellWidth * columns
+  const bottom = top + cellHeight * rows
+  for (let column = 0; column <= columns; column += 1) {
+    drawVerticalLine(image, left + cellWidth * column, top, bottom, GRID, 0.94)
+  }
+  for (let row = 0; row <= rows; row += 1) {
+    drawHorizontalLine(image, top + cellHeight * row, left, right, GRID, 0.94)
   }
 }
 
@@ -193,59 +194,49 @@ function decodePng(buffer) {
   return { width, height, rgba }
 }
 
-function compositeImage(image, source, x, y, width, height) {
-  const targetLeft = Math.round(x * SCALE)
-  const targetTop = Math.round(y * SCALE)
-  const targetWidth = Math.round(width * SCALE)
-  const targetHeight = Math.round(height * SCALE)
+function samplePremultipliedBilinear(source, sx, sy) {
+  const x0 = Math.max(0, Math.min(source.width - 1, Math.floor(sx)))
+  const y0 = Math.max(0, Math.min(source.height - 1, Math.floor(sy)))
+  const x1 = Math.max(0, Math.min(source.width - 1, x0 + 1))
+  const y1 = Math.max(0, Math.min(source.height - 1, y0 + 1))
+  const fx = Math.max(0, Math.min(1, sx - x0))
+  const fy = Math.max(0, Math.min(1, sy - y0))
+  const samples = [
+    [x0, y0, (1 - fx) * (1 - fy)],
+    [x1, y0, fx * (1 - fy)],
+    [x0, y1, (1 - fx) * fy],
+    [x1, y1, fx * fy],
+  ]
 
-  for (let targetY = 0; targetY < targetHeight; targetY += 1) {
-    const sourceY = Math.min(
-      source.height - 1,
-      Math.floor(((targetY + 0.5) / targetHeight) * source.height),
-    )
-    for (let targetX = 0; targetX < targetWidth; targetX += 1) {
-      const sourceX = Math.min(
-        source.width - 1,
-        Math.floor(((targetX + 0.5) / targetWidth) * source.width),
-      )
-      const sourceIndex = (sourceY * source.width + sourceX) * 4
-      const alpha = source.rgba[sourceIndex + 3] / 255
-      if (alpha === 0) continue
-      blendPixel(
-        image,
-        targetLeft + targetX,
-        targetTop + targetY,
-        [source.rgba[sourceIndex], source.rgba[sourceIndex + 1], source.rgba[sourceIndex + 2]],
-        alpha,
-      )
-    }
+  let alpha = 0
+  const premultiplied = [0, 0, 0]
+  for (const [x, y, weight] of samples) {
+    const index = (y * source.width + x) * 4
+    const sampleAlpha = source.rgba[index + 3] / 255
+    const weightedAlpha = sampleAlpha * weight
+    alpha += weightedAlpha
+    premultiplied[0] += source.rgba[index] * weightedAlpha
+    premultiplied[1] += source.rgba[index + 1] * weightedAlpha
+    premultiplied[2] += source.rgba[index + 2] * weightedAlpha
+  }
+
+  if (alpha <= 0) return { color: [0, 0, 0], alpha: 0 }
+  return {
+    color: premultiplied.map((value) => Math.round(value / alpha)),
+    alpha,
   }
 }
 
-function downsample(image, width, height) {
-  const output = new Uint8Array(width * height * 3)
-  const samples = SCALE * SCALE
-
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const sum = [0, 0, 0]
-      for (let sy = 0; sy < SCALE; sy += 1) {
-        for (let sx = 0; sx < SCALE; sx += 1) {
-          const index = (((y * SCALE + sy) * image.width) + (x * SCALE + sx)) * 3
-          sum[0] += image.pixels[index]
-          sum[1] += image.pixels[index + 1]
-          sum[2] += image.pixels[index + 2]
-        }
-      }
-      const outputIndex = (y * width + x) * 3
-      output[outputIndex] = Math.round(sum[0] / samples)
-      output[outputIndex + 1] = Math.round(sum[1] / samples)
-      output[outputIndex + 2] = Math.round(sum[2] / samples)
+function compositeImageBilinear(image, source, x, y, width, height) {
+  for (let targetY = 0; targetY < height; targetY += 1) {
+    const sourceY = ((targetY + 0.5) * source.height) / height - 0.5
+    for (let targetX = 0; targetX < width; targetX += 1) {
+      const sourceX = ((targetX + 0.5) * source.width) / width - 0.5
+      const sample = samplePremultipliedBilinear(source, sourceX, sourceY)
+      if (sample.alpha === 0) continue
+      blendPixel(image, x + targetX, y + targetY, sample.color, sample.alpha)
     }
   }
-
-  return output
 }
 
 function bmp24(width, height, rgb) {
@@ -281,46 +272,38 @@ function bmp24(width, height, rgb) {
   return buffer
 }
 
-function drawTimetableGrid(image, left, top, right, bottom, columns, rows) {
-  for (let index = 0; index <= columns; index += 1) {
-    const x = left + ((right - left) * index) / columns
-    drawLine(image, x, top, x, bottom, 0.45, GRID, 0.78)
-  }
-  for (let index = 0; index <= rows; index += 1) {
-    const y = top + ((bottom - top) * index) / rows
-    drawLine(image, left, y, right, y, 0.45, GRID, 0.78)
-  }
-}
-
 const logo = decodePng(readFileSync(iconPath))
 
 function makeHeader() {
   const width = 150
   const height = 57
-  const image = solidCanvas(width, height, COLD_WHITE)
+  const image = canvas(width, height, COLD_WHITE)
 
-  compositeImage(image, logo, 10, 10, 36, 36)
-  drawTimetableGrid(image, 82, 9, 146, 49, 4, 4)
-  fillRoundedRect(image, 86, 15, 101, 25, 2.5, PALE_BLUE)
-  fillRoundedRect(image, 114, 31, 139, 41, 2.5, PALE_BLUE_GRAY)
+  compositeImageBilinear(image, logo, 11, 11, 34, 34)
 
-  return bmp24(width, height, downsample(image, width, height))
+  // A cropped timetable fragment survives NSIS/DPI scaling better than many faint details.
+  drawTimetableFragment(image, 91, 7, 23, 15, 3, 3)
+  fillRoundedRect(image, 115, 24, 40, 11, 3, BRAND_BLUE, 0.88)
+
+  return bmp24(width, height, image.pixels)
 }
 
 function makeSidebar() {
   const width = 164
   const height = 314
-  const image = solidCanvas(width, height, COOL_GRAY)
+  const image = canvas(width, height, COOL_GRAY)
 
-  compositeImage(image, logo, 22, 24, 46, 46)
+  compositeImageBilinear(image, logo, 20, 22, 48, 48)
 
-  // The sidebar itself is the canvas: one quiet timetable fragment, no nested card.
-  drawTimetableGrid(image, 22, 140, 146, 278, 4, 6)
-  fillRoundedRect(image, 53, 158, 82, 178, 3.5, PALE_BLUE)
-  fillRoundedRect(image, 84, 204, 116, 225, 3.5, PALE_BLUE_GRAY)
-  fillRoundedRect(image, 25, 231, 50, 252, 3.5, BRAND_BLUE, 0.82)
+  // The grid intentionally extends beyond the right edge: it reads as a product crop,
+  // not as a tiny complete diagram. Every line lands on a final integer pixel.
+  drawTimetableFragment(image, 50, 146, 42, 36, 3, 4)
 
-  return bmp24(width, height, downsample(image, width, height))
+  // One clear primary arrangement and one secondary arrangement, aligned to grid cells.
+  fillRoundedRect(image, 53, 220, 36, 65, 5, BRAND_BLUE, 0.9)
+  fillRoundedRect(image, 95, 184, 36, 30, 5, PALE_BLUE)
+
+  return bmp24(width, height, image.pixels)
 }
 
 const header = makeHeader()
@@ -329,5 +312,6 @@ writeFileSync(join(outDir, 'header.bmp'), header)
 writeFileSync(join(outDir, 'sidebar.bmp'), sidebar)
 
 console.log(
-  `installer branding v2: real icon=${logo.width}x${logo.height}, header.bmp ${header.length} bytes, sidebar.bmp ${sidebar.length} bytes`,
+  `installer branding v3: source icon=${logo.width}x${logo.height}, direct bilinear logo raster, ` +
+    `header.bmp ${header.length} bytes, sidebar.bmp ${sidebar.length} bytes`,
 )
