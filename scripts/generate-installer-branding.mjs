@@ -220,8 +220,8 @@ function makeSidebar() {
   const height = 314
   const image = canvas(width, height, SIDEBAR_BACKGROUND)
 
-  // One real brand asset on a quiet field. No explanatory or timetable-like decoration.
-  compositeImageBilinear(image, logo, 50, 64, 64, 64)
+  // Keep the same quiet composition; only give the real brand mark enough pixels to stay legible after NSIS/DPI scaling.
+  compositeImageBilinear(image, logo, 40, 54, 84, 84)
 
   return bmp24(width, height, image.pixels)
 }
