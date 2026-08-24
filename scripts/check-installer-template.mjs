@@ -40,6 +40,8 @@ const requiredFragments = [
   '!insertmacro MUI_PAGE_FINISH',
   '!define MUI_FINISHPAGE_RUN',
   '!define MUI_FINISHPAGE_RUN_FUNCTION RunMainBinary',
+  '!define MUI_HEADERIMAGE_UNBITMAP "${UNINSTALLERHEADERIMAGE}"',
+  '!define MUI_UNICON "${UNINSTALLERICON}"',
   'WriteUninstaller "$INSTDIR\\uninstall.exe"',
   'WriteRegStr SHCTX "${UNINSTKEY}" "UninstallString" "$\\"$INSTDIR\\uninstall.exe$\\""',
   'DeleteRegKey HKCU "${UNINSTKEY}"',
@@ -62,5 +64,5 @@ if (installPage < 0 || finishPage <= installPage) {
 }
 
 console.log(
-  'installer template contract passed: currentUser + Tauri uninstall registry preserved; finish page auto-advance enabled',
+  'installer template contract passed: currentUser + Tauri uninstall registry + uninstaller branding bindings preserved; finish page auto-advance enabled',
 )
