@@ -27,6 +27,9 @@ public static class InstallerReviewNative {
   public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
 
   [DllImport("user32.dll")]
+  public static extern bool IsWindowVisible(IntPtr hWnd);
+
+  [DllImport("user32.dll")]
   public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint flags);
 
   [DllImport("user32.dll")]
@@ -50,6 +53,7 @@ Get-ChildItem -LiteralPath $OutputDir -Filter '*.png' -File -ErrorAction Silentl
 $productName = '课刻'
 $installRoot = Join-Path $env:LOCALAPPDATA $productName
 $uninstallerPath = Join-Path $installRoot 'uninstall.exe'
+$reviewUninstaller = $null
 
 function Wait-MainWindow([Diagnostics.Process]$Process, [int]$Seconds = 20) {
   $deadline = (Get-Date).AddSeconds($Seconds)
@@ -81,6 +85,70 @@ function Get-WindowText([IntPtr]$Handle) {
     catch {}
   }
   return ($names -join "`n")
+}
+
+function Get-TopLevelWindowHandles {
+  $handles = @{}
+  $root = [System.Windows.Automation.AutomationElement]::RootElement
+  $windows = $root.FindAll(
+    [System.Windows.Automation.TreeScope]::Children,
+    [System.Windows.Automation.Condition]::TrueCondition
+  )
+  foreach ($window in $windows) {
+    try {
+      $handle = [IntPtr][long]$window.Current.NativeWindowHandle
+      if ($handle -ne [IntPtr]::Zero) {
+        $handles[$handle.ToInt64()] = $true
+      }
+    }
+    catch {}
+  }
+  return $handles
+}
+
+function Wait-NewUninstallerWindow([hashtable]$BaselineHandles, [datetime]$StartedAt, [int]$Seconds = 20) {
+  $deadline = (Get-Date).AddSeconds($Seconds)
+  do {
+    $root = [System.Windows.Automation.AutomationElement]::RootElement
+    $windows = $root.FindAll(
+      [System.Windows.Automation.TreeScope]::Children,
+      [System.Windows.Automation.Condition]::TrueCondition
+    )
+    foreach ($window in $windows) {
+      try {
+        $handle = [IntPtr][long]$window.Current.NativeWindowHandle
+        if ($handle -eq [IntPtr]::Zero -or $BaselineHandles.ContainsKey($handle.ToInt64())) { continue }
+        if (-not [InstallerReviewNative]::IsWindowVisible($handle)) { continue }
+
+        $title = [string]$window.Current.Name
+        if ($title -notmatch [regex]::Escape($productName)) { continue }
+
+        $rect = New-Object InstallerReviewNative+RECT
+        if (-not [InstallerReviewNative]::GetWindowRect($handle, [ref]$rect)) { continue }
+        $width = $rect.Right - $rect.Left
+        $height = $rect.Bottom - $rect.Top
+        if ($width -lt 300 -or $width -gt 900 -or $height -lt 200 -or $height -gt 700) { continue }
+
+        $text = Get-WindowText $handle
+        if ($text -notmatch '卸载|Uninstall') { continue }
+
+        $processId = [int]$window.Current.ProcessId
+        if ($processId -le 0) { continue }
+        $process = Get-Process -Id $processId -ErrorAction Stop
+        if ($process.StartTime -lt $StartedAt.AddSeconds(-1)) { continue }
+
+        return [pscustomobject]@{
+          Process = $process
+          Handle = $handle
+          Title = $title
+          Text = $text
+        }
+      }
+      catch {}
+    }
+    Start-Sleep -Milliseconds 200
+  } while ((Get-Date) -lt $deadline)
+  throw "Timed out waiting for the candidate uninstaller window after NSIS process handoff."
 }
 
 function Wait-WindowText([Diagnostics.Process]$Process, [string]$Pattern, [int]$Seconds = 20) {
@@ -185,12 +253,19 @@ try {
   Capture-Window $maintenance '02-existing-install'
   Stop-Interactive $maintenance
 
-  # 3. The newly installed candidate's own uninstaller page.
-  $uninstaller = Start-Process -FilePath $uninstallerPath -PassThru
-  [void](Wait-WindowText $uninstaller '卸载|Uninstall' 20)
+  # 3. The newly installed candidate's own uninstaller page. NSIS may hand the UI off
+  # to a temporary process, so identify the new top-level uninstall window instead of
+  # assuming the bootstrap uninstall.exe process keeps the window.
+  $baselineWindows = Get-TopLevelWindowHandles
+  $uninstallerStartedAt = Get-Date
+  $uninstallerBootstrap = Start-Process -FilePath $uninstallerPath -PassThru
+  $uninstallerWindow = Wait-NewUninstallerWindow $baselineWindows $uninstallerStartedAt 20
+  $reviewUninstaller = $uninstallerWindow.Process
+  Write-Host "candidate uninstaller window: bootstrapPid=$($uninstallerBootstrap.Id) uiPid=$($reviewUninstaller.Id) title='$($uninstallerWindow.Title)'"
   Start-Sleep -Milliseconds 500
-  Capture-Window $uninstaller '03-uninstall'
-  Stop-Interactive $uninstaller
+  Capture-Window $reviewUninstaller '03-uninstall'
+  Stop-Interactive $reviewUninstaller
+  $reviewUninstaller = $null
 
   # Return to a fresh state, then walk the normal interactive flow to the real Finish page.
   Remove-InstalledCandidate
@@ -223,6 +298,7 @@ try {
   Write-Host "installer review capture passed: $($screenshots.Name -join ', ')"
 }
 finally {
+  Stop-Interactive $reviewUninstaller
   foreach ($name in @('课刻', 'desktop-course-widget')) {
     Get-Process -Name $name -ErrorAction SilentlyContinue |
       Stop-Process -Force -ErrorAction SilentlyContinue
