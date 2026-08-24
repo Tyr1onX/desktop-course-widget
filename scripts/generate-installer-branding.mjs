@@ -1,30 +1,29 @@
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { inflateSync } from 'node:zlib'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const outDir = join(root, 'src-tauri', 'installer')
+const iconPath = join(root, 'src-tauri', 'icons', 'icon.png')
 mkdirSync(outDir, { recursive: true })
 
 const SCALE = 4
-const BLUE = [10, 117, 232]
-const WHITE = [249, 252, 255]
-const PALE = [229, 242, 255]
-const GRID = [207, 227, 247]
+const BRAND_BLUE = [10, 117, 232]
+const COLD_WHITE = [248, 250, 252]
+const COOL_GRAY = [243, 246, 249]
+const GRID = [214, 224, 234]
+const PALE_BLUE = [225, 239, 252]
+const PALE_BLUE_GRAY = [230, 237, 245]
 
-function canvas(width, height, top, bottom) {
+function solidCanvas(width, height, color) {
   const w = width * SCALE
   const h = height * SCALE
   const pixels = new Uint8Array(w * h * 3)
-  for (let y = 0; y < h; y += 1) {
-    const t = y / Math.max(1, h - 1)
-    const color = top.map((value, index) => Math.round(value * (1 - t) + bottom[index] * t))
-    for (let x = 0; x < w; x += 1) {
-      const index = (y * w + x) * 3
-      pixels[index] = color[0]
-      pixels[index + 1] = color[1]
-      pixels[index + 2] = color[2]
-    }
+  for (let index = 0; index < pixels.length; index += 3) {
+    pixels[index] = color[0]
+    pixels[index + 1] = color[1]
+    pixels[index + 2] = color[2]
   }
   return { width: w, height: h, pixels }
 }
@@ -82,59 +81,146 @@ function fillRoundedRect(image, x0, y0, x1, y1, radius, color, alpha = 1) {
 function drawLine(image, x0, y0, x1, y1, width, color, alpha = 1) {
   const dx = x1 - x0
   const dy = y1 - y0
-  const steps = Math.max(1, Math.ceil(Math.hypot(dx, dy) * SCALE * 1.5))
+  const steps = Math.max(1, Math.ceil(Math.hypot(dx, dy) * SCALE))
   for (let index = 0; index <= steps; index += 1) {
     const t = index / steps
     fillCircle(image, x0 + dx * t, y0 + dy * t, width / 2, color, alpha)
   }
 }
 
-function drawCurve(image, points, width, color, alpha = 1) {
-  for (let index = 1; index < points.length; index += 1) {
-    drawLine(image, ...points[index - 1], ...points[index], width, color, alpha)
-  }
+function paeth(left, up, upperLeft) {
+  const p = left + up - upperLeft
+  const pa = Math.abs(p - left)
+  const pb = Math.abs(p - up)
+  const pc = Math.abs(p - upperLeft)
+  if (pa <= pb && pa <= pc) return left
+  if (pb <= pc) return up
+  return upperLeft
 }
 
-function drawLogoMark(image, x, y, size) {
-  fillRoundedRect(image, x, y, x + size, y + size, size * 0.24, BLUE)
-  drawLine(
-    image,
-    x + size * 0.27,
-    y + size * 0.31,
-    x + size * 0.73,
-    y + size * 0.31,
-    size * 0.07,
-    [255, 255, 255],
-  )
-  drawLine(
-    image,
-    x + size * 0.35,
-    y + size * 0.19,
-    x + size * 0.35,
-    y + size * 0.36,
-    size * 0.06,
-    [255, 255, 255],
-  )
-  drawLine(
-    image,
-    x + size * 0.65,
-    y + size * 0.19,
-    x + size * 0.65,
-    y + size * 0.36,
-    size * 0.06,
-    [255, 255, 255],
-  )
-
-  const curve = []
-  for (let index = 0; index <= 28; index += 1) {
-    const t = index / 28
-    curve.push([
-      x + size * (0.22 + 0.57 * t),
-      y + size * (0.60 + 0.10 * Math.sin((t - 0.12) * Math.PI * 1.35)),
-    ])
+function decodePng(buffer) {
+  const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
+  if (!buffer.subarray(0, 8).equals(signature)) {
+    throw new Error('installer logo source is not a PNG')
   }
-  drawCurve(image, curve, size * 0.075, [255, 255, 255])
-  fillCircle(image, x + size * 0.77, y + size * 0.56, size * 0.055, [255, 255, 255])
+
+  let offset = 8
+  let width = 0
+  let height = 0
+  let bitDepth = 0
+  let colorType = 0
+  let interlace = 0
+  const idat = []
+
+  while (offset + 12 <= buffer.length) {
+    const length = buffer.readUInt32BE(offset)
+    const type = buffer.subarray(offset + 4, offset + 8).toString('ascii')
+    const dataStart = offset + 8
+    const dataEnd = dataStart + length
+    if (dataEnd + 4 > buffer.length) throw new Error(`truncated PNG chunk ${type}`)
+    const data = buffer.subarray(dataStart, dataEnd)
+
+    if (type === 'IHDR') {
+      width = data.readUInt32BE(0)
+      height = data.readUInt32BE(4)
+      bitDepth = data[8]
+      colorType = data[9]
+      const compression = data[10]
+      const filter = data[11]
+      interlace = data[12]
+      if (compression !== 0 || filter !== 0) throw new Error('unsupported PNG compression/filter method')
+    } else if (type === 'IDAT') {
+      idat.push(data)
+    } else if (type === 'IEND') {
+      break
+    }
+    offset = dataEnd + 4
+  }
+
+  if (!width || !height || bitDepth !== 8 || ![2, 6].includes(colorType) || interlace !== 0) {
+    throw new Error(
+      `unsupported installer logo PNG: ${width}x${height}, depth=${bitDepth}, colorType=${colorType}, interlace=${interlace}`,
+    )
+  }
+
+  const channels = colorType === 6 ? 4 : 3
+  const stride = width * channels
+  const raw = inflateSync(Buffer.concat(idat))
+  if (raw.length !== (stride + 1) * height) {
+    throw new Error(`unexpected PNG payload length ${raw.length}`)
+  }
+
+  const decoded = Buffer.alloc(stride * height)
+  for (let y = 0; y < height; y += 1) {
+    const filterType = raw[y * (stride + 1)]
+    const sourceStart = y * (stride + 1) + 1
+    const rowStart = y * stride
+    for (let x = 0; x < stride; x += 1) {
+      const value = raw[sourceStart + x]
+      const left = x >= channels ? decoded[rowStart + x - channels] : 0
+      const up = y > 0 ? decoded[rowStart - stride + x] : 0
+      const upperLeft = y > 0 && x >= channels ? decoded[rowStart - stride + x - channels] : 0
+
+      switch (filterType) {
+        case 0:
+          decoded[rowStart + x] = value
+          break
+        case 1:
+          decoded[rowStart + x] = (value + left) & 0xff
+          break
+        case 2:
+          decoded[rowStart + x] = (value + up) & 0xff
+          break
+        case 3:
+          decoded[rowStart + x] = (value + Math.floor((left + up) / 2)) & 0xff
+          break
+        case 4:
+          decoded[rowStart + x] = (value + paeth(left, up, upperLeft)) & 0xff
+          break
+        default:
+          throw new Error(`unsupported PNG filter ${filterType}`)
+      }
+    }
+  }
+
+  const rgba = new Uint8Array(width * height * 4)
+  for (let index = 0, out = 0; index < decoded.length; index += channels, out += 4) {
+    rgba[out] = decoded[index]
+    rgba[out + 1] = decoded[index + 1]
+    rgba[out + 2] = decoded[index + 2]
+    rgba[out + 3] = colorType === 6 ? decoded[index + 3] : 255
+  }
+  return { width, height, rgba }
+}
+
+function compositeImage(image, source, x, y, width, height) {
+  const targetLeft = Math.round(x * SCALE)
+  const targetTop = Math.round(y * SCALE)
+  const targetWidth = Math.round(width * SCALE)
+  const targetHeight = Math.round(height * SCALE)
+
+  for (let targetY = 0; targetY < targetHeight; targetY += 1) {
+    const sourceY = Math.min(
+      source.height - 1,
+      Math.floor(((targetY + 0.5) / targetHeight) * source.height),
+    )
+    for (let targetX = 0; targetX < targetWidth; targetX += 1) {
+      const sourceX = Math.min(
+        source.width - 1,
+        Math.floor(((targetX + 0.5) / targetWidth) * source.width),
+      )
+      const sourceIndex = (sourceY * source.width + sourceX) * 4
+      const alpha = source.rgba[sourceIndex + 3] / 255
+      if (alpha === 0) continue
+      blendPixel(
+        image,
+        targetLeft + targetX,
+        targetTop + targetY,
+        [source.rgba[sourceIndex], source.rgba[sourceIndex + 1], source.rgba[sourceIndex + 2]],
+        alpha,
+      )
+    }
+  }
 }
 
 function downsample(image, width, height) {
@@ -195,21 +281,28 @@ function bmp24(width, height, rgb) {
   return buffer
 }
 
+function drawTimetableGrid(image, left, top, right, bottom, columns, rows) {
+  for (let index = 0; index <= columns; index += 1) {
+    const x = left + ((right - left) * index) / columns
+    drawLine(image, x, top, x, bottom, 0.45, GRID, 0.78)
+  }
+  for (let index = 0; index <= rows; index += 1) {
+    const y = top + ((bottom - top) * index) / rows
+    drawLine(image, left, y, right, y, 0.45, GRID, 0.78)
+  }
+}
+
+const logo = decodePng(readFileSync(iconPath))
+
 function makeHeader() {
   const width = 150
   const height = 57
-  const image = canvas(width, height, WHITE, [237, 247, 255])
+  const image = solidCanvas(width, height, COLD_WHITE)
 
-  drawLogoMark(image, 10, 10, 36)
-  for (const x of [92, 108, 124, 140]) drawLine(image, x, 8, x, 49, 0.45, GRID, 0.8)
-  for (const y of [20, 34, 48]) drawLine(image, 84, y, 146, y, 0.45, GRID, 0.8)
-
-  const curve = []
-  for (let index = 0; index <= 24; index += 1) {
-    const t = index / 24
-    curve.push([72 + 70 * t, 43 - 13 * t + 3 * Math.sin(t * Math.PI * 1.8)])
-  }
-  drawCurve(image, curve, 1.7, BLUE)
+  compositeImage(image, logo, 10, 10, 36, 36)
+  drawTimetableGrid(image, 82, 9, 146, 49, 4, 4)
+  fillRoundedRect(image, 86, 15, 101, 25, 2.5, PALE_BLUE)
+  fillRoundedRect(image, 114, 31, 139, 41, 2.5, PALE_BLUE_GRAY)
 
   return bmp24(width, height, downsample(image, width, height))
 }
@@ -217,33 +310,15 @@ function makeHeader() {
 function makeSidebar() {
   const width = 164
   const height = 314
-  const image = canvas(width, height, WHITE, PALE)
+  const image = solidCanvas(width, height, COOL_GRAY)
 
-  fillCircle(image, 64, 246, 112, BLUE, 0.035)
-  drawLogoMark(image, 22, 24, 44)
+  compositeImage(image, logo, 22, 24, 46, 46)
 
-  // Keep the image copy-free so installer localization remains native.
-  fillRoundedRect(image, 18, 150, 146, 272, 12, [255, 255, 255])
-  for (const x of [46, 70, 94, 118]) drawLine(image, x, 164, x, 258, 0.55, GRID, 0.85)
-  for (const y of [183, 205, 227, 249]) drawLine(image, 28, y, 136, y, 0.55, GRID, 0.85)
-
-  fillRoundedRect(image, 50, 171, 68, 205, 4, [218, 237, 255])
-  fillRoundedRect(image, 75, 218, 93, 251, 4, [231, 241, 252])
-  fillRoundedRect(image, 100, 178, 118, 228, 4, [203, 228, 253])
-
-  const curve = []
-  for (let index = 0; index <= 40; index += 1) {
-    const t = index / 40
-    curve.push([30 + 102 * t, 249 - 50 * t + 7 * Math.sin(t * Math.PI * 2)])
-  }
-  drawCurve(image, curve, 2.4, BLUE)
-  fillCircle(image, curve[0][0], curve[0][1], 3, BLUE)
-  fillCircle(image, curve.at(-1)[0], curve.at(-1)[1], 3, BLUE)
-
-  // Subtle status rows echo the compact widget hierarchy without embedding text.
-  fillRoundedRect(image, 22, 86, 112, 93, 3.5, [164, 190, 215], 0.28)
-  fillRoundedRect(image, 22, 104, 138, 110, 3, [164, 190, 215], 0.18)
-  fillRoundedRect(image, 22, 119, 94, 125, 3, [164, 190, 215], 0.13)
+  // The sidebar itself is the canvas: one quiet timetable fragment, no nested card.
+  drawTimetableGrid(image, 22, 140, 146, 278, 4, 6)
+  fillRoundedRect(image, 53, 158, 82, 178, 3.5, PALE_BLUE)
+  fillRoundedRect(image, 84, 204, 116, 225, 3.5, PALE_BLUE_GRAY)
+  fillRoundedRect(image, 25, 231, 50, 252, 3.5, BRAND_BLUE, 0.82)
 
   return bmp24(width, height, downsample(image, width, height))
 }
@@ -254,5 +329,5 @@ writeFileSync(join(outDir, 'header.bmp'), header)
 writeFileSync(join(outDir, 'sidebar.bmp'), sidebar)
 
 console.log(
-  `installer branding: header.bmp ${header.length} bytes, sidebar.bmp ${sidebar.length} bytes`,
+  `installer branding v2: real icon=${logo.width}x${logo.height}, header.bmp ${header.length} bytes, sidebar.bmp ${sidebar.length} bytes`,
 )
