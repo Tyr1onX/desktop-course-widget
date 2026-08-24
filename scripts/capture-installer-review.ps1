@@ -112,7 +112,7 @@ function Capture-Window([Diagnostics.Process]$Process, [string]$Name) {
   $width = $rect.Right - $rect.Left
   $height = $rect.Bottom - $rect.Top
   if ($width -lt 100 -or $height -lt 100) {
-    throw "Unexpected window bounds for $Name: ${width}x${height}."
+    throw "Unexpected window bounds for ${Name}: ${width}x${height}."
   }
 
   $bitmap = New-Object System.Drawing.Bitmap $width, $height
