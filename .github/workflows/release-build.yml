@@ -131,11 +131,29 @@ jobs:
         shell: pwsh
         run: ./scripts/download-native-ocr-models.ps1
 
+      - name: Clear generated installer review assets
+        shell: pwsh
+        run: |
+          Remove-Item -Force -ErrorAction SilentlyContinue `
+            'src-tauri/installer/header.bmp', `
+            'src-tauri/installer/sidebar.bmp', `
+            'src-tauri/installer/installer-v2.nsi'
+
       - name: Build Windows NSIS installer
         run: npm run tauri:build
 
       - name: Verify installer branding contract
         run: node scripts/check-installer-branding.mjs
+
+      - name: Upload installer visual assets
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: desktop-course-widget-installer-visual-assets
+          path: |
+            src-tauri/installer/header.bmp
+            src-tauri/installer/sidebar.bmp
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Smoke test installed Windows package
         shell: pwsh
