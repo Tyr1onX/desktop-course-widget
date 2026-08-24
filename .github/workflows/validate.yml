@@ -12,8 +12,7 @@ permissions:
   contents: read
 
 env:
-  COURSE_WIDGET_BUILD_VERSION: 0.5.0-beta.3
-  VITE_BUILD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  COURSE_WIDGET_BUILD_VERSION: 0.5.0-beta.2
 
 concurrency:
   group: validate-${{ github.workflow }}-${{ github.ref }}

@@ -1,7 +1,5 @@
 param(
-  [string]$Executable = "src-tauri/target/release/desktop-course-widget.exe",
-  [string]$TauriConfig = "src-tauri/tauri.conf.json",
-  [string]$FrontendDist = "dist"
+  [string]$Executable = "src-tauri/target/release/desktop-course-widget.exe"
 )
 
 $ErrorActionPreference = "Stop"
@@ -57,39 +55,6 @@ public static class CourseWidgetWindowProbe
 "@
 
 $resolvedExecutable = Resolve-Path $Executable
-$resolvedConfig = Resolve-Path $TauriConfig
-$resolvedFrontendDist = Resolve-Path $FrontendDist
-
-# Settings and presentation are configured as hidden startup windows. Tauri/WebView2
-# is allowed to materialize their native HWNDs lazily, so a packaged startup smoke
-# must not depend on those hidden handles appearing before the user opens them.
-# Validate their packaged definitions and entry pages statically, then use the main
-# window as the runtime proof that the release executable and WebView2 shell start.
-$config = Get-Content $resolvedConfig -Raw | ConvertFrom-Json
-$expectedWindows = @(
-  [pscustomobject]@{ Label = "main"; Title = "课刻"; Url = "widget.html" },
-  [pscustomobject]@{ Label = "settings"; Title = "课刻 · 课表与设置"; Url = "settings.html" },
-  [pscustomobject]@{ Label = "presentation"; Title = "课刻 · 演示控制器"; Url = "presentation.html" }
-)
-
-foreach ($expected in $expectedWindows) {
-  $configured = @($config.app.windows | Where-Object { $_.label -eq $expected.Label })
-  if ($configured.Count -ne 1) {
-    throw "Expected exactly one Tauri window with label '$($expected.Label)', found $($configured.Count)."
-  }
-  $window = $configured[0]
-  if ($window.title -ne $expected.Title) {
-    throw "Tauri window '$($expected.Label)' has unexpected title '$($window.title)'."
-  }
-  if ($window.url -ne $expected.Url) {
-    throw "Tauri window '$($expected.Label)' has unexpected entry page '$($window.url)'."
-  }
-  $entryPage = Join-Path $resolvedFrontendDist $expected.Url
-  if (-not (Test-Path $entryPage -PathType Leaf)) {
-    throw "Packaged frontend entry page is missing for '$($expected.Label)': $entryPage"
-  }
-}
-
 $testRoot = Join-Path $env:RUNNER_TEMP "course-widget-window-smoke"
 Remove-Item $testRoot -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path $testRoot | Out-Null
@@ -103,9 +68,13 @@ New-Item -ItemType Directory -Path $env:APPDATA, $env:LOCALAPPDATA | Out-Null
 $process = $null
 try {
   $process = Start-Process -FilePath $resolvedExecutable -PassThru
+  $expectedTitles = @(
+    "课刻",
+    "课刻 · 课表与设置",
+    "课刻 · 演示控制器"
+  )
   $deadline = (Get-Date).AddSeconds(30)
   $observedTitles = @()
-  $mainObservedAt = $null
 
   do {
     Start-Sleep -Milliseconds 500
@@ -115,20 +84,14 @@ try {
     }
 
     $observedTitles = [CourseWidgetWindowProbe]::TitlesForProcess([uint32]$process.Id)
-    if ("课刻" -in $observedTitles) {
-      if ($null -eq $mainObservedAt) {
-        $mainObservedAt = Get-Date
-      }
-      # Keep the process alive for another second after the main HWND appears so the
-      # smoke also catches immediate post-startup crashes.
-      if (((Get-Date) - $mainObservedAt).TotalSeconds -ge 1.0) {
-        Write-Host "Release startup smoke passed. Main window observed and process remained alive. Configured windows: $($expectedWindows.Label -join ', '). Observed HWND titles: $($observedTitles -join ', ')"
-        return
-      }
+    $missing = @($expectedTitles | Where-Object { $_ -notin $observedTitles })
+    if ($missing.Count -eq 0) {
+      Write-Host "Release startup smoke passed. Created windows: $($observedTitles -join ', ')"
+      return
     }
   } while ((Get-Date) -lt $deadline)
 
-  throw "Release startup smoke did not observe the main window '课刻'. Observed: $($observedTitles -join ', ')"
+  throw "Release startup smoke did not observe all configured windows. Missing: $($missing -join ', '). Observed: $($observedTitles -join ', ')"
 }
 finally {
   if ($process -and -not $process.HasExited) {

@@ -3,7 +3,9 @@ import { resolve } from 'node:path'
 
 export default defineConfig({
   define: {
-    __COURSE_WIDGET_BUILD_SHA__: JSON.stringify(process.env.GITHUB_SHA || 'local'),
+    __COURSE_WIDGET_BUILD_SHA__: JSON.stringify(
+      process.env.VITE_BUILD_SHA || process.env.GITHUB_SHA || 'local',
+    ),
   },
   build: {
     rollupOptions: {
