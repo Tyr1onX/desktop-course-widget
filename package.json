@@ -16,8 +16,9 @@
     "check:screenshot-import-dom": "node scripts/check-screenshot-import-dom.mjs",
     "check:presentation-clock": "node --experimental-strip-types scripts/check-presentation-clock.mjs",
     "check:security-boundary": "node --experimental-strip-types --test scripts/tauri-security-policy.test.mjs scripts/widget-hide-lifecycle.test.mjs",
+    "check:installer-template": "node scripts/generate-installer-template.mjs && node scripts/check-installer-template.mjs",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build",
+    "tauri:build": "node scripts/generate-installer-template.mjs && tauri build",
     "preview": "vite preview"
   },
   "devDependencies": {
