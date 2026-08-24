@@ -798,8 +798,8 @@ mod structural_generalization_tests {
         let second = working_dimensions(1440, 6000);
         assert!(first.0 >= 800, "1080x4000 became {first:?}");
         assert!(second.0 >= 800, "1440x6000 became {second:?}");
-        assert!(first.0 as u64 * first.1 as u64 <= TALL_SOFT_MAX_WORKING_PIXELS);
-        assert!(second.0 as u64 * second.1 as u64 <= TALL_SOFT_MAX_WORKING_PIXELS);
+        assert!(first.0 as u64 * first.1 as u64 <= TALL_SOFT_MAX_PIXELS);
+        assert!(second.0 as u64 * second.1 as u64 <= TALL_SOFT_MAX_PIXELS);
         assert_eq!(detector_max_side_for_dimensions(1080, 4000), 1280);
         assert_eq!(detector_max_side_for_dimensions(1440, 6000), 1280);
         assert_eq!(detector_max_side_for_dimensions(1600, 1000), 960);
