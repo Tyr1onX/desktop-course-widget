@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const generator = join(root, 'scripts', 'generate-installer-branding.mjs')
 const installerDir = join(root, 'src-tauri', 'installer')
+const iconPath = join(root, 'src-tauri', 'icons', 'icon.png')
 
 const assets = [
   { name: 'header.bmp', width: 150, height: 57 },
@@ -55,11 +56,44 @@ function readBitmapContract(asset) {
   }
 }
 
+function readPngDimensions(path) {
+  const buffer = readFileSync(path)
+  const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
+  if (buffer.length < 24 || !buffer.subarray(0, 8).equals(signature)) {
+    throw new Error('installer logo source is not a PNG')
+  }
+  return {
+    width: buffer.readUInt32BE(16),
+    height: buffer.readUInt32BE(20),
+  }
+}
+
 function generateAndSnapshot() {
   execFileSync(process.execPath, [generator], { cwd: root, stdio: 'pipe' })
   return assets.map(readBitmapContract)
 }
 
+const generatorSource = readFileSync(generator, 'utf8')
+if (!generatorSource.includes("src-tauri', 'icons', 'icon.png")) {
+  throw new Error('installer branding generator no longer uses the real icon.png source')
+}
+if (!generatorSource.includes('compositeImageBilinear')) {
+  throw new Error('installer logo is no longer using the direct deterministic bilinear raster path')
+}
+for (const forbidden of ['drawCurve(', '0.45,', 'status rows', 'const SCALE =']) {
+  if (generatorSource.includes(forbidden)) {
+    throw new Error(`installer branding generator reintroduced rejected/soft visual path: ${forbidden}`)
+  }
+}
+
+const icon = readPngDimensions(iconPath)
+if (icon.width < 128 || icon.height < 128) {
+  throw new Error(`installer logo source is unexpectedly small: ${icon.width}x${icon.height}`)
+}
+
+const builtSnapshot = assets.every((asset) => existsSync(join(installerDir, asset.name)))
+  ? assets.map(readBitmapContract)
+  : null
 const first = generateAndSnapshot()
 const second = generateAndSnapshot()
 
@@ -71,11 +105,21 @@ for (let index = 0; index < assets.length; index += 1) {
       `${before.name} is not deterministic: ${before.sha256} != ${after.sha256}`,
     )
   }
+
+  if (builtSnapshot && builtSnapshot[index].sha256 !== before.sha256) {
+    throw new Error(
+      `${before.name} left by the Tauri build is stale: ` +
+        `${builtSnapshot[index].sha256} != current generator ${before.sha256}`,
+    )
+  }
 }
 
+console.log(`real installer icon source: ${icon.width}x${icon.height}`)
 for (const asset of second) {
   console.log(
     `${asset.name}: ${asset.width}x${asset.height}, ${asset.bitDepth}-bit, BI_RGB, sha256=${asset.sha256}`,
   )
 }
-console.log('installer branding contract passed; two consecutive generations are byte-identical')
+console.log(
+  'installer visual asset contract passed; build assets match the current deterministic generator',
+)
