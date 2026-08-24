@@ -87,6 +87,66 @@ function Get-WindowText([IntPtr]$Handle) {
   return ($names -join "`n")
 }
 
+function Get-VisibleWindowText([IntPtr]$Handle) {
+  if (-not [InstallerReviewNative]::IsWindowVisible($Handle)) { return '' }
+
+  $root = [System.Windows.Automation.AutomationElement]::FromHandle($Handle)
+  if (-not $root) { return '' }
+  $elements = $root.FindAll(
+    [System.Windows.Automation.TreeScope]::Descendants,
+    [System.Windows.Automation.Condition]::TrueCondition
+  )
+  $names = foreach ($element in $elements) {
+    try {
+      if ($element.Current.IsOffscreen) { continue }
+      $bounds = $element.Current.BoundingRectangle
+      if ($bounds.Width -le 0 -or $bounds.Height -le 0) { continue }
+
+      $nativeHandle = [IntPtr][long]$element.Current.NativeWindowHandle
+      if ($nativeHandle -ne [IntPtr]::Zero -and -not [InstallerReviewNative]::IsWindowVisible($nativeHandle)) {
+        continue
+      }
+
+      $name = [string]$element.Current.Name
+      if (-not [string]::IsNullOrWhiteSpace($name)) { $name }
+    }
+    catch {}
+  }
+  return ($names -join "`n")
+}
+
+function Get-FinishPageState([IntPtr]$Handle) {
+  $visibleText = Get-VisibleWindowText $Handle
+  $button = [InstallerReviewNative]::GetDlgItem($Handle, 1)
+  if ($button -eq [IntPtr]::Zero -or -not [InstallerReviewNative]::IsWindowVisible($button)) {
+    return [pscustomobject]@{
+      Reached = $false
+      VisibleText = $visibleText
+      ButtonText = ''
+    }
+  }
+
+  $buttonText = ''
+  $buttonVisible = $false
+  try {
+    $buttonElement = [System.Windows.Automation.AutomationElement]::FromHandle($button)
+    if ($buttonElement -and -not $buttonElement.Current.IsOffscreen) {
+      $bounds = $buttonElement.Current.BoundingRectangle
+      if ($bounds.Width -gt 0 -and $bounds.Height -gt 0) {
+        $buttonVisible = $true
+        $buttonText = [string]$buttonElement.Current.Name
+      }
+    }
+  }
+  catch {}
+
+  return [pscustomobject]@{
+    Reached = ($buttonVisible -and $buttonText -match '完成|Finish' -and $visibleText -match '完成|Finish')
+    VisibleText = $visibleText
+    ButtonText = $buttonText
+  }
+}
+
 function Get-TopLevelWindowHandles {
   $handles = @{}
   $root = [System.Windows.Automation.AutomationElement]::RootElement
@@ -274,10 +334,11 @@ try {
 
   $deadline = (Get-Date).AddSeconds(120)
   $finishReached = $false
+  $finishState = $null
   while ((Get-Date) -lt $deadline) {
     $handle = Wait-MainWindow $finish 10
-    $text = Get-WindowText $handle
-    if ($text -match '完成|Finish') {
+    $finishState = Get-FinishPageState $handle
+    if ($finishState.Reached) {
       $finishReached = $true
       break
     }
@@ -285,9 +346,16 @@ try {
     Start-Sleep -Milliseconds 800
   }
   if (-not $finishReached) {
-    throw "Timed out reaching the Finish page. Last text:`n$text"
+    throw "Timed out reaching the visible Finish page. Last visible text:`n$($finishState.VisibleText)`nLast visible button: $($finishState.ButtonText)"
   }
+
   Start-Sleep -Milliseconds 700
+  $handle = Wait-MainWindow $finish 10
+  $finishState = Get-FinishPageState $handle
+  if (-not $finishState.Reached) {
+    throw "Finish page was no longer visibly confirmed before capture. Visible text:`n$($finishState.VisibleText)`nVisible button: $($finishState.ButtonText)"
+  }
+  Write-Host "visible Finish page confirmed: button='$($finishState.ButtonText)'"
   Capture-Window $finish '04-finish'
   Stop-Interactive $finish
 
@@ -295,6 +363,17 @@ try {
   if ($screenshots.Count -ne 4) {
     throw "Expected four installer review screenshots, found $($screenshots.Count)."
   }
+
+  $welcomePath = Join-Path $OutputDir '01-welcome.png'
+  $finishPath = Join-Path $OutputDir '04-finish.png'
+  $welcomeHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $welcomePath).Hash.ToLowerInvariant()
+  $finishHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $finishPath).Hash.ToLowerInvariant()
+  Write-Host "installer review screenshot sha256: 01-welcome.png=$welcomeHash"
+  Write-Host "installer review screenshot sha256: 04-finish.png=$finishHash"
+  if ($welcomeHash -eq $finishHash) {
+    throw 'Finish screenshot is identical to Welcome screenshot.'
+  }
+
   Write-Host "installer review capture passed: $($screenshots.Name -join ', ')"
 }
 finally {
