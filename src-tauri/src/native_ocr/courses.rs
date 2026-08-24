@@ -1,3 +1,17 @@
+#[derive(Debug, Clone)]
+struct AnchoredCourseCandidate {
+    course: ImportCourse,
+    anchor_token_index: usize,
+    adjustment_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct AnchorShadowDecision {
+    candidate: bool,
+    drop: bool,
+    reason: &'static str,
+}
+
 fn anchor_courses(
     tokens: &[Token],
     anchors: &[CourseAnchor],
@@ -5,7 +19,7 @@ fn anchor_courses(
     image_width: u32,
     image_height: u32,
 ) -> (Vec<ImportCourse>, Vec<String>) {
-    let mut courses = Vec::new();
+    let mut candidates = Vec::new();
     let mut warnings = Vec::new();
     let mut structurally_dropped_auxiliary = 0_usize;
     let owned_anchors = arrangement_anchors_with_card_ownership(
@@ -42,6 +56,7 @@ fn anchor_courses(
             headers,
             image_width as f32,
         );
+        let adjustment_id = trailing_adjustment_id_in_card(tokens, anchor_token, card);
         let mut block = tokens
             .iter()
             .enumerate()
@@ -77,9 +92,33 @@ fn anchor_courses(
             if anchor.used_default_weeks {
                 warnings.push(fallback_week_warning(&course.name, &course.weeks));
             }
-            courses.push(course);
+            log_owned_anchor_diagnostic(
+                tokens,
+                anchor,
+                seed,
+                card,
+                &course.name,
+                adjustment_id.as_deref(),
+            );
+            candidates.push(AnchoredCourseCandidate {
+                course,
+                anchor_token_index: anchor.token_index,
+                adjustment_id,
+            });
         }
     }
+
+    let adjustment_shadow_count =
+        drop_adjustment_split_subset_shadows(tokens, &mut candidates);
+    if adjustment_shadow_count > 0 {
+        eprintln!(
+            "[ocr-anchor] adjustment_owned_shadows_dropped={adjustment_shadow_count}"
+        );
+    }
+    let mut courses = candidates
+        .into_iter()
+        .map(|candidate| candidate.course)
+        .collect::<Vec<_>>();
 
     if structurally_dropped_auxiliary > 0 {
         warnings.push(format!(
@@ -130,7 +169,7 @@ fn arrangement_anchors_with_card_ownership(
         })
         .cloned()
         .collect::<Vec<_>>();
-    if direct_anchors.len() < 2 {
+    if direct_anchors.is_empty() {
         return direct_anchors;
     }
 
@@ -138,56 +177,107 @@ fn arrangement_anchors_with_card_ownership(
     direct_anchors
         .iter()
         .enumerate()
-        .filter(|(anchor_index, _)| {
-            !course_anchor_is_same_card_schedule_shadow(
+        .filter_map(|(anchor_index, anchor)| {
+            let decision = course_anchor_same_visual_schedule_decision(
                 tokens,
                 &direct_anchors,
                 &seeds,
-                *anchor_index,
-            )
+                anchor_index,
+            );
+            let card = course_card_geometry(
+                tokens,
+                &direct_anchors,
+                &seeds,
+                anchor_index,
+                headers,
+                image_width,
+            );
+            log_visual_anchor_diagnostic(
+                tokens,
+                anchor,
+                &seeds[anchor_index],
+                card,
+                decision,
+            );
+            (!decision.drop).then(|| anchor.clone())
         })
-        .map(|(_, anchor)| anchor.clone())
         .collect()
 }
 
-fn course_anchor_is_same_card_schedule_shadow(
+fn course_anchor_same_visual_schedule_decision(
     tokens: &[Token],
     anchors: &[CourseAnchor],
     seeds: &[CourseCardSeed],
     anchor_index: usize,
-) -> bool {
+) -> AnchorShadowDecision {
     let anchor = &anchors[anchor_index];
     let seed = &seeds[anchor_index];
     let Some(title_token_index) = seed.title_token_index else {
-        return false;
+        return AnchorShadowDecision {
+            candidate: false,
+            drop: false,
+            reason: "no-title-owner",
+        };
     };
-    if seed.auxiliary || anchor.used_default_weeks {
-        return false;
+    if seed.auxiliary {
+        return AnchorShadowDecision {
+            candidate: false,
+            drop: false,
+            reason: "auxiliary-owner",
+        };
+    }
+    if anchor.used_default_weeks {
+        return AnchorShadowDecision {
+            candidate: false,
+            drop: false,
+            reason: "default-weeks",
+        };
     }
     let source = &tokens[anchor.token_index];
+    let mut comparable = false;
+    let mut reason = "no-strict-subset-peer";
 
-    anchors.iter().enumerate().any(|(other_index, other)| {
-        if other_index == anchor_index || other.used_default_weeks {
-            return false;
-        }
-        let other_seed = &seeds[other_index];
-        if other_seed.auxiliary
-            || other_seed.title_token_index != Some(title_token_index)
-            || other_seed.weekday != seed.weekday
+    for (other_index, other) in anchors.iter().enumerate() {
+        if other_index == anchor_index
+            || other.used_default_weeks
+            || other.weekday != anchor.weekday
             || other.start_section != anchor.start_section
             || other.end_section != anchor.end_section
             || other.parity != anchor.parity
             || !weeks_are_strict_subset(&anchor.weeks, &other.weeks)
         {
-            return false;
+            continue;
         }
+        comparable = true;
+        let other_seed = &seeds[other_index];
+        if other_seed.auxiliary {
+            reason = "peer-is-auxiliary";
+            continue;
+        }
+        if other_seed.weekday != seed.weekday {
+            reason = "different-card-weekday";
+            continue;
+        }
+        if other_seed.title_token_index != Some(title_token_index) {
+            reason = "different-title-token-owner";
+            continue;
+        }
+        if !schedule_source_boxes_overlap(source, &tokens[other.token_index]) {
+            reason = "schedule-source-boxes-distinct";
+            continue;
+        }
+        return AnchorShadowDecision {
+            candidate: true,
+            drop: true,
+            reason: "same-visual-schedule-evidence",
+        };
+    }
 
-        // This is deliberately source-geometry ownership, not result-level dedupe:
-        // two real split-week rows occupy different schedule lines and survive. A
-        // shorter OCR week fragment is suppressed only when both schedule detections
-        // overlap the same physical line inside the same CourseCard.
-        schedule_source_boxes_overlap(source, &tokens[other.token_index])
-    })
+    AnchorShadowDecision {
+        candidate: comparable,
+        drop: false,
+        reason,
+    }
 }
 
 fn weeks_are_strict_subset(left: &[u8], right: &[u8]) -> bool {
@@ -201,6 +291,221 @@ fn schedule_source_boxes_overlap(left: &Token, right: &Token) -> bool {
     let minimum_height = left.height.min(right.height).max(1.0);
 
     overlap_width / minimum_width >= 0.55 && overlap_height / minimum_height >= 0.55
+}
+
+fn trailing_adjustment_id_in_card(
+    tokens: &[Token],
+    anchor: &Token,
+    card: CourseCardGeometry,
+) -> Option<String> {
+    tokens
+        .iter()
+        .filter(|token| {
+            !std::ptr::eq(*token, anchor)
+                && token.center_x() >= card.column_bounds.0
+                && token.center_x() < card.column_bounds.1
+                && token.center_y() > anchor.center_y() + 0.5
+                && token.center_y() < card.lower_bound
+        })
+        .filter_map(|token| {
+            token
+                .parts
+                .iter()
+                .chain(std::iter::once(&token.text))
+                .find_map(|value| adjustment_annotation_id(value))
+                .map(|id| (token.center_y(), id))
+        })
+        .min_by(|left, right| left.0.partial_cmp(&right.0).unwrap_or(Ordering::Equal))
+        .map(|(_, id)| id)
+}
+
+fn adjustment_annotation_id(value: &str) -> Option<String> {
+    let compact = compact_text(value);
+    let pattern = Regex::new(r"(?:^|[（(])((?:调|停)[0-9０-９OoIl]{3,8})").unwrap();
+    pattern
+        .captures(&compact)
+        .and_then(|captures| captures.get(1))
+        .map(|matched| matched.as_str().to_owned())
+}
+
+fn drop_adjustment_split_subset_shadows(
+    tokens: &[Token],
+    candidates: &mut Vec<AnchoredCourseCandidate>,
+) -> usize {
+    let mut dropped = std::collections::HashSet::new();
+
+    for left_index in 0..candidates.len() {
+        for right_index in (left_index + 1)..candidates.len() {
+            let left = &candidates[left_index];
+            let right = &candidates[right_index];
+            let Some(left_adjustment) = left.adjustment_id.as_deref() else {
+                continue;
+            };
+            if right.adjustment_id.as_deref() != Some(left_adjustment) {
+                continue;
+            }
+            if !same_adjustment_owned_course_identity(&left.course, &right.course) {
+                continue;
+            }
+
+            let subset = if weeks_are_strict_subset(&left.course.weeks, &right.course.weeks) {
+                Some((left_index, right_index))
+            } else if weeks_are_strict_subset(&right.course.weeks, &left.course.weeks) {
+                Some((right_index, left_index))
+            } else {
+                None
+            };
+            let Some((shadow_index, owner_index)) = subset else {
+                continue;
+            };
+            let shadow = &candidates[shadow_index];
+            let owner = &candidates[owner_index];
+            if !singleton_parity_is_compatible(&shadow.course, &owner.course) {
+                continue;
+            }
+
+            // This path is intentionally different from the visual duplicate path.
+            // The real B timetable renders adjustment-split fragments on separate
+            // vertical schedule lines. A repeated generic adjustment identifier is
+            // the ownership evidence that joins those card fragments; week containment
+            // alone is never sufficient.
+            dropped.insert(shadow_index);
+            let shadow_token = &tokens[shadow.anchor_token_index];
+            let owner_token = &tokens[owner.anchor_token_index];
+            eprintln!(
+                "[ocr-anchor] title={} anchor={} weeks={:?} schedule_text={} schedule_box={} adjustment={} shadow_candidate=true shadow=true shadow_reason=shared-adjustment-id-strict-subset owner_anchor={} owner_weeks={:?} owner_schedule_box={}",
+                diagnostic_text(&shadow.course.name),
+                shadow.anchor_token_index,
+                shadow.course.weeks,
+                diagnostic_text(&shadow_token.text),
+                diagnostic_token_box(shadow_token),
+                diagnostic_text(left_adjustment),
+                owner.anchor_token_index,
+                owner.course.weeks,
+                diagnostic_token_box(owner_token),
+            );
+        }
+    }
+
+    if dropped.is_empty() {
+        return 0;
+    }
+    let count = dropped.len();
+    let mut index = 0_usize;
+    candidates.retain(|_| {
+        let keep = !dropped.contains(&index);
+        index += 1;
+        keep
+    });
+    count
+}
+
+fn same_adjustment_owned_course_identity(left: &ImportCourse, right: &ImportCourse) -> bool {
+    left.name == right.name
+        && left.weekday == right.weekday
+        && left.start_section == right.start_section
+        && left.end_section == right.end_section
+        && same_present_field(left.teacher.as_deref(), right.teacher.as_deref())
+        && same_present_field(left.location.as_deref(), right.location.as_deref())
+}
+
+fn same_present_field(left: Option<&str>, right: Option<&str>) -> bool {
+    match (left.map(str::trim), right.map(str::trim)) {
+        (Some(left), Some(right)) if !left.is_empty() && !right.is_empty() => {
+            compact_text(left) == compact_text(right)
+        }
+        _ => false,
+    }
+}
+
+fn singleton_parity_is_compatible(shadow: &ImportCourse, owner: &ImportCourse) -> bool {
+    shadow.parity == owner.parity || shadow.weeks.len() == 1
+}
+
+fn log_visual_anchor_diagnostic(
+    tokens: &[Token],
+    anchor: &CourseAnchor,
+    seed: &CourseCardSeed,
+    card: CourseCardGeometry,
+    decision: AnchorShadowDecision,
+) {
+    let source = &tokens[anchor.token_index];
+    let title = seed
+        .title_token_index
+        .and_then(|index| name_fragment_from_token(&tokens[index]))
+        .unwrap_or_else(|| "<unknown>".into());
+    let title_box = seed
+        .title_token_index
+        .map(|index| diagnostic_token_box(&tokens[index]))
+        .unwrap_or_else(|| "none".into());
+    eprintln!(
+        "[ocr-anchor] title={} anchor={} weekday={} sections={}-{} weeks={:?} parity={} schedule_text={} schedule_box={} title_box={} card_box={} shadow_candidate={} shadow={} shadow_reason={}",
+        diagnostic_text(&title),
+        anchor.token_index,
+        seed.weekday,
+        anchor.start_section,
+        anchor.end_section,
+        anchor.weeks,
+        anchor.parity,
+        diagnostic_text(&anchor.metadata_text),
+        diagnostic_token_box(source),
+        title_box,
+        diagnostic_card_box(card),
+        decision.candidate,
+        decision.drop,
+        decision.reason,
+    );
+}
+
+fn log_owned_anchor_diagnostic(
+    tokens: &[Token],
+    anchor: &CourseAnchor,
+    seed: &CourseCardSeed,
+    card: CourseCardGeometry,
+    course_name: &str,
+    adjustment_id: Option<&str>,
+) {
+    let source = &tokens[anchor.token_index];
+    let title_box = seed
+        .title_token_index
+        .map(|index| diagnostic_token_box(&tokens[index]))
+        .unwrap_or_else(|| "none".into());
+    eprintln!(
+        "[ocr-anchor-owned] title={} anchor={} weekday={} sections={}-{} weeks={:?} parity={} schedule_text={} schedule_box={} title_box={} card_box={} adjustment={}",
+        diagnostic_text(course_name),
+        anchor.token_index,
+        seed.weekday,
+        anchor.start_section,
+        anchor.end_section,
+        anchor.weeks,
+        anchor.parity,
+        diagnostic_text(&anchor.metadata_text),
+        diagnostic_token_box(source),
+        title_box,
+        diagnostic_card_box(card),
+        adjustment_id.map(diagnostic_text).unwrap_or_else(|| "none".into()),
+    );
+}
+
+fn diagnostic_text(value: &str) -> String {
+    value.replace('\r', "").replace('\n', "\\n")
+}
+
+fn diagnostic_token_box(token: &Token) -> String {
+    format!(
+        "{:.1},{:.1},{:.1},{:.1}",
+        token.left, token.top, token.width, token.height
+    )
+}
+
+fn diagnostic_card_box(card: CourseCardGeometry) -> String {
+    format!(
+        "{:.1},{:.1},{:.1},{:.1}",
+        card.column_bounds.0,
+        card.upper_bound,
+        (card.column_bounds.1 - card.column_bounds.0).max(0.0),
+        (card.lower_bound - card.upper_bound).max(0.0)
+    )
 }
 
 fn course_seed_is_structurally_auxiliary(
