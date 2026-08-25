@@ -46,10 +46,8 @@ function Get-UninstallEntries {
       ForEach-Object {
         [pscustomobject]@{
           Hive = $root.Hive
-          KeyPath = $_.PSPath
           DisplayVersion = [string]$_.DisplayVersion
           InstallLocation = ([string]$_.InstallLocation).Trim('"')
-          UninstallString = [string]$_.UninstallString
           MainBinaryName = [string]$_.MainBinaryName
         }
       }
@@ -86,11 +84,7 @@ function Get-InstalledPaths($Registration) {
   foreach ($path in @($mainExe, $uninstaller)) {
     if (-not (Test-Path -LiteralPath $path)) { throw "Installed file is missing: $path" }
   }
-  return [pscustomobject]@{
-    InstallRoot = $installRoot
-    MainExe = $mainExe
-    Uninstaller = $uninstaller
-  }
+  [pscustomobject]@{ InstallRoot = $installRoot; MainExe = $mainExe; Uninstaller = $uninstaller }
 }
 
 function Stop-App {
@@ -113,35 +107,122 @@ function Probe-App([string]$Executable, [string]$Label) {
 function Write-Utf8Json([string]$Path, $Value) {
   $parent = Split-Path -Parent $Path
   New-Item -ItemType Directory -Force -Path $parent | Out-Null
-  $json = $Value | ConvertTo-Json -Depth 20
+  $json = $Value | ConvertTo-Json -Depth 30
   [IO.File]::WriteAllText($Path, $json, [Text.UTF8Encoding]::new($false))
 }
 
-function Find-RetainedSchedule {
-  $paths = @()
-  $legacy = Join-Path $dataRoot 'schedule.json'
-  if (Test-Path -LiteralPath $legacy) { $paths += $legacy }
-
+function Get-ActiveCatalogPath {
   $indexPath = Join-Path $dataRoot 'schedules\index.json'
-  if (Test-Path -LiteralPath $indexPath) {
-    $index = Get-Content -Raw -LiteralPath $indexPath | ConvertFrom-Json
-    if (-not [string]::IsNullOrWhiteSpace([string]$index.activeScheduleId)) {
-      $activePath = Join-Path $dataRoot ("schedules\{0}.json" -f $index.activeScheduleId)
-      if (Test-Path -LiteralPath $activePath) { $paths += $activePath }
+  if (-not (Test-Path -LiteralPath $indexPath)) {
+    throw 'Public beta.1 did not create schedules/index.json after startup.'
+  }
+  $index = Get-Content -Raw -LiteralPath $indexPath | ConvertFrom-Json
+  if ([string]::IsNullOrWhiteSpace([string]$index.activeScheduleId)) {
+    throw 'Public beta.1 catalog has no activeScheduleId.'
+  }
+  $activePath = Join-Path $dataRoot ("schedules\{0}.json" -f $index.activeScheduleId)
+  if (-not (Test-Path -LiteralPath $activePath)) {
+    throw "Public beta.1 active catalog schedule is missing: $activePath"
+  }
+  return $activePath
+}
+
+function Seed-Beta1UserData {
+  $legacyPath = Join-Path $dataRoot 'schedule.json'
+  $settingsPath = Join-Path $dataRoot 'settings.json'
+  $activePath = Get-ActiveCatalogPath
+
+  $markerCourse = [ordered]@{
+    name = '发布升级回归课'
+    teacher = 'Release QA'
+    weekday = 2
+    start = '08:10'
+    end = '09:45'
+    location = 'A-305'
+    weeks = @(1, 3, 5, 7, 9)
+    parity = 'all'
+  }
+  $legacy = [ordered]@{
+    schemaVersion = 1
+    semesterStart = '2026-08-24'
+    semesterEnd = '2027-01-18'
+    courses = @($markerCourse)
+  }
+  Write-Utf8Json $legacyPath $legacy
+
+  # beta.1 already uses the catalog schema. Keep that real schema intact and only
+  # replace the user-facing timetable fields so the upgrade starts from valid data.
+  $catalog = Get-Content -Raw -LiteralPath $activePath | ConvertFrom-Json
+  if ([string]::IsNullOrWhiteSpace([string]$catalog.id) -or
+      [string]::IsNullOrWhiteSpace([string]$catalog.name)) {
+    throw 'Public beta.1 active catalog schedule is not a valid catalog document.'
+  }
+  $catalog.semesterStart = $legacy.semesterStart
+  $catalog.semesterEnd = $legacy.semesterEnd
+  $catalog.courses = @(
+    [ordered]@{
+      id = 'release-upgrade-course'
+      name = $markerCourse.name
+      color = '#CFE1FF'
+      teacher = $markerCourse.teacher
+      weekday = $markerCourse.weekday
+      start = $markerCourse.start
+      end = $markerCourse.end
+      location = $markerCourse.location
+      weeks = $markerCourse.weeks
+      parity = $markerCourse.parity
+    }
+  )
+  if ($catalog.PSObject.Properties.Name -contains 'updatedAt') {
+    $catalog.updatedAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+  }
+  Write-Utf8Json $activePath $catalog
+
+  if (-not (Test-Path -LiteralPath $settingsPath)) {
+    throw 'Public beta.1 did not create settings.json after startup.'
+  }
+  $settings = Get-Content -Raw -LiteralPath $settingsPath | ConvertFrom-Json
+  if (@($settings.lessonTimes).Count -lt 2) {
+    throw 'Public beta.1 settings do not contain at least two lesson times.'
+  }
+  $settings.onboardingCompleted = $true
+  $settings.equalDuration = $true
+  $settings.lessonTimes[0].start = '08:10'
+  $settings.lessonTimes[0].end = '08:55'
+  $settings.lessonTimes[1].start = '09:00'
+  $settings.lessonTimes[1].end = '09:45'
+  Write-Utf8Json $settingsPath $settings
+
+  Write-Host "seeded valid beta.1 user data: legacy='$legacyPath' catalog='$activePath' settings='$settingsPath'"
+}
+
+function Assert-RetainedUserData {
+  $legacyPath = Join-Path $dataRoot 'schedule.json'
+  $activePath = Get-ActiveCatalogPath
+  $settingsPath = Join-Path $dataRoot 'settings.json'
+
+  foreach ($schedulePath in @($legacyPath, $activePath)) {
+    if (-not (Test-Path -LiteralPath $schedulePath)) { throw "Retained timetable file is missing: $schedulePath" }
+    $schedule = Get-Content -Raw -LiteralPath $schedulePath | ConvertFrom-Json
+    $course = @($schedule.courses | Where-Object { $_.name -eq '发布升级回归课' }) | Select-Object -First 1
+    if (-not $course) { throw "Upgrade did not preserve the timetable marker in $schedulePath." }
+    $weeks = @($course.weeks | ForEach-Object { [int]$_ })
+    if ([int]$course.weekday -ne 2 -or [string]$course.location -ne 'A-305' -or
+        ($weeks -join ',') -ne '1,3,5,7,9') {
+      throw "Retained timetable marker changed unexpectedly in $schedulePath."
     }
   }
 
-  foreach ($path in $paths | Select-Object -Unique) {
-    try {
-      $schedule = Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
-      $course = @($schedule.courses | Where-Object { $_.name -eq '发布升级回归课' }) | Select-Object -First 1
-      if ($course) {
-        return [pscustomobject]@{ Path = $path; Schedule = $schedule; Course = $course }
-      }
-    }
-    catch {}
+  if (-not (Test-Path -LiteralPath $settingsPath)) { throw 'Upgrade removed settings.json.' }
+  $settings = Get-Content -Raw -LiteralPath $settingsPath | ConvertFrom-Json
+  $lesson1 = @($settings.lessonTimes | Where-Object { $_.section -eq 1 }) | Select-Object -First 1
+  $lesson2 = @($settings.lessonTimes | Where-Object { $_.section -eq 2 }) | Select-Object -First 1
+  if (-not $settings.onboardingCompleted -or -not $settings.equalDuration -or
+      $lesson1.start -ne '08:10' -or $lesson1.end -ne '08:55' -or
+      $lesson2.start -ne '09:00' -or $lesson2.end -ne '09:45') {
+    throw 'Upgrade did not preserve the lesson-time/settings marker.'
   }
-  return $null
+  Write-Host "public upgrade data preserved: legacy='$legacyPath' catalog='$activePath' settings='$settingsPath'"
 }
 
 function Get-UninstallerWindow([int]$TimeoutSeconds = 20) {
@@ -154,9 +235,7 @@ function Get-UninstallerWindow([int]$TimeoutSeconds = 20) {
     foreach ($window in $windows) {
       try {
         $name = [string]$window.Current.Name
-        if ($name -match '课刻.*卸载|卸载.*课刻|uninstall.*课刻|课刻.*uninstall') {
-          return $window
-        }
+        if ($name -match '课刻.*卸载|卸载.*课刻|uninstall.*课刻|课刻.*uninstall') { return $window }
       }
       catch {}
     }
@@ -232,43 +311,7 @@ try {
   $baseRegistration = Get-Registration $baseVersion
   $basePaths = Get-InstalledPaths $baseRegistration
   Probe-App $basePaths.MainExe "public $baseVersion"
-
-  $markerSchedule = [ordered]@{
-    schemaVersion = 1
-    semesterStart = '2026-08-24'
-    semesterEnd = '2027-01-18'
-    courses = @(
-      [ordered]@{
-        name = '发布升级回归课'
-        teacher = 'Release QA'
-        weekday = 2
-        start = '08:10'
-        end = '09:45'
-        location = 'A-305'
-        weeks = @(1, 3, 5, 7, 9)
-        parity = 'all'
-      }
-    )
-  }
-  $markerSettings = [ordered]@{
-    schemaVersion = 1
-    onboardingCompleted = $true
-    lessonTimes = @(
-      [ordered]@{ section = 1; start = '08:10'; end = '08:55' },
-      [ordered]@{ section = 2; start = '09:00'; end = '09:45' }
-    )
-    equalDuration = $true
-  }
-
-  Write-Utf8Json (Join-Path $dataRoot 'schedule.json') $markerSchedule
-  Write-Utf8Json (Join-Path $dataRoot 'settings.json') $markerSettings
-  $catalogIndex = Join-Path $dataRoot 'schedules\index.json'
-  if (Test-Path -LiteralPath $catalogIndex) {
-    $index = Get-Content -Raw -LiteralPath $catalogIndex | ConvertFrom-Json
-    if (-not [string]::IsNullOrWhiteSpace([string]$index.activeScheduleId)) {
-      Write-Utf8Json (Join-Path $dataRoot ("schedules\{0}.json" -f $index.activeScheduleId)) $markerSchedule
-    }
-  }
+  Seed-Beta1UserData
 
   $candidateProcess = Start-Process -FilePath $Candidate -ArgumentList '/S' -PassThru -Wait
   if ($candidateProcess.ExitCode -ne 0) { throw "Candidate installer exited with $($candidateProcess.ExitCode)." }
@@ -278,34 +321,14 @@ try {
     throw "Upgrade changed install root: '$($basePaths.InstallRoot)' -> '$($candidatePaths.InstallRoot)'."
   }
   Probe-App $candidatePaths.MainExe "candidate $expectedVersion"
-
-  $retained = Find-RetainedSchedule
-  if (-not $retained) { throw 'Upgrade did not preserve the release timetable marker.' }
-  $weeks = @($retained.Course.weeks | ForEach-Object { [int]$_ })
-  if ($retained.Course.weekday -ne 2 -or $retained.Course.location -ne 'A-305' -or
-      ($weeks -join ',') -ne '1,3,5,7,9') {
-    throw "Retained timetable marker changed unexpectedly in $($retained.Path)."
-  }
-
-  $settingsPath = Join-Path $dataRoot 'settings.json'
-  if (-not (Test-Path -LiteralPath $settingsPath)) { throw 'Upgrade removed settings.json.' }
-  $settings = Get-Content -Raw -LiteralPath $settingsPath | ConvertFrom-Json
-  $lesson1 = @($settings.lessonTimes | Where-Object { $_.section -eq 1 }) | Select-Object -First 1
-  $lesson2 = @($settings.lessonTimes | Where-Object { $_.section -eq 2 }) | Select-Object -First 1
-  if (-not $settings.onboardingCompleted -or -not $settings.equalDuration -or
-      $lesson1.start -ne '08:10' -or $lesson1.end -ne '08:55' -or
-      $lesson2.start -ne '09:00' -or $lesson2.end -ne '09:45') {
-    throw 'Upgrade did not preserve the release lesson-time/settings marker.'
-  }
-  Write-Host "public upgrade data preserved: timetable='$($retained.Path)' settings='$settingsPath'"
+  Assert-RetainedUserData
 
   Stop-App
   $defaultUninstall = Start-Process -FilePath $candidatePaths.Uninstaller -ArgumentList '/S' -PassThru -Wait
   if ($defaultUninstall.ExitCode -ne 0) { throw "Candidate silent uninstaller exited with $($defaultUninstall.ExitCode)." }
   Wait-Condition { @(Get-UninstallEntries).Count -eq 0 } 'Candidate uninstall registration was not removed.'
   if (-not (Test-Path -LiteralPath $dataRoot)) { throw 'Default uninstall unexpectedly deleted application data.' }
-  if (-not (Find-RetainedSchedule)) { throw 'Default uninstall did not preserve the retained timetable.' }
-  if (-not (Test-Path -LiteralPath $settingsPath)) { throw 'Default uninstall did not preserve settings.' }
+  Assert-RetainedUserData
   Write-Host 'candidate default uninstall preserved application data as required.'
 
   $reinstall = Start-Process -FilePath $Candidate -ArgumentList '/S' -PassThru -Wait
@@ -318,15 +341,14 @@ try {
   Wait-Condition { -not (Test-Path -LiteralPath $dataRoot) } 'Delete-app-data option did not remove the application data directory.' 45
   Write-Host 'candidate uninstaller delete-app-data option removed application data as required.'
 
-  $summary = "public release upgrade smoke passed: $baseVersion -> $expectedVersion; timetable/settings preserved; default uninstall preserved data; delete-app-data removed data"
-  Write-Host $summary
+  Write-Host "public release upgrade smoke passed: $baseVersion -> $expectedVersion; timetable/settings preserved; default uninstall preserved data; delete-app-data removed data"
   if ($env:GITHUB_STEP_SUMMARY) {
     @(
       '### Public release upgrade smoke',
       '',
       "- upgrade: $baseVersion → $expectedVersion",
       '- public installer SHA-256: verified',
-      '- timetable marker: preserved',
+      '- legacy and active catalog timetable: preserved',
       '- lesson-time/settings marker: preserved',
       '- candidate startup: passed',
       '- candidate-own uninstaller: passed',
