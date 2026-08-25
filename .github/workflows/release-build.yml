@@ -69,11 +69,19 @@ jobs:
           ) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
           exit 0
 
-      - name: Prepare unique v0.5.0 beta candidate version
-        run: node scripts/set-build-version.mjs $env:COURSE_WIDGET_BUILD_VERSION
-
       - name: Select stable Rust
         run: rustup default stable
+
+      - name: Restore Rust dependency cache
+        id: rust_cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: "src-tauri -> target"
+          shared-key: windows-ci-v1
+          cache-on-failure: true
+
+      - name: Prepare unique v0.5.0 beta candidate version
+        run: node scripts/set-build-version.mjs $env:COURSE_WIDGET_BUILD_VERSION
 
       - name: Check Rust dependencies without changing the lockfile
         run: cargo check --locked --manifest-path src-tauri/Cargo.toml
