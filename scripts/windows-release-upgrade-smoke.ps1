@@ -253,7 +253,7 @@ function Enable-DeleteDataOption([IntPtr]$Handle, [int]$TimeoutSeconds = 12) {
     foreach ($element in $elements) {
       try {
         $name = [string]$element.Current.Name
-        if ($name -notmatch '应用数据|app data') { continue }
+        if ($name -notmatch '应用(?:程序)?数据|app data') { continue }
 
         $nativeHandle = [IntPtr][long]$element.Current.NativeWindowHandle
         $controlType = [string]$element.Current.ControlType.ProgrammaticName
