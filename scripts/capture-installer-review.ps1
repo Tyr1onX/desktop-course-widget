@@ -9,7 +9,7 @@ $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $true
 
 Add-Type -AssemblyName System.Drawing
-Add-Type -AssemblyName UIAutomationClient
+. (Join-Path $PSScriptRoot 'windows-installer-ui.ps1')
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -68,23 +68,6 @@ function Wait-MainWindow([Diagnostics.Process]$Process, [int]$Seconds = 20) {
     Start-Sleep -Milliseconds 200
   } while ((Get-Date) -lt $deadline)
   throw "Timed out waiting for process $($Process.Id) main window."
-}
-
-function Get-WindowText([IntPtr]$Handle) {
-  $root = [System.Windows.Automation.AutomationElement]::FromHandle($Handle)
-  if (-not $root) { return '' }
-  $elements = $root.FindAll(
-    [System.Windows.Automation.TreeScope]::Descendants,
-    [System.Windows.Automation.Condition]::TrueCondition
-  )
-  $names = foreach ($element in $elements) {
-    try {
-      $name = [string]$element.Current.Name
-      if (-not [string]::IsNullOrWhiteSpace($name)) { $name }
-    }
-    catch {}
-  }
-  return ($names -join "`n")
 }
 
 function Get-VisibleWindowText([IntPtr]$Handle) {
@@ -147,75 +130,11 @@ function Get-FinishPageState([IntPtr]$Handle) {
   }
 }
 
-function Get-TopLevelWindowHandles {
-  $handles = @{}
-  $root = [System.Windows.Automation.AutomationElement]::RootElement
-  $windows = $root.FindAll(
-    [System.Windows.Automation.TreeScope]::Children,
-    [System.Windows.Automation.Condition]::TrueCondition
-  )
-  foreach ($window in $windows) {
-    try {
-      $handle = [IntPtr][long]$window.Current.NativeWindowHandle
-      if ($handle -ne [IntPtr]::Zero) {
-        $handles[$handle.ToInt64()] = $true
-      }
-    }
-    catch {}
-  }
-  return $handles
-}
-
-function Wait-NewUninstallerWindow([hashtable]$BaselineHandles, [datetime]$StartedAt, [int]$Seconds = 20) {
-  $deadline = (Get-Date).AddSeconds($Seconds)
-  do {
-    $root = [System.Windows.Automation.AutomationElement]::RootElement
-    $windows = $root.FindAll(
-      [System.Windows.Automation.TreeScope]::Children,
-      [System.Windows.Automation.Condition]::TrueCondition
-    )
-    foreach ($window in $windows) {
-      try {
-        $handle = [IntPtr][long]$window.Current.NativeWindowHandle
-        if ($handle -eq [IntPtr]::Zero -or $BaselineHandles.ContainsKey($handle.ToInt64())) { continue }
-        if (-not [InstallerReviewNative]::IsWindowVisible($handle)) { continue }
-
-        $title = [string]$window.Current.Name
-        if ($title -notmatch [regex]::Escape($productName)) { continue }
-
-        $rect = New-Object InstallerReviewNative+RECT
-        if (-not [InstallerReviewNative]::GetWindowRect($handle, [ref]$rect)) { continue }
-        $width = $rect.Right - $rect.Left
-        $height = $rect.Bottom - $rect.Top
-        if ($width -lt 300 -or $width -gt 900 -or $height -lt 200 -or $height -gt 700) { continue }
-
-        $text = Get-WindowText $handle
-        if ($text -notmatch '卸载|Uninstall') { continue }
-
-        $processId = [int]$window.Current.ProcessId
-        if ($processId -le 0) { continue }
-        $process = Get-Process -Id $processId -ErrorAction Stop
-        if ($process.StartTime -lt $StartedAt.AddSeconds(-1)) { continue }
-
-        return [pscustomobject]@{
-          Process = $process
-          Handle = $handle
-          Title = $title
-          Text = $text
-        }
-      }
-      catch {}
-    }
-    Start-Sleep -Milliseconds 200
-  } while ((Get-Date) -lt $deadline)
-  throw "Timed out waiting for the candidate uninstaller window after NSIS process handoff."
-}
-
 function Wait-WindowText([Diagnostics.Process]$Process, [string]$Pattern, [int]$Seconds = 20) {
   $deadline = (Get-Date).AddSeconds($Seconds)
   do {
     $handle = Wait-MainWindow $Process 5
-    $text = Get-WindowText $handle
+    $text = Get-InstallerWindowText $handle
     if ($text -match $Pattern) {
       return [pscustomobject]@{ Handle = $handle; Text = $text }
     }
@@ -316,10 +235,15 @@ try {
   # 3. The newly installed candidate's own uninstaller page. NSIS may hand the UI off
   # to a temporary process, so identify the new top-level uninstall window instead of
   # assuming the bootstrap uninstall.exe process keeps the window.
-  $baselineWindows = Get-TopLevelWindowHandles
+  $baselineWindows = Get-InstallerTopLevelWindowHandles
   $uninstallerStartedAt = Get-Date
   $uninstallerBootstrap = Start-Process -FilePath $uninstallerPath -PassThru
-  $uninstallerWindow = Wait-NewUninstallerWindow $baselineWindows $uninstallerStartedAt 20
+  $uninstallerWindow = Wait-NewUninstallerWindow `
+    -BaselineHandles $baselineWindows `
+    -StartedAt $uninstallerStartedAt `
+    -ProductName $productName `
+    -Bootstrap $uninstallerBootstrap `
+    -Seconds 20
   $reviewUninstaller = $uninstallerWindow.Process
   Write-Host "candidate uninstaller window: bootstrapPid=$($uninstallerBootstrap.Id) uiPid=$($reviewUninstaller.Id) title='$($uninstallerWindow.Title)'"
   Start-Sleep -Milliseconds 500

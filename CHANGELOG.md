@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## v0.5.0-beta.3 - 2026-08-25
+
+- Improved screenshot import for traditional grid timetables, including weekday headers, lesson sections, week ranges, odd/even weeks, non-contiguous weeks, multiple courses in one grid area, and split-row information.
+- Kept screenshot imports review-first so recognized courses can be checked and corrected before applying, while ordinary non-timetable images continue to be rejected safely.
+- Refined the main timetable hierarchy and visual details, clarified the import flow, and added teaching-week and date-range context to the desktop widget.
+- Unified the Windows installer and uninstaller on the official 课刻 icon, a blank minimal sidebar, and the native NSIS header.
+- Made successful installs enter the real Finish page automatically, and verified overwrite upgrades, local timetable/settings preservation, and the newly installed version’s own uninstaller.
+
 ## v0.5.0-beta.1 - 2026-08-05
 
 - Added fully local timetable screenshot recognition using in-process Rust OCR with bundled, hash-pinned models and no Python runtime.
