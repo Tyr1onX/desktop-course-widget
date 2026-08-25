@@ -225,7 +225,12 @@ function Assert-RetainedUserData {
 }
 
 function Enable-DeleteDataOption([IntPtr]$Handle, [int]$TimeoutSeconds = 12) {
+  $BM_GETCHECK = 0x00F0
+  $BM_CLICK = 0x00F5
+  $BST_CHECKED = 1
   $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+  $lastCandidates = [System.Collections.Generic.List[string]]::new()
+
   while ((Get-Date) -lt $deadline) {
     $window = Get-InstallerWindowElement $Handle
     if (-not $window) {
@@ -244,34 +249,76 @@ function Enable-DeleteDataOption([IntPtr]$Handle, [int]$TimeoutSeconds = 12) {
       continue
     }
 
+    $lastCandidates.Clear()
     foreach ($element in $elements) {
       try {
-        if ($element.Current.ControlType -ne [System.Windows.Automation.ControlType]::CheckBox -or
-            [string]$element.Current.Name -notmatch '应用数据|app data') { continue }
+        $name = [string]$element.Current.Name
+        if ($name -notmatch '应用数据|app data') { continue }
 
+        $nativeHandle = [IntPtr][long]$element.Current.NativeWindowHandle
+        $controlType = [string]$element.Current.ControlType.ProgrammaticName
         $toggleObject = $null
-        if (-not $element.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$toggleObject)) {
-          continue
+        $hasToggle = $element.TryGetCurrentPattern(
+          [System.Windows.Automation.TogglePattern]::Pattern,
+          [ref]$toggleObject
+        )
+        [void]$lastCandidates.Add("name='$name' type='$controlType' hwnd=$($nativeHandle.ToInt64()) toggle=$hasToggle")
+
+        if ($hasToggle) {
+          $toggle = [System.Windows.Automation.TogglePattern]$toggleObject
+          if ($toggle.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::On) {
+            $toggle.Toggle()
+            Start-Sleep -Milliseconds 150
+          }
+          if ($toggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::On) {
+            Write-Host "candidate uninstaller delete-app-data option enabled via UIA: type='$controlType' hwnd=$($nativeHandle.ToInt64())."
+            return
+          }
         }
-        $toggle = [System.Windows.Automation.TogglePattern]$toggleObject
-        if ($toggle.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::On) {
-          $toggle.Toggle()
-          Start-Sleep -Milliseconds 150
-        }
-        if ($toggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::On) {
-          Write-Host 'candidate uninstaller delete-app-data option enabled.'
-          return
+
+        # Tauri's pinned NSIS template creates this option with CreateWindowEx as a
+        # native checkbox HWND and later reads it with BM_GETCHECK. Some Windows CI
+        # UIA providers expose its label but not TogglePattern, so use that same HWND
+        # and native checkbox protocol rather than inventing another window finder.
+        if ($nativeHandle -ne [IntPtr]::Zero) {
+          $state = [InstallerUiHandoffNative]::SendMessage(
+            $nativeHandle,
+            $BM_GETCHECK,
+            [IntPtr]::Zero,
+            [IntPtr]::Zero
+          ).ToInt64()
+          if ($state -ne $BST_CHECKED) {
+            [void][InstallerUiHandoffNative]::SendMessage(
+              $nativeHandle,
+              $BM_CLICK,
+              [IntPtr]::Zero,
+              [IntPtr]::Zero
+            )
+            Start-Sleep -Milliseconds 150
+            $state = [InstallerUiHandoffNative]::SendMessage(
+              $nativeHandle,
+              $BM_GETCHECK,
+              [IntPtr]::Zero,
+              [IntPtr]::Zero
+            ).ToInt64()
+          }
+          if ($state -eq $BST_CHECKED) {
+            Write-Host "candidate uninstaller delete-app-data option enabled via native checkbox HWND=$($nativeHandle.ToInt64())."
+            return
+          }
         }
       }
       catch {
-        # Treat UIA failures as transient. The next poll reacquires the window from HWND.
+        # Treat UIA/native-control failures as transient. The next poll reacquires
+        # the already recognized uninstaller window from its HWND.
       }
     }
     Start-Sleep -Milliseconds 200
   }
 
   $text = Get-InstallerWindowText $Handle
-  throw "Candidate uninstaller delete-app-data checkbox could not be enabled. Window text:`n$text"
+  $candidates = if ($lastCandidates.Count -gt 0) { $lastCandidates -join '; ' } else { '<none>' }
+  throw "Candidate uninstaller delete-app-data checkbox could not be enabled. Candidates: $candidates Window text:`n$text"
 }
 
 function Invoke-UninstallerAction([IntPtr]$Handle, [int]$TimeoutSeconds = 10) {

@@ -20,6 +20,9 @@ public static class InstallerUiHandoffNative {
 
   [DllImport("user32.dll")]
   public static extern bool IsWindowVisible(IntPtr hWnd);
+
+  [DllImport("user32.dll")]
+  public static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 }
 '@
 }
