@@ -44,7 +44,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: "src-tauri -> target"
-          shared-key: windows-ci-v1
+          shared-key: windows-validate-v1
           cache-on-failure: true
 
       - name: Prepare v0.5.0 beta candidate version
