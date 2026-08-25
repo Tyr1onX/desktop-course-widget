@@ -8,6 +8,26 @@ $PSNativeCommandUseErrorActionPreference = $true
 
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+public static class ReleaseUpgradeNative {
+  [StructLayout(LayoutKind.Sequential)]
+  public struct RECT {
+    public int Left;
+    public int Top;
+    public int Right;
+    public int Bottom;
+  }
+
+  [DllImport("user32.dll")]
+  public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+
+  [DllImport("user32.dll")]
+  public static extern bool IsWindowVisible(IntPtr hWnd);
+}
+'@
 
 $config = Get-Content -Raw -LiteralPath 'src-tauri/tauri.conf.json' | ConvertFrom-Json
 $productName = [string]$config.productName
@@ -227,25 +247,45 @@ function Assert-RetainedUserData {
 
 function Get-TopLevelWindowHandles {
   $handles = @{}
-  $windows = [System.Windows.Automation.AutomationElement]::RootElement.FindAll(
-    [System.Windows.Automation.TreeScope]::Children,
-    [System.Windows.Automation.Condition]::TrueCondition
-  )
-  foreach ($window in $windows) {
-    try {
-      $handle = [long]$window.Current.NativeWindowHandle
-      if ($handle -ne 0) { $handles[$handle] = $true }
+  try {
+    $windows = [System.Windows.Automation.AutomationElement]::RootElement.FindAll(
+      [System.Windows.Automation.TreeScope]::Children,
+      [System.Windows.Automation.Condition]::TrueCondition
+    )
+    foreach ($window in $windows) {
+      try {
+        $handle = [long]$window.Current.NativeWindowHandle
+        if ($handle -gt 0) { $handles[$handle] = $true }
+      }
+      catch {}
     }
-    catch {}
   }
+  catch {}
   return $handles
 }
 
-function Get-WindowText([System.Windows.Automation.AutomationElement]$Window) {
-  $elements = $Window.FindAll(
-    [System.Windows.Automation.TreeScope]::Descendants,
-    [System.Windows.Automation.Condition]::TrueCondition
-  )
+function Get-WindowElement([long]$Handle) {
+  if ($Handle -le 0) { return $null }
+  try {
+    return [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$Handle)
+  }
+  catch {
+    return $null
+  }
+}
+
+function Get-WindowText([long]$Handle) {
+  $window = Get-WindowElement $Handle
+  if (-not $window) { return '' }
+  try {
+    $elements = $window.FindAll(
+      [System.Windows.Automation.TreeScope]::Descendants,
+      [System.Windows.Automation.Condition]::TrueCondition
+    )
+  }
+  catch {
+    return ''
+  }
   $names = foreach ($element in $elements) {
     try {
       $name = [string]$element.Current.Name
@@ -256,107 +296,278 @@ function Get-WindowText([System.Windows.Automation.AutomationElement]$Window) {
   return ($names -join "`n")
 }
 
-function Wait-NewUninstallerWindow([hashtable]$BaselineHandles, [datetime]$StartedAt, [int]$TimeoutSeconds = 20) {
-  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-  while ((Get-Date) -lt $deadline) {
-    $windows = [System.Windows.Automation.AutomationElement]::RootElement.FindAll(
-      [System.Windows.Automation.TreeScope]::Children,
-      [System.Windows.Automation.Condition]::TrueCondition
-    )
-    foreach ($window in $windows) {
-      try {
-        $handle = [long]$window.Current.NativeWindowHandle
-        if ($handle -eq 0 -or $BaselineHandles.ContainsKey($handle)) { continue }
-        if ($window.Current.IsOffscreen) { continue }
-
-        $bounds = $window.Current.BoundingRectangle
-        if ($bounds.Width -lt 300 -or $bounds.Width -gt 900 -or $bounds.Height -lt 200 -or $bounds.Height -gt 700) { continue }
-
-        $title = [string]$window.Current.Name
-        if ($title -notmatch [regex]::Escape($productName)) { continue }
-
-        $processId = [int]$window.Current.ProcessId
-        if ($processId -le 0) { continue }
-        $process = Get-Process -Id $processId -ErrorAction Stop
-        if ($process.StartTime -lt $StartedAt.AddSeconds(-1)) { continue }
-
-        $text = Get-WindowText $window
-        if ($text -notmatch '卸载|Uninstall') { continue }
-
-        return [pscustomobject]@{
-          Window = $window
-          Process = $process
-          Title = $title
-          Text = $text
-        }
-      }
-      catch {}
-    }
-    Start-Sleep -Milliseconds 200
+function Get-WindowObservation([long]$Handle) {
+  $observation = [ordered]@{
+    Handle = $Handle
+    Title = ''
+    ProcessId = 0
+    Width = 0
+    Height = 0
+    Left = 0
+    Top = 0
+    Visible = $false
+    IsOffscreen = $true
+    Text = ''
   }
-  throw 'Timed out waiting for the candidate uninstaller window after NSIS process handoff.'
+  if ($Handle -le 0) { return [pscustomobject]$observation }
+
+  $nativeHandle = [IntPtr]$Handle
+  try { $observation.Visible = [ReleaseUpgradeNative]::IsWindowVisible($nativeHandle) } catch {}
+  try {
+    $rect = New-Object ReleaseUpgradeNative+RECT
+    if ([ReleaseUpgradeNative]::GetWindowRect($nativeHandle, [ref]$rect)) {
+      $observation.Width = $rect.Right - $rect.Left
+      $observation.Height = $rect.Bottom - $rect.Top
+      $observation.Left = $rect.Left
+      $observation.Top = $rect.Top
+    }
+  }
+  catch {}
+
+  $window = Get-WindowElement $Handle
+  if ($window) {
+    try { $observation.Title = [string]$window.Current.Name } catch {}
+    try { $observation.ProcessId = [int]$window.Current.ProcessId } catch {}
+    try { $observation.IsOffscreen = [bool]$window.Current.IsOffscreen } catch {}
+    try { $observation.Text = Get-WindowText $Handle } catch {}
+  }
+  return [pscustomobject]$observation
 }
 
-function Wait-DeleteDataCheckbox([System.Windows.Automation.AutomationElement]$Window, [int]$TimeoutSeconds = 10) {
+function Test-UninstallerWindowObservation($Observation, [datetime]$StartedAt) {
+  if (-not $Observation -or [long]$Observation.Handle -le 0) { return $false }
+  if (-not $Observation.Visible -or $Observation.IsOffscreen) { return $false }
+  if ($Observation.Width -lt 300 -or $Observation.Width -gt 900 -or
+      $Observation.Height -lt 200 -or $Observation.Height -gt 700) { return $false }
+  if ([int]$Observation.ProcessId -le 0) { return $false }
+
+  try {
+    $process = Get-Process -Id ([int]$Observation.ProcessId) -ErrorAction Stop
+    $process.Refresh()
+    if ($process.HasExited -or $process.StartTime -lt $StartedAt.AddSeconds(-1)) { return $false }
+  }
+  catch {
+    return $false
+  }
+
+  $identityText = "$($Observation.Title)`n$($Observation.Text)"
+  if ($identityText -notmatch [regex]::Escape($productName)) { return $false }
+  if ($identityText -notmatch '卸载|Uninstall') { return $false }
+  return $true
+}
+
+function Format-WindowObservation($Observation) {
+  if (-not $Observation) { return '<null>' }
+  $text = ([string]$Observation.Text -replace '\s+', ' ').Trim()
+  if ($text.Length -gt 220) { $text = $text.Substring(0, 220) + '...' }
+  return "handle=$($Observation.Handle) title='$($Observation.Title)' pid=$($Observation.ProcessId) bounds=$($Observation.Width)x$($Observation.Height)@$($Observation.Left),$($Observation.Top) visible=$($Observation.Visible) offscreen=$($Observation.IsOffscreen) text='$text'"
+}
+
+function Wait-NewUninstallerWindow(
+  [hashtable]$BaselineHandles,
+  [datetime]$StartedAt,
+  [Diagnostics.Process]$Bootstrap,
+  [int]$TimeoutSeconds = 30
+) {
   $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+  $observed = [ordered]@{}
+
   while ((Get-Date) -lt $deadline) {
-    $elements = $Window.FindAll(
-      [System.Windows.Automation.TreeScope]::Descendants,
-      [System.Windows.Automation.Condition]::TrueCondition
-    )
-    foreach ($element in $elements) {
-      try {
-        if ($element.Current.ControlType -eq [System.Windows.Automation.ControlType]::CheckBox -and
-            [string]$element.Current.Name -match '应用数据|app data') {
-          return $element
-        }
+    try {
+      $windows = [System.Windows.Automation.AutomationElement]::RootElement.FindAll(
+        [System.Windows.Automation.TreeScope]::Children,
+        [System.Windows.Automation.Condition]::TrueCondition
+      )
+    }
+    catch {
+      Start-Sleep -Milliseconds 200
+      continue
+    }
+
+    foreach ($window in $windows) {
+      $handle = 0L
+      try { $handle = [long]$window.Current.NativeWindowHandle } catch { continue }
+      if ($handle -le 0 -or $BaselineHandles.ContainsKey($handle)) { continue }
+
+      $observation = Get-WindowObservation $handle
+      $looksRelevant = $observation.Visible -and (
+        ($observation.Width -ge 300 -and $observation.Width -le 900 -and
+         $observation.Height -ge 200 -and $observation.Height -le 700) -or
+        $observation.Title -match [regex]::Escape($productName) -or
+        $observation.Text -match '卸载|Uninstall'
+      )
+      if ($looksRelevant -and ($observed.Contains($handle) -or $observed.Count -lt 12)) {
+        $observed[$handle] = $observation
       }
-      catch {}
+
+      if (-not (Test-UninstallerWindowObservation $observation $StartedAt)) { continue }
+
+      # NSIS can create the UIA element before the final UI process/window settles.
+      # Reacquire from HWND after a short stabilization interval and require the same
+      # process/identity again before handing anything to the caller.
+      Start-Sleep -Milliseconds 150
+      $stable = Get-WindowObservation $handle
+      if (-not (Test-UninstallerWindowObservation $stable $StartedAt)) { continue }
+      if ([int]$stable.ProcessId -ne [int]$observation.ProcessId) { continue }
+
+      return $stable
     }
     Start-Sleep -Milliseconds 200
   }
-  $text = Get-WindowText $Window
-  throw "Candidate uninstaller delete-app-data checkbox was not found. Window text:`n$text"
+
+  $bootstrapState = 'unknown'
+  $bootstrapPid = 0
+  if ($Bootstrap) {
+    $bootstrapPid = $Bootstrap.Id
+    try {
+      $Bootstrap.Refresh()
+      if ($Bootstrap.HasExited) {
+        $bootstrapState = "exited code=$($Bootstrap.ExitCode)"
+      }
+      else {
+        $bootstrapState = 'running'
+      }
+    }
+    catch {
+      $bootstrapState = "unreadable: $($_.Exception.Message)"
+    }
+  }
+
+  $diagnostics = @($observed.Values | ForEach-Object { Format-WindowObservation $_ })
+  if ($diagnostics.Count -eq 0) { $diagnostics = @('<none>') }
+  throw "Timed out waiting for the candidate uninstaller window after NSIS process handoff. bootstrapPid=$bootstrapPid bootstrapState=$bootstrapState Observed new candidate windows:`n$($diagnostics -join "`n")"
+}
+
+function Enable-DeleteDataOption([long]$Handle, [int]$TimeoutSeconds = 12) {
+  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+  while ((Get-Date) -lt $deadline) {
+    $window = Get-WindowElement $Handle
+    if (-not $window) {
+      Start-Sleep -Milliseconds 200
+      continue
+    }
+
+    try {
+      $elements = $window.FindAll(
+        [System.Windows.Automation.TreeScope]::Descendants,
+        [System.Windows.Automation.Condition]::TrueCondition
+      )
+    }
+    catch {
+      Start-Sleep -Milliseconds 200
+      continue
+    }
+
+    foreach ($element in $elements) {
+      try {
+        if ($element.Current.ControlType -ne [System.Windows.Automation.ControlType]::CheckBox -or
+            [string]$element.Current.Name -notmatch '应用数据|app data') { continue }
+
+        $toggleObject = $null
+        if (-not $element.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$toggleObject)) {
+          continue
+        }
+        $toggle = [System.Windows.Automation.TogglePattern]$toggleObject
+        if ($toggle.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::On) {
+          $toggle.Toggle()
+          Start-Sleep -Milliseconds 150
+        }
+        if ($toggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::On) {
+          Write-Host 'candidate uninstaller delete-app-data option enabled.'
+          return
+        }
+      }
+      catch {
+        # Treat UIA failures as transient. The next poll reacquires the window from HWND.
+      }
+    }
+    Start-Sleep -Milliseconds 200
+  }
+
+  $text = Get-WindowText $Handle
+  throw "Candidate uninstaller delete-app-data checkbox could not be enabled. Window text:`n$text"
+}
+
+function Invoke-UninstallerAction([long]$Handle, [int]$TimeoutSeconds = 10) {
+  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+  while ((Get-Date) -lt $deadline) {
+    $window = Get-WindowElement $Handle
+    if (-not $window) {
+      Start-Sleep -Milliseconds 200
+      continue
+    }
+
+    try {
+      $elements = $window.FindAll(
+        [System.Windows.Automation.TreeScope]::Descendants,
+        [System.Windows.Automation.Condition]::TrueCondition
+      )
+    }
+    catch {
+      Start-Sleep -Milliseconds 200
+      continue
+    }
+
+    foreach ($element in $elements) {
+      try {
+        if ($element.Current.ControlType -ne [System.Windows.Automation.ControlType]::Button -or
+            [string]$element.Current.Name -notmatch '^(卸载|Uninstall)') { continue }
+
+        $invokeObject = $null
+        if (-not $element.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$invokeObject)) {
+          continue
+        }
+        ([System.Windows.Automation.InvokePattern]$invokeObject).Invoke()
+        Write-Host 'candidate uninstaller action invoked.'
+        return
+      }
+      catch {
+        # Treat UIA failures as transient. The next poll reacquires the window from HWND.
+      }
+    }
+    Start-Sleep -Milliseconds 200
+  }
+
+  $text = Get-WindowText $Handle
+  throw "Candidate uninstaller action button could not be invoked. Window text:`n$text"
 }
 
 function Invoke-DeleteDataUninstall([string]$Uninstaller) {
   $baselineWindows = Get-TopLevelWindowHandles
   $startedAt = Get-Date
   $bootstrap = Start-Process -FilePath $Uninstaller -PassThru
-  $uninstaller = Wait-NewUninstallerWindow $baselineWindows $startedAt 20
-  Write-Host "candidate uninstaller window: bootstrapPid=$($bootstrap.Id) uiPid=$($uninstaller.Process.Id) title='$($uninstaller.Title)'"
+  $uninstaller = Wait-NewUninstallerWindow $baselineWindows $startedAt $bootstrap 30
 
-  $checkbox = Wait-DeleteDataCheckbox $uninstaller.Window 10
-  $toggleObject = $null
-  if (-not $checkbox.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$toggleObject)) {
-    throw 'Candidate uninstaller delete-app-data checkbox has no TogglePattern.'
+  if (-not $uninstaller -or
+      -not $uninstaller.PSObject.Properties['Handle'] -or
+      -not $uninstaller.PSObject.Properties['ProcessId']) {
+    throw 'Candidate uninstaller handoff returned an incomplete result.'
   }
-  $toggle = [System.Windows.Automation.TogglePattern]$toggleObject
-  if ($toggle.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::On) { $toggle.Toggle() }
+  $uiHandle = [long]$uninstaller.Handle
+  $uiProcessId = [int]$uninstaller.ProcessId
+  if ($uiHandle -le 0 -or $uiProcessId -le 0) {
+    throw "Candidate uninstaller handoff returned invalid handle/pid: handle=$uiHandle pid=$uiProcessId."
+  }
+
+  try {
+    $uiProcess = Get-Process -Id $uiProcessId -ErrorAction Stop
+    $uiProcess.Refresh()
+    if ($uiProcess.HasExited) { throw 'UI process already exited.' }
+  }
+  catch {
+    throw "Candidate uninstaller UI process was not stable after handoff: pid=$uiProcessId $($_.Exception.Message)"
+  }
+
+  $confirmed = Get-WindowObservation $uiHandle
+  if (-not (Test-UninstallerWindowObservation $confirmed $startedAt) -or
+      [int]$confirmed.ProcessId -ne $uiProcessId) {
+    throw "Candidate uninstaller UI became invalid immediately after handoff: $(Format-WindowObservation $confirmed)"
+  }
+
+  Write-Host "candidate interactive uninstaller UI recognized: bootstrapPid=$($bootstrap.Id) uiPid=$uiProcessId handle=$uiHandle title='$($confirmed.Title)'"
+  Enable-DeleteDataOption $uiHandle 12
   Start-Sleep -Milliseconds 300
-
-  $elements = $uninstaller.Window.FindAll(
-    [System.Windows.Automation.TreeScope]::Descendants,
-    [System.Windows.Automation.Condition]::TrueCondition
-  )
-  $button = $null
-  foreach ($element in $elements) {
-    try {
-      if ($element.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and
-          [string]$element.Current.Name -match '^卸载|^Uninstall') {
-        $button = $element
-        break
-      }
-    }
-    catch {}
-  }
-  if (-not $button) { throw 'Candidate uninstaller action button was not found.' }
-
-  $invokeObject = $null
-  if (-not $button.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$invokeObject)) {
-    throw 'Candidate uninstaller action button has no InvokePattern.'
-  }
-  ([System.Windows.Automation.InvokePattern]$invokeObject).Invoke()
+  Invoke-UninstallerAction $uiHandle 10
 }
 
 if (@(Get-UninstallEntries).Count -ne 0) {
