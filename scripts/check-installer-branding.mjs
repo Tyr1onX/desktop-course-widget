@@ -7,8 +7,8 @@ import { fileURLToPath } from 'node:url'
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const generator = join(root, 'scripts', 'generate-installer-branding.mjs')
 const installerDir = join(root, 'src-tauri', 'installer')
-const iconPath = join(root, 'src-tauri', 'icons', 'icon.png')
 const sidebar = { name: 'sidebar.bmp', width: 164, height: 314 }
+const SIDEBAR_BACKGROUND = [247, 249, 252]
 
 function sha256(buffer) {
   return createHash('sha256').update(buffer).digest('hex')
@@ -22,6 +22,7 @@ function readBitmapContract(asset) {
   if (buffer.length < 54) throw new Error(`${asset.name} is too small to contain a BMP header`)
 
   const magic = buffer.subarray(0, 2).toString('ascii')
+  const pixelOffset = buffer.readUInt32LE(10)
   const dibHeaderSize = buffer.readUInt32LE(14)
   const width = buffer.readInt32LE(18)
   const height = buffer.readInt32LE(22)
@@ -37,16 +38,22 @@ function readBitmapContract(asset) {
   if (bitDepth !== 24) throw new Error(`${asset.name} bit depth is ${bitDepth}, expected 24`)
   if (compression !== 0) throw new Error(`${asset.name} compression is ${compression}, expected BI_RGB (0)`)
 
-  return { name: asset.name, width, height, bitDepth, compression, bytes: buffer.length, sha256: sha256(buffer) }
-}
-
-function readPngDimensions(path) {
-  const buffer = readFileSync(path)
-  const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
-  if (buffer.length < 24 || !buffer.subarray(0, 8).equals(signature)) {
-    throw new Error('installer logo source is not a PNG')
+  const rowBytes = Math.ceil((width * 3) / 4) * 4
+  for (let y = 0; y < height; y += 1) {
+    const row = pixelOffset + y * rowBytes
+    for (let x = 0; x < width; x += 1) {
+      const index = row + x * 3
+      const actual = [buffer[index + 2], buffer[index + 1], buffer[index]]
+      if (actual.some((value, channel) => value !== SIDEBAR_BACKGROUND[channel])) {
+        throw new Error(
+          `${asset.name} contains non-background content at (${x}, ${y}): ` +
+            `${actual.join(',')} != ${SIDEBAR_BACKGROUND.join(',')}`,
+        )
+      }
+    }
   }
-  return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) }
+
+  return { name: asset.name, width, height, bitDepth, compression, bytes: buffer.length, sha256: sha256(buffer) }
 }
 
 function generateAndSnapshot() {
@@ -58,13 +65,11 @@ function generateAndSnapshot() {
 }
 
 const generatorSource = readFileSync(generator, 'utf8')
-if (!generatorSource.includes("src-tauri', 'icons', 'icon.png")) {
-  throw new Error('installer branding generator no longer uses the real icon.png source')
-}
-if (!generatorSource.includes('compositeImageBilinear')) {
-  throw new Error('installer logo is no longer using deterministic bilinear rasterization')
-}
 for (const forbidden of [
+  'icon.png',
+  'decodePng',
+  'compositeImage',
+  'blendPixel',
   'drawTimetable',
   'drawVerticalLine',
   'drawHorizontalLine',
@@ -73,13 +78,8 @@ for (const forbidden of [
   'COURSE',
 ]) {
   if (generatorSource.includes(forbidden)) {
-    throw new Error(`installer branding reintroduced retired illustrative geometry: ${forbidden}`)
+    throw new Error(`installer branding reintroduced page artwork: ${forbidden}`)
   }
-}
-
-const icon = readPngDimensions(iconPath)
-if (icon.width < 128 || icon.height < 128) {
-  throw new Error(`installer logo source is unexpectedly small: ${icon.width}x${icon.height}`)
 }
 
 const builtSnapshot = existsSync(join(installerDir, sidebar.name)) ? readBitmapContract(sidebar) : null
@@ -95,8 +95,7 @@ if (builtSnapshot && builtSnapshot.sha256 !== first.sha256) {
   )
 }
 
-console.log(`real installer icon source: ${icon.width}x${icon.height}`)
 console.log(
-  `${second.name}: ${second.width}x${second.height}, ${second.bitDepth}-bit, BI_RGB, sha256=${second.sha256}`,
+  `${second.name}: blank ${second.width}x${second.height}, ${second.bitDepth}-bit, BI_RGB, sha256=${second.sha256}`,
 )
-console.log('minimal installer branding contract passed; no custom header asset is present')
+console.log('minimal installer branding contract passed; sidebar contains no logo or artwork and no custom header asset is present')
