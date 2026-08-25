@@ -15,13 +15,12 @@ fn anchor_courses(
     let mut courses = Vec::new();
     let mut warnings = Vec::new();
     let mut structurally_dropped_auxiliary = 0_usize;
-    let owned_anchors = arrangement_anchors_with_card_ownership(
+    let (owned_anchors, seeds) = arrangement_anchors_with_card_ownership_and_seeds(
         tokens,
         anchors,
         headers,
         image_width as f32,
     );
-    let seeds = course_card_seeds(tokens, &owned_anchors, headers, image_width as f32);
 
     for (anchor_index, anchor) in owned_anchors.iter().enumerate() {
         let seed = &seeds[anchor_index];
@@ -130,6 +129,15 @@ fn arrangement_anchors_with_card_ownership(
     headers: &[WeekdayHeader],
     image_width: f32,
 ) -> Vec<CourseAnchor> {
+    arrangement_anchors_with_card_ownership_and_seeds(tokens, anchors, headers, image_width).0
+}
+
+fn arrangement_anchors_with_card_ownership_and_seeds(
+    tokens: &[Token],
+    anchors: &[CourseAnchor],
+    headers: &[WeekdayHeader],
+    image_width: f32,
+) -> (Vec<CourseAnchor>, Vec<CourseCardSeed>) {
     // structured_schedule_text_for_anchor can recover a wrapped schedule by looking
     // downward from a token. That recovery is useful for schedule fragments, but a
     // title/teacher token must not itself become a second arrangement owner merely
@@ -145,38 +153,40 @@ fn arrangement_anchors_with_card_ownership(
         .cloned()
         .collect::<Vec<_>>();
     if direct_anchors.is_empty() {
-        return direct_anchors;
+        return (direct_anchors, Vec::new());
     }
 
     let seeds = course_card_seeds(tokens, &direct_anchors, headers, image_width);
-    direct_anchors
-        .iter()
-        .enumerate()
-        .filter_map(|(anchor_index, anchor)| {
-            let decision = course_anchor_same_visual_schedule_decision(
-                tokens,
-                &direct_anchors,
-                &seeds,
-                anchor_index,
-            );
-            let card = course_card_geometry(
-                tokens,
-                &direct_anchors,
-                &seeds,
-                anchor_index,
-                headers,
-                image_width,
-            );
-            log_visual_anchor_diagnostic(
-                tokens,
-                anchor,
-                &seeds[anchor_index],
-                card,
-                decision,
-            );
-            (!decision.drop).then(|| anchor.clone())
-        })
-        .collect()
+    let mut owned_anchors = Vec::with_capacity(direct_anchors.len());
+    let mut owned_seeds = Vec::with_capacity(direct_anchors.len());
+    for (anchor_index, anchor) in direct_anchors.iter().enumerate() {
+        let decision = course_anchor_same_visual_schedule_decision(
+            tokens,
+            &direct_anchors,
+            &seeds,
+            anchor_index,
+        );
+        let card = course_card_geometry(
+            tokens,
+            &direct_anchors,
+            &seeds,
+            anchor_index,
+            headers,
+            image_width,
+        );
+        log_visual_anchor_diagnostic(
+            tokens,
+            anchor,
+            &seeds[anchor_index],
+            card,
+            decision,
+        );
+        if !decision.drop {
+            owned_anchors.push(anchor.clone());
+            owned_seeds.push(seeds[anchor_index].clone());
+        }
+    }
+    (owned_anchors, owned_seeds)
 }
 
 fn course_anchor_same_visual_schedule_decision(
