@@ -41,3 +41,6 @@ tauri-plugin-autostart = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-window-state = "2.4.1"
+
+[target.'cfg(all(windows, target_env = "msvc"))'.dependencies]
+ocr-rs = { version = "=2.4.0", optional = true, features = ["build-mnn-from-source"] }
