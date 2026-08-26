@@ -1,0 +1,330 @@
+name: Apply beta.5 dual-install regression once
+
+on:
+  push:
+    branches:
+      - fix/v0.5.0-beta.5
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: fix/v0.5.0-beta.5
+          fetch-depth: 0
+
+      - name: Apply dual-install migration coverage
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def read(path):
+              return Path(path).read_text(encoding='utf-8')
+
+          def write(path, text):
+              Path(path).write_text(text, encoding='utf-8')
+
+          def once(text, old, new, label):
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly one match, found {count}')
+              return text.replace(old, new, 1)
+
+          # Installer: remember the exact legacy program root and main binary.
+          path = 'scripts/generate-installer-template.mjs'
+          text = read(path)
+          text = once(
+              text,
+              "  ['Var PassiveMode', 'Var LegacyBrandMigration'].join('\\n'),",
+              "  ['Var PassiveMode', 'Var LegacyBrandMigration', 'Var LegacyInstallDir', 'Var LegacyMainBinaryName'].join('\\n'),",
+              'installer migration vars',
+          )
+
+          old_restore = '''const restoreWithLegacy = [
+            'Function RestorePreviousInstallLocation',
+            '  StrCpy $LegacyBrandMigration 0',
+            '  ReadRegStr $4 SHCTX "${MANUPRODUCTKEY}" ""',
+            '  ${If} $4 != ""',
+            '    StrCpy $INSTDIR $4',
+            '  ${EndIf}',
+            '',
+            '  ; Cleanup is keyed only by the exact historical product identity, even when 课刻 already exists.',
+            '  ReadRegStr $5 SHCTX "${LEGACY_UNINSTKEY}" "DisplayName"',
+            '  ${If} $5 == "${LEGACY_PRODUCTNAME}"',
+            '    StrCpy $LegacyBrandMigration 1',
+            '    ; Reuse the historical install root only when the current product has no saved location.',
+            '    ${If} $4 == ""',
+            '      ReadRegStr $4 SHCTX "${LEGACY_UNINSTKEY}" "InstallLocation"',
+            '      ${If} $4 == ""',
+            '        ReadRegStr $4 SHCTX "${LEGACY_MANUPRODUCTKEY}" ""',
+            '      ${EndIf}',
+            '      ${If} $4 != ""',
+            '        StrCpy $INSTDIR $4',
+            '      ${EndIf}',
+            '    ${EndIf}',
+            '  ${EndIf}',
+            'FunctionEnd',
+          ].join('\\n')'''
+          new_restore = '''const restoreWithLegacy = [
+            'Function RestorePreviousInstallLocation',
+            '  StrCpy $LegacyBrandMigration 0',
+            '  StrCpy $LegacyInstallDir ""',
+            '  StrCpy $LegacyMainBinaryName ""',
+            '  ReadRegStr $4 SHCTX "${MANUPRODUCTKEY}" ""',
+            '  ${If} $4 != ""',
+            '    StrCpy $INSTDIR $4',
+            '  ${EndIf}',
+            '',
+            '  ; Cleanup is keyed only by the exact historical product identity, even when 课刻 already exists.',
+            '  ReadRegStr $5 SHCTX "${LEGACY_UNINSTKEY}" "DisplayName"',
+            '  ${If} $5 == "${LEGACY_PRODUCTNAME}"',
+            '    StrCpy $LegacyBrandMigration 1',
+            '    ReadRegStr $LegacyInstallDir SHCTX "${LEGACY_UNINSTKEY}" "InstallLocation"',
+            '    ${If} $LegacyInstallDir == ""',
+            '      ReadRegStr $LegacyInstallDir SHCTX "${LEGACY_MANUPRODUCTKEY}" ""',
+            '    ${EndIf}',
+            '    ReadRegStr $LegacyMainBinaryName SHCTX "${LEGACY_UNINSTKEY}" "MainBinaryName"',
+            '    ${If} $LegacyMainBinaryName == ""',
+            '      StrCpy $LegacyMainBinaryName "${MAINBINARYNAME}.exe"',
+            '    ${EndIf}',
+            '    ; Reuse the historical install root only when the current product has no saved location.',
+            '    ${If} $4 == ""',
+            '      ${If} $LegacyInstallDir != ""',
+            '        StrCpy $INSTDIR $LegacyInstallDir',
+            '      ${EndIf}',
+            '    ${EndIf}',
+            '  ${EndIf}',
+            'FunctionEnd',
+          ].join('\\n')'''
+          text = once(text, old_restore, new_restore, 'installer restore migration')
+
+          old_post = '''const postInstallMigration = [
+            postInstallAnchor,
+            '',
+            '  ; After the new product is fully installed, retire only the exact old identity.',
+            '  ${If} $LegacyBrandMigration = 1',
+            '    ReadRegStr $0 SHCTX "${LEGACY_UNINSTKEY}" "DisplayName"',
+            '    ${If} $0 == "${LEGACY_PRODUCTNAME}"',
+            '      DeleteRegKey SHCTX "${LEGACY_UNINSTKEY}"',
+            '    ${EndIf}',
+            '    ReadRegStr $0 SHCTX "${LEGACY_MANUPRODUCTKEY}" ""',
+            '    ${If} $0 != ""',
+            '      DeleteRegKey SHCTX "${LEGACY_MANUPRODUCTKEY}"',
+            '    ${EndIf}',
+            '    Delete "$SMPROGRAMS\\\\${LEGACY_PRODUCTNAME}.lnk"',
+            '    Delete "$DESKTOP\\\\${LEGACY_PRODUCTNAME}.lnk"',
+            '  ${EndIf}',
+          ].join('\\n')'''
+          new_post = '''const postInstallMigration = [
+            postInstallAnchor,
+            '',
+            '  ; After the new product is fully installed, retire only the exact old identity.',
+            '  ${If} $LegacyBrandMigration = 1',
+            '    ; A distinct historical program root must be removed by its own silent uninstaller.',
+            '    ; Do not recurse-delete the directory: the historical uninstaller preserves shared app data by default.',
+            '    ${If} $LegacyInstallDir != ""',
+            '    ${AndIf} $LegacyInstallDir != $INSTDIR',
+            '      IfFileExists "$LegacyInstallDir\\\\uninstall.exe" legacy_uninstaller_found 0',
+            '        DetailPrint "Legacy uninstaller missing; refusing unsafe recursive cleanup: $LegacyInstallDir"',
+            '        SetErrorLevel 1603',
+            '        Quit',
+            '      legacy_uninstaller_found:',
+            '      ExecWait \'"$LegacyInstallDir\\\\uninstall.exe" /S\' $1',
+            '      ${If} $1 != 0',
+            '        DetailPrint "Legacy uninstaller failed with exit code $1; refusing unsafe recursive cleanup."',
+            '        SetErrorLevel $1',
+            '        Quit',
+            '      ${EndIf}',
+            '      IfFileExists "$LegacyInstallDir\\\\$LegacyMainBinaryName" 0 legacy_program_removed',
+            '        DetailPrint "Legacy main executable remained after uninstall; refusing to hide an independently runnable old copy."',
+            '        SetErrorLevel 1603',
+            '        Quit',
+            '      legacy_program_removed:',
+            '    ${EndIf}',
+            '    ReadRegStr $0 SHCTX "${LEGACY_UNINSTKEY}" "DisplayName"',
+            '    ${If} $0 == "${LEGACY_PRODUCTNAME}"',
+            '      DeleteRegKey SHCTX "${LEGACY_UNINSTKEY}"',
+            '    ${EndIf}',
+            '    ReadRegStr $0 SHCTX "${LEGACY_MANUPRODUCTKEY}" ""',
+            '    ${If} $0 != ""',
+            '      DeleteRegKey SHCTX "${LEGACY_MANUPRODUCTKEY}"',
+            '    ${EndIf}',
+            '    Delete "$SMPROGRAMS\\\\${LEGACY_PRODUCTNAME}.lnk"',
+            '    Delete "$DESKTOP\\\\${LEGACY_PRODUCTNAME}.lnk"',
+            '  ${EndIf}',
+          ].join('\\n')'''
+          text = once(text, old_post, new_post, 'installer post-install migration')
+          write(path, text)
+
+          # Installer contract must pin the safe distinct-root cleanup behavior.
+          path = 'scripts/check-installer-template.mjs'
+          text = read(path)
+          text = once(
+              text,
+              "  'Var LegacyBrandMigration',\n",
+              "  'Var LegacyBrandMigration',\n  'Var LegacyInstallDir',\n  'Var LegacyMainBinaryName',\n",
+              'installer contract vars',
+          )
+          text = once(
+              text,
+              "  'StrCpy $LegacyBrandMigration 1',\n",
+              "  'StrCpy $LegacyBrandMigration 1',\n  'ReadRegStr $LegacyInstallDir SHCTX \"${LEGACY_UNINSTKEY}\" \"InstallLocation\"',\n  '${AndIf} $LegacyInstallDir != $INSTDIR',\n  'ExecWait \\\'\"$LegacyInstallDir\\\\uninstall.exe\" /S\\\' $1',\n  'IfFileExists \"$LegacyInstallDir\\\\$LegacyMainBinaryName\" 0 legacy_program_removed',\n",
+              'installer contract legacy cleanup',
+          )
+          write(path, text)
+
+          # Upgrade smoke: add a real public-current installer between v0.3 and beta.5 candidate.
+          path = 'scripts/windows-release-upgrade-smoke.ps1'
+          text = read(path)
+          text = once(
+              text,
+              "  [string]$LegacyProductName = '',\n  [string]$ExpectedVersion = ''\n)",
+              "  [string]$LegacyProductName = '',\n  [string]$ExpectedVersion = '',\n  [string]$CoexistingCurrentVersion = '',\n  [string]$CoexistingCurrentUrl = '',\n  [string]$CoexistingCurrentSha256 = ''\n)",
+              'upgrade smoke coexist params',
+          )
+          text = once(
+              text,
+              "$testCreatedDataRoot = -not (Test-Path -LiteralPath $dataRoot)\n",
+              "$testCreatedDataRoot = -not (Test-Path -LiteralPath $dataRoot)\n$coexistingCurrentEnabled = -not [string]::IsNullOrWhiteSpace($CoexistingCurrentVersion)\n$coexistingInstaller = $null\n$coexistingPaths = $null\nif ($coexistingCurrentEnabled) {\n  if ([string]::IsNullOrWhiteSpace($LegacyProductName) -or\n      [string]::IsNullOrWhiteSpace($CoexistingCurrentUrl) -or\n      [string]::IsNullOrWhiteSpace($CoexistingCurrentSha256)) {\n    throw 'Coexisting current-product regression requires LegacyProductName, CoexistingCurrentUrl, and CoexistingCurrentSha256.'\n  }\n  $coexistingInstaller = Join-Path $env:RUNNER_TEMP (\"course-widget-current-{0}.exe\" -f $CoexistingCurrentVersion)\n}\n",
+              'upgrade smoke coexist vars',
+          )
+
+          coexist_block = r'''  if ($coexistingCurrentEnabled) {
+            Write-Host "Downloading public current-brand release $CoexistingCurrentVersion from $CoexistingCurrentUrl"
+            Invoke-WebRequest -Uri $CoexistingCurrentUrl -OutFile $coexistingInstaller
+            $coexistingHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $coexistingInstaller).Hash.ToLowerInvariant()
+            if ($coexistingHash -ne $CoexistingCurrentSha256.ToLowerInvariant()) {
+              throw "Public $CoexistingCurrentVersion installer SHA-256 mismatch: $coexistingHash != $($CoexistingCurrentSha256.ToLowerInvariant())"
+            }
+            $coexistingProcess = Start-Process -FilePath $coexistingInstaller -ArgumentList '/S' -PassThru -Wait
+            if ($coexistingProcess.ExitCode -ne 0) {
+              throw "Public $CoexistingCurrentVersion installer exited with $($coexistingProcess.ExitCode)."
+            }
+            $coexistingRegistration = Get-Registration $CoexistingCurrentVersion $productName
+            $coexistingPaths = Get-InstalledPaths $coexistingRegistration
+            $legacyRoot = [IO.Path]::GetFullPath($basePaths.InstallRoot)
+            $currentRoot = [IO.Path]::GetFullPath($coexistingPaths.InstallRoot)
+            $expectedLegacyRoot = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA $baseProductName))
+            $expectedCurrentRoot = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA $productName))
+            if ($legacyRoot -ne $expectedLegacyRoot) {
+              throw "Public $baseVersion legacy install root is '$legacyRoot', expected '$expectedLegacyRoot'."
+            }
+            if ($currentRoot -ne $expectedCurrentRoot) {
+              throw "Public $CoexistingCurrentVersion current install root is '$currentRoot', expected '$expectedCurrentRoot'."
+            }
+            if ($legacyRoot -eq $currentRoot) {
+              throw "Dual-install regression did not create distinct program roots: '$legacyRoot'."
+            }
+            if (@(Get-UninstallEntries -Name $baseProductName).Count -ne 1 -or @(Get-UninstallEntries -Name $productName).Count -ne 1) {
+              throw 'Dual-install regression did not retain exactly one legacy and one current registration before candidate migration.'
+            }
+            foreach ($path in @($basePaths.MainExe, $basePaths.Uninstaller, $coexistingPaths.MainExe, $coexistingPaths.Uninstaller)) {
+              if (-not (Test-Path -LiteralPath $path)) { throw "Dual-install program file is missing before candidate migration: $path" }
+            }
+            Probe-App $basePaths.MainExe "public $baseVersion legacy coexistence copy"
+            Probe-App $coexistingPaths.MainExe "public $CoexistingCurrentVersion current coexistence copy"
+            Assert-RetainedUserData
+            Write-Host "real dual-install precondition verified: legacyRoot='$legacyRoot' currentRoot='$currentRoot'; both installations independently runnable; shared user data preserved"
+          }
+
+'''
+          text = once(
+              text,
+              "  $candidateProcess = Start-Process -FilePath $Candidate -ArgumentList '/S' -PassThru -Wait\n",
+              coexist_block + "  $candidateProcess = Start-Process -FilePath $Candidate -ArgumentList '/S' -PassThru -Wait\n",
+              'upgrade smoke dual-install precondition',
+          )
+          text = once(
+              text,
+              "  if ($candidatePaths.InstallRoot -ne $basePaths.InstallRoot) {\n    throw \"Upgrade changed install root: '$($basePaths.InstallRoot)' -> '$($candidatePaths.InstallRoot)'.\"\n  }",
+              "  $expectedCandidateRoot = if ($coexistingCurrentEnabled) { $coexistingPaths.InstallRoot } else { $basePaths.InstallRoot }\n  if ([IO.Path]::GetFullPath($candidatePaths.InstallRoot) -ne [IO.Path]::GetFullPath($expectedCandidateRoot)) {\n    throw \"Upgrade selected the wrong install root: expected '$expectedCandidateRoot', got '$($candidatePaths.InstallRoot)'.\"\n  }",
+              'upgrade smoke expected candidate root',
+          )
+          dual_verify = r'''    if ($coexistingCurrentEnabled) {
+              Wait-Condition { -not (Test-Path -LiteralPath $basePaths.MainExe) } 'Legacy main executable remained after dual-install migration.' 45
+              Wait-Condition { -not (Test-Path -LiteralPath $basePaths.Uninstaller) } 'Legacy uninstaller remained after dual-install migration.' 45
+              if (-not (Test-Path -LiteralPath $candidatePaths.MainExe)) {
+                throw "Candidate main executable is missing after dual-install migration: $($candidatePaths.MainExe)"
+              }
+              if (@(Get-UninstallEntries -Name $productName).Count -ne 1) {
+                throw "Dual-install migration did not leave exactly one current '$productName' registration."
+              }
+              Assert-RetainedUserData
+              Write-Host "real dual-install migration verified: old program copy removed by legacy uninstaller; one '$productName' identity remains; shared user data preserved"
+            }
+'''
+          text = once(
+              text,
+              "    Write-Host \"legacy brand migration verified: old registration/shortcuts removed; new identity='$productName'; installRoot preserved\"\n  }\n  Probe-App $candidatePaths.MainExe \"candidate $expectedVersion\"",
+              "    Write-Host \"legacy brand migration verified: old registration/shortcuts removed; new identity='$productName'; installRoot preserved\"\n" + dual_verify + "  }\n  Probe-App $candidatePaths.MainExe \"candidate $expectedVersion\"",
+              'upgrade smoke dual-install verification',
+          )
+          text = once(
+              text,
+              "  Remove-Item -Force -LiteralPath $baseInstaller -ErrorAction SilentlyContinue\n}",
+              "  Remove-Item -Force -LiteralPath $baseInstaller -ErrorAction SilentlyContinue\n  if ($coexistingInstaller) { Remove-Item -Force -LiteralPath $coexistingInstaller -ErrorAction SilentlyContinue }\n}",
+              'upgrade smoke coexist cleanup',
+          )
+          write(path, text)
+
+          # The independent v0.3 job uses public beta.4 to establish the real current-brand root.
+          path = '.github/workflows/release-build.yml'
+          text = read(path)
+          text = once(
+              text,
+              "            -BaseSha256 '4a54a97c9dc0799098d123ffa0ba5ae253fe6557e1e8067968706a62404b99b6' `\n            -LegacyProductName '桌面课表'",
+              "            -BaseSha256 '4a54a97c9dc0799098d123ffa0ba5ae253fe6557e1e8067968706a62404b99b6' `\n            -LegacyProductName '桌面课表' `\n            -CoexistingCurrentVersion '0.5.0-beta.4' `\n            -CoexistingCurrentUrl 'https://github.com/Tyr1onX/desktop-course-widget/releases/download/v0.5.0-beta.4/_0.5.0-beta.4_x64-setup.exe' `\n            -CoexistingCurrentSha256 'f1a63b08482d3b04c6e857a9191ede0184b19e0f42768121300c047957ebec25'",
+              'release workflow dual-install args',
+          )
+          write(path, text)
+
+          # Validate statically guarantees the real dual-install gate remains wired.
+          path = 'scripts/beta5-regressions.test.mjs'
+          text = read(path)
+          text = once(
+              text,
+              "const upgradeSmoke = readFileSync('scripts/windows-release-upgrade-smoke.ps1', 'utf8')\n",
+              "const upgradeSmoke = readFileSync('scripts/windows-release-upgrade-smoke.ps1', 'utf8')\nconst releaseWorkflow = readFileSync('.github/workflows/release-build.yml', 'utf8')\n",
+              'beta5 release workflow read',
+          )
+          text = once(
+              text,
+              "  assert.match(generator, /Cleanup is keyed only by the exact historical product identity/)\n",
+              "  assert.match(generator, /Cleanup is keyed only by the exact historical product identity/)\n  assert.match(generator, /LegacyInstallDir/)\n  assert.match(generator, /LegacyInstallDir != \\$INSTDIR/)\n  assert.match(generator, /LegacyInstallDir.*uninstall\\.exe.*\\/S/)\n  assert.match(generator, /refusing unsafe recursive cleanup/)\n",
+              'beta5 safe legacy uninstaller assertions',
+          )
+          text += r'''
+
+test('v0.3 release gate establishes and cleans real dual install roots', () => {
+  assert.match(upgradeSmoke, /CoexistingCurrentVersion/)
+  assert.match(upgradeSmoke, /real dual-install precondition verified/)
+  assert.match(upgradeSmoke, /old program copy removed by legacy uninstaller/)
+  assert.match(upgradeSmoke, /Legacy main executable remained after dual-install migration/)
+  assert.match(releaseWorkflow, /Public v0\.3\.0 brand migration/)
+  assert.match(releaseWorkflow, /CoexistingCurrentVersion '0\.5\.0-beta\.4'/)
+  assert.match(releaseWorkflow, /f1a63b08482d3b04c6e857a9191ede0184b19e0f42768121300c047957ebec25/)
+})
+'''
+          write(path, text)
+          PY
+
+          node --test scripts/beta5-regressions.test.mjs
+          git diff --check
+          git status --short
+
+      - name: Commit final dual-install changes and remove this workflow
+        shell: bash
+        run: |
+          rm .github/workflows/apply-beta5-dual-install-once.yml
+          git add .github/workflows/release-build.yml scripts/generate-installer-template.mjs scripts/check-installer-template.mjs scripts/windows-release-upgrade-smoke.ps1 scripts/beta5-regressions.test.mjs .github/workflows/apply-beta5-dual-install-once.yml
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: cover real dual-install brand migration'
+          git push origin HEAD:fix/v0.5.0-beta.5
