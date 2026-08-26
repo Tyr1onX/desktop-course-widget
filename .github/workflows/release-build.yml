@@ -36,17 +36,13 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Inspect npm audit findings
+      - name: Check npm audit findings
         shell: pwsh
         run: |
           $auditJson = npm audit --json 2>$null | Out-String
           $auditExit = $LASTEXITCODE
           if ([string]::IsNullOrWhiteSpace($auditJson)) {
-            Write-Warning "npm audit produced no JSON output (exit $auditExit)."
-            exit 0
+            throw "npm audit produced no JSON output (exit $auditExit)."
           }
           $audit = $auditJson | ConvertFrom-Json
           $metadata = $audit.metadata.vulnerabilities
@@ -60,14 +56,20 @@ jobs:
             Write-Host "npm audit finding: package=$($property.Name) severity=$($item.severity) direct=$($item.isDirect) range=$($item.range) fixAvailable=$($item.fixAvailable) via=$via"
           }
           @(
-            '### npm audit (non-blocking)',
+            '### npm audit',
             '',
             "- exit: $auditExit",
             "- moderate: $($metadata.moderate)",
             "- high: $($metadata.high)",
-            "- critical: $($metadata.critical)"
+            "- critical: $($metadata.critical)",
+            '- gate: high / critical block release'
           ) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
-          exit 0
+          if ($metadata.high -gt 0 -or $metadata.critical -gt 0) {
+            throw "npm audit found blocking vulnerabilities: high=$($metadata.high) critical=$($metadata.critical)"
+          }
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Select stable Rust
         run: rustup default stable
