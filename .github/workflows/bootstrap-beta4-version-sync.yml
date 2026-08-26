@@ -1,0 +1,31 @@
+name: Bootstrap beta.4 version sync
+
+on:
+  push:
+    branches:
+      - release/v0.5.0-beta.4
+
+permissions:
+  contents: write
+
+jobs:
+  sync-version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release branch
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: release/v0.5.0-beta.4
+
+      - name: Sync beta.4 version sources
+        run: node scripts/set-build-version.mjs 0.5.0-beta.4
+
+      - name: Commit generated version sync and remove bootstrap workflow
+        shell: bash
+        run: |
+          git rm .github/workflows/bootstrap-beta4-version-sync.yml
+          git add package.json package-lock.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "release: sync v0.5.0-beta.4 version files"
+          git push origin HEAD:release/v0.5.0-beta.4
