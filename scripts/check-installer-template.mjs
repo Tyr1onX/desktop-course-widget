@@ -52,8 +52,15 @@ const requiredFragments = [
   '!define LEGACY_PRODUCTNAME "桌面课表"',
   '!define LEGACY_UNINSTKEY "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${LEGACY_PRODUCTNAME}"',
   'Var LegacyBrandMigration',
+  'Var LegacyInstallDir',
+  'Var LegacyMainBinaryName',
   'ReadRegStr $5 SHCTX "${LEGACY_UNINSTKEY}" "DisplayName"',
   'StrCpy $LegacyBrandMigration 1',
+  'ReadRegStr $LegacyInstallDir SHCTX "${LEGACY_UNINSTKEY}" "InstallLocation"',
+  '${AndIf} $LegacyInstallDir != $INSTDIR',
+  'ExecWait \'"$LegacyInstallDir\\uninstall.exe" /S\' $1',
+  'IfFileExists "$LegacyInstallDir\\$LegacyMainBinaryName" 0 legacy_program_removed',
+  'refusing unsafe recursive cleanup',
   'DeleteRegKey SHCTX "${LEGACY_UNINSTKEY}"',
   'Delete "$SMPROGRAMS\\${LEGACY_PRODUCTNAME}.lnk"',
   'Delete "$DESKTOP\\${LEGACY_PRODUCTNAME}.lnk"',
@@ -76,5 +83,5 @@ if (installPage < 0 || finishPage <= installPage) {
 }
 
 console.log(
-  'installer template contract passed: currentUser + native headers + installer sidebar + uninstaller icon + uninstall registry preserved; exact 桌面课表→课刻 migration preserved; finish page auto-advance enabled',
+  'installer template contract passed: currentUser + native headers + installer sidebar + uninstaller icon + uninstall registry preserved; exact 桌面课表→课刻 migration preserves same-root upgrades and safely uninstalls distinct legacy roots; finish page auto-advance enabled',
 )
