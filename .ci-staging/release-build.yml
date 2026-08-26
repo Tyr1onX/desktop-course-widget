@@ -214,16 +214,16 @@ jobs:
           ./scripts/windows-release-upgrade-smoke.ps1 -Candidate $installer.FullName
 
       - name: Smoke test public v0.3.0 legacy-brand upgrade
-  shell: pwsh
-  run: |
-    $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
-    if (-not $installer) { throw 'Windows NSIS installer was not produced.' }
-    ./scripts/windows-release-upgrade-smoke.ps1 `
-      -Candidate $installer.FullName `
-      -BaseVersion '0.3.0' `
-      -BaseUrl 'https://github.com/Tyr1onX/desktop-course-widget/releases/download/v0.3.0/_0.3.0_x64-setup.exe' `
-      -BaseSha256 '4a54a97c9dc0799098d123ffa0ba5ae253fe6557e1e8067968706a62404b99b6' `
-      -LegacyProductName '桌面课表'
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'Windows NSIS installer was not produced.' }
+          ./scripts/windows-release-upgrade-smoke.ps1 `
+            -Candidate $installer.FullName `
+            -BaseVersion '0.3.0' `
+            -BaseUrl 'https://github.com/Tyr1onX/desktop-course-widget/releases/download/v0.3.0/_0.3.0_x64-setup.exe' `
+            -BaseSha256 '4a54a97c9dc0799098d123ffa0ba5ae253fe6557e1e8067968706a62404b99b6' `
+            -LegacyProductName '桌面课表'
 
       - name: Verify packaged native OCR resources
         shell: pwsh
