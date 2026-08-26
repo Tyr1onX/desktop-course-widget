@@ -79,7 +79,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: "src-tauri -> target"
-          shared-key: windows-release-v2
+          shared-key: windows-release-v3
           cache-on-failure: true
 
       - name: Prepare unique v0.5.0 beta candidate version
@@ -87,9 +87,6 @@ jobs:
 
       - name: Run Rust library tests
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
-
-      - name: Check Rust dependencies without changing the lockfile
-        run: cargo check --locked --manifest-path src-tauri/Cargo.toml --profile test
 
       - name: Build Release OCR compile boundary
         run: cargo build --release --locked --manifest-path src-tauri/Cargo.toml --features ocr-native-spike --bin ocr-native-spike
