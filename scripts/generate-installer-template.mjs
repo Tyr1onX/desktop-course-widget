@@ -36,7 +36,7 @@ if (occurrences !== 1) {
   throw new Error(`expected exactly one ${NO_AUTO_CLOSE_DIRECTIVE}, found ${occurrences}`)
 }
 
-const generated = source.replace(
+let generated = source.replace(
   [
     "; Don't auto jump to finish page after installation page,",
     '; because the installation page has useful info that can be used debug any issues with the installer.',
@@ -49,9 +49,108 @@ if (generated === source || generated.includes(NO_AUTO_CLOSE_DIRECTIVE)) {
   throw new Error('failed to apply the single installer finish-page patch')
 }
 
+function replaceExactlyOnce(value, needle, replacement, label) {
+  const occurrences = value.split(needle).length - 1
+  if (occurrences !== 1) {
+    throw new Error(`${label}: expected exactly one anchor, found ${occurrences}`)
+  }
+  return value.replace(needle, replacement)
+}
+
+const productKeyAnchor = [
+  '!define UNINSTKEY "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${PRODUCTNAME}"',
+  '!define MANUKEY "Software\\${MANUFACTURER}"',
+  '!define MANUPRODUCTKEY "${MANUKEY}\\${PRODUCTNAME}"',
+].join('\n')
+generated = replaceExactlyOnce(
+  generated,
+  productKeyAnchor,
+  [
+    productKeyAnchor,
+    '!define LEGACY_PRODUCTNAME "桌面课表"',
+    '!define LEGACY_UNINSTKEY "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${LEGACY_PRODUCTNAME}"',
+    '!define LEGACY_MANUPRODUCTKEY "${MANUKEY}\\${LEGACY_PRODUCTNAME}"',
+  ].join('\n'),
+  'legacy product key definitions',
+)
+
+generated = replaceExactlyOnce(
+  generated,
+  'Var PassiveMode',
+  ['Var PassiveMode', 'Var LegacyBrandMigration'].join('\n'),
+  'legacy migration state variable',
+)
+
+const restoreAnchor = [
+  'Function RestorePreviousInstallLocation',
+  '  ReadRegStr $4 SHCTX "${MANUPRODUCTKEY}" ""',
+  '  StrCmp $4 "" +2 0',
+  '    StrCpy $INSTDIR $4',
+  'FunctionEnd',
+].join('\n')
+const restoreWithLegacy = [
+  'Function RestorePreviousInstallLocation',
+  '  StrCpy $LegacyBrandMigration 0',
+  '  ReadRegStr $4 SHCTX "${MANUPRODUCTKEY}" ""',
+  '  ${If} $4 != ""',
+  '    StrCpy $INSTDIR $4',
+  '    Return',
+  '  ${EndIf}',
+  '',
+  '  ; Only migrate the exact historical identity used by this project.',
+  '  ReadRegStr $5 SHCTX "${LEGACY_UNINSTKEY}" "DisplayName"',
+  '  ${If} $5 != "${LEGACY_PRODUCTNAME}"',
+  '    Return',
+  '  ${EndIf}',
+  '  ReadRegStr $4 SHCTX "${LEGACY_UNINSTKEY}" "InstallLocation"',
+  '  ${If} $4 == ""',
+  '    ReadRegStr $4 SHCTX "${LEGACY_MANUPRODUCTKEY}" ""',
+  '  ${EndIf}',
+  '  ${If} $4 != ""',
+  '    StrCpy $INSTDIR $4',
+  '    StrCpy $LegacyBrandMigration 1',
+  '  ${EndIf}',
+  'FunctionEnd',
+].join('\n')
+generated = replaceExactlyOnce(
+  generated,
+  restoreAnchor,
+  restoreWithLegacy,
+  'legacy install location migration',
+)
+
+const postInstallAnchor = [
+  '  !ifmacrodef NSIS_HOOK_POSTINSTALL',
+  '    !insertmacro NSIS_HOOK_POSTINSTALL',
+  '  !endif',
+].join('\n')
+const postInstallMigration = [
+  postInstallAnchor,
+  '',
+  '  ; After the new product is fully installed, retire only the exact old identity.',
+  '  ${If} $LegacyBrandMigration = 1',
+  '    ReadRegStr $0 SHCTX "${LEGACY_UNINSTKEY}" "DisplayName"',
+  '    ${If} $0 == "${LEGACY_PRODUCTNAME}"',
+  '      DeleteRegKey SHCTX "${LEGACY_UNINSTKEY}"',
+  '    ${EndIf}',
+  '    ReadRegStr $0 SHCTX "${LEGACY_MANUPRODUCTKEY}" ""',
+  '    ${If} $0 == $INSTDIR',
+  '      DeleteRegKey SHCTX "${LEGACY_MANUPRODUCTKEY}"',
+  '    ${EndIf}',
+  '    Delete "$SMPROGRAMS\\${LEGACY_PRODUCTNAME}.lnk"',
+  '    Delete "$DESKTOP\\${LEGACY_PRODUCTNAME}.lnk"',
+  '  ${EndIf}',
+].join('\n')
+generated = replaceExactlyOnce(
+  generated,
+  postInstallAnchor,
+  postInstallMigration,
+  'legacy post-install cleanup',
+)
+
 mkdirSync(outDir, { recursive: true })
 writeFileSync(outPath, generated, 'utf8')
 
 console.log(
-  `installer template v2: tauri-bundler-v2.9.4 blob=${sourceBlob}, patched finish-page auto-advance`,
+  `installer template v2: tauri-bundler-v2.9.4 blob=${sourceBlob}, patched finish-page auto-advance + exact legacy brand migration`,
 )

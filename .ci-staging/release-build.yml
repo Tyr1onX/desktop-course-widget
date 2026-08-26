@@ -1,0 +1,287 @@
+name: Windows Release Build
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  COURSE_WIDGET_BUILD_VERSION: "0.5.0-beta.5.${{ github.run_number }}.${{ github.run_attempt }}"
+  VITE_BUILD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+concurrency:
+  group: release-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-release:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: windows-latest
+    timeout-minutes: 50
+
+    steps:
+      - name: Checkout release branch
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check npm audit findings
+        shell: pwsh
+        run: |
+          $auditJson = npm audit --json 2>$null | Out-String
+          $auditExit = $LASTEXITCODE
+          if ([string]::IsNullOrWhiteSpace($auditJson)) {
+            throw "npm audit produced no JSON output (exit $auditExit)."
+          }
+          $audit = $auditJson | ConvertFrom-Json
+          $metadata = $audit.metadata.vulnerabilities
+          Write-Host "npm audit: info=$($metadata.info) low=$($metadata.low) moderate=$($metadata.moderate) high=$($metadata.high) critical=$($metadata.critical)"
+          foreach ($property in $audit.vulnerabilities.PSObject.Properties) {
+            $item = $property.Value
+            $via = @($item.via | ForEach-Object {
+              if ($_ -is [string]) { $_ }
+              elseif ($_.title) { "$($_.source): $($_.title)" }
+            }) -join '; '
+            Write-Host "npm audit finding: package=$($property.Name) severity=$($item.severity) direct=$($item.isDirect) range=$($item.range) fixAvailable=$($item.fixAvailable) via=$via"
+          }
+          @(
+            '### npm audit',
+            '',
+            "- exit: $auditExit",
+            "- moderate: $($metadata.moderate)",
+            "- high: $($metadata.high)",
+            "- critical: $($metadata.critical)",
+            '- gate: high / critical block release'
+          ) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+          if ($metadata.high -gt 0 -or $metadata.critical -gt 0) {
+            throw "npm audit found blocking vulnerabilities: high=$($metadata.high) critical=$($metadata.critical)"
+          }
+
+      - name: Select stable Rust
+        run: rustup default stable
+
+      - name: Restore Rust dependency cache
+        id: rust_cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: "src-tauri -> target"
+          shared-key: windows-release-v3
+          cache-on-failure: true
+
+      - name: Prepare unique v0.5.0 beta candidate version
+        run: node scripts/set-build-version.mjs $env:COURSE_WIDGET_BUILD_VERSION
+
+      - name: Run Rust library tests
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
+
+      - name: Build Release OCR compile boundary
+        run: cargo build --release --locked --manifest-path src-tauri/Cargo.toml --features ocr-native-spike --bin ocr-native-spike
+
+      - name: Check Release OCR compile boundary
+        run: cargo check --release --locked --manifest-path src-tauri/Cargo.toml
+
+      - name: Check release version consistency
+        run: npm run check:version
+
+      - name: Check installer template contract
+        run: npm run check:installer-template
+
+      - name: Upload candidate version files
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: desktop-course-widget-version-files
+          path: |
+            package.json
+            package-lock.json
+            src-tauri/Cargo.toml
+            src-tauri/Cargo.lock
+            src-tauri/tauri.conf.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Check widget time-flow model
+        run: npm run check:time-flow
+
+      - name: Check import review helpers
+        run: npm run check:import-review
+
+      - name: Check screenshot import policy
+        run: npm run check:screenshot-import
+
+      - name: Check import review DOM lifecycle
+        run: npm run check:import-review-dom
+
+      - name: Check screenshot capability DOM lifecycle
+        run: npm run check:screenshot-import-dom
+
+      - name: Check presentation clock
+        run: npm run check:presentation-clock
+
+      - name: Check Tauri security policy
+        run: npm run check:security-boundary
+
+      - name: Build web interface
+        run: npm run web:build
+
+      - name: Download pinned native OCR models
+        shell: pwsh
+        run: ./scripts/download-native-ocr-models.ps1
+
+      - name: Run native OCR inference smoke
+        shell: pwsh
+        run: |
+          $sample = Join-Path $env:RUNNER_TEMP 'stundenplan.png'
+          $sampleUrl = 'https://upload.wikimedia.org/wikipedia/commons/6/64/Stundenplan.PNG'
+          $expectedHash = '173635c94fbf3e99facc14b2ab1217e1661c33b4e1a215c3e6b412dbcf4f1c41'
+          Invoke-WebRequest -Uri $sampleUrl -OutFile $sample
+          $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $sample).Hash.ToLowerInvariant()
+          if ($actualHash -ne $expectedHash) {
+            throw "OCR public sample SHA-256 mismatch: $actualHash != $expectedHash"
+          }
+          $spike = (Resolve-Path 'src-tauri/target/release/ocr-native-spike.exe').Path
+          & $spike `
+            --image $sample `
+            --det-model src-tauri/resources/ocr-native/PP-OCRv5_mobile_det_fp16.mnn `
+            --rec-model src-tauri/resources/ocr-native/PP-OCRv5_mobile_rec_fp16.mnn `
+            --charset src-tauri/resources/ocr-native/ppocr_keys_v5.txt `
+            --max-cold-seconds 60
+
+      - name: Clear generated installer review assets
+        shell: pwsh
+        run: |
+          Remove-Item -Force -ErrorAction SilentlyContinue `
+            'src-tauri/installer/header.bmp', `
+            'src-tauri/installer/sidebar.bmp', `
+            'src-tauri/installer/installer-v2.nsi'
+
+      - name: Build Windows NSIS installer
+        run: npm run tauri:build
+
+      - name: Verify installer branding contract
+        run: node scripts/check-installer-branding.mjs
+
+      - name: Upload installer visual asset
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: desktop-course-widget-installer-visual-assets
+          path: src-tauri/installer/sidebar.bmp
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Capture installer review screenshots
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'Windows NSIS installer was not produced.' }
+          ./scripts/capture-installer-review.ps1 `
+            -Installer $installer.FullName `
+            -OutputDir (Join-Path $env:RUNNER_TEMP 'installer-review')
+
+      - name: Upload installer review screenshots
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: desktop-course-widget-installer-review
+          path: ${{ runner.temp }}/installer-review/*.png
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Smoke test installed Windows package
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'Windows NSIS installer was not produced.' }
+          ./scripts/windows-installer-smoke.ps1 -Installer $installer.FullName
+
+      - name: Smoke test public v0.5.0-beta.1 upgrade
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'Windows NSIS installer was not produced.' }
+          ./scripts/windows-release-upgrade-smoke.ps1 -Candidate $installer.FullName
+
+      - name: Smoke test public v0.3.0 legacy-brand upgrade
+  shell: pwsh
+  run: |
+    $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
+    if (-not $installer) { throw 'Windows NSIS installer was not produced.' }
+    ./scripts/windows-release-upgrade-smoke.ps1 `
+      -Candidate $installer.FullName `
+      -BaseVersion '0.3.0' `
+      -BaseUrl 'https://github.com/Tyr1onX/desktop-course-widget/releases/download/v0.3.0/_0.3.0_x64-setup.exe' `
+      -BaseSha256 '4a54a97c9dc0799098d123ffa0ba5ae253fe6557e1e8067968706a62404b99b6' `
+      -LegacyProductName '桌面课表'
+
+      - name: Verify packaged native OCR resources
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'Windows NSIS installer was not produced.' }
+          ./scripts/verify-native-ocr-package.ps1 -Installer $installer.FullName
+
+      - name: Smoke test release executable windows
+        shell: pwsh
+        run: ./scripts/windows-window-smoke.ps1
+
+      - name: Verify build left the branch unchanged
+        shell: pwsh
+        run: |
+          git checkout -- package.json package-lock.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json
+          Remove-Item -Force -ErrorAction SilentlyContinue `
+            'src-tauri/resources/ocr-native/PP-OCRv5_mobile_det_fp16.mnn', `
+            'src-tauri/resources/ocr-native/PP-OCRv5_mobile_rec_fp16.mnn', `
+            'src-tauri/resources/ocr-native/ppocr_keys_v5.txt', `
+            'src-tauri/resources/ocr-native/manifest.json'
+          git diff --exit-code
+          $status = @(git status --porcelain)
+          if ($status.Count -ne 0) {
+            git status --short
+            throw 'Build left untracked or modified files in the review branch.'
+          }
+
+      - name: Record packaged build identity
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'Windows NSIS installer was not produced.' }
+          $sha256 = (Get-FileHash -Algorithm SHA256 $installer.FullName).Hash.ToLowerInvariant()
+          [ordered]@{
+            version = $env:COURSE_WIDGET_BUILD_VERSION
+            sourceHeadSha = $env:VITE_BUILD_SHA
+            workflowSha = $env:GITHUB_SHA
+            runId = $env:GITHUB_RUN_ID
+            runNumber = $env:GITHUB_RUN_NUMBER
+            runAttempt = $env:GITHUB_RUN_ATTEMPT
+            installer = $installer.Name
+            installerSha256 = $sha256
+          } | ConvertTo-Json | Set-Content -Encoding utf8 build-metadata.json
+          Get-Content build-metadata.json
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: desktop-course-widget-windows-release
+          path: src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload packaged build identity
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: desktop-course-widget-build-metadata
+          path: build-metadata.json
+          if-no-files-found: error
+          retention-days: 7

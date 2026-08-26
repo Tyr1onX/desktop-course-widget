@@ -253,8 +253,8 @@ button { color: inherit; }
   top: 46px;
   left: var(--time-column);
   right: 0;
-  color: #9aa0a9;
-  font-size: 13px;
+  color: #9aa1aa;
+  font-size: 12px;
   text-align: center;
   pointer-events: none;
 }
@@ -422,10 +422,6 @@ button { color: inherit; }
   );
 }
 
-.week-empty {
-  top: 50%;
-  transform: translateY(-50%);
-}
 
 .lesson-label {
   gap: 7px;
@@ -571,11 +567,6 @@ button { color: inherit; }
 .course-card span { color: rgba(39, 49, 59, 0.66); }
 .course-card.is-selected { box-shadow: 0 0 0 1px color-mix(in srgb, var(--course-color), #263649 40%), 0 4px 12px rgba(31, 35, 40, 0.09); }
 
-.week-empty {
-  top: 50%;
-  color: #9aa1aa;
-  font-size: 12px;
-}
 
 .schedule-dimmer { background: rgba(35, 42, 52, 0.13); }
 .side-surface {

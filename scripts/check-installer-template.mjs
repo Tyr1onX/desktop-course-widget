@@ -49,6 +49,14 @@ const requiredFragments = [
   'WriteUninstaller "$INSTDIR\\uninstall.exe"',
   'WriteRegStr SHCTX "${UNINSTKEY}" "UninstallString" "$\\"$INSTDIR\\uninstall.exe$\\""',
   'DeleteRegKey HKCU "${UNINSTKEY}"',
+  '!define LEGACY_PRODUCTNAME "桌面课表"',
+  '!define LEGACY_UNINSTKEY "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${LEGACY_PRODUCTNAME}"',
+  'Var LegacyBrandMigration',
+  'ReadRegStr $5 SHCTX "${LEGACY_UNINSTKEY}" "DisplayName"',
+  'StrCpy $LegacyBrandMigration 1',
+  'DeleteRegKey SHCTX "${LEGACY_UNINSTKEY}"',
+  'Delete "$SMPROGRAMS\\${LEGACY_PRODUCTNAME}.lnk"',
+  'Delete "$DESKTOP\\${LEGACY_PRODUCTNAME}.lnk"',
 ]
 
 for (const fragment of requiredFragments) {
@@ -68,5 +76,5 @@ if (installPage < 0 || finishPage <= installPage) {
 }
 
 console.log(
-  'installer template contract passed: currentUser + native headers + installer sidebar + uninstaller icon + uninstall registry preserved; finish page auto-advance enabled',
+  'installer template contract passed: currentUser + native headers + installer sidebar + uninstaller icon + uninstall registry preserved; exact 桌面课表→课刻 migration preserved; finish page auto-advance enabled',
 )

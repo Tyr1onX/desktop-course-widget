@@ -1,3 +1,4 @@
+import { getVersion } from '@tauri-apps/api/app'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import type { ImportCourse, ImportDraft } from './import-draft'
@@ -151,6 +152,7 @@ let expandedImportCourseIndex = 0
 let importRequestId = ''
 let importCreatePending = false
 let surfaceMessage = ''
+let applicationVersion = desktopRuntime ? '' : '浏览器预览'
 let autostartEnabled = false
 let timeDraft = structuredClone(settings.lessonTimes)
 let timeEqualDuration = settings.equalDuration
@@ -809,12 +811,22 @@ function aboutSurfaceMarkup(): string {
   return surfaceShell('关于', `
     <div class="surface-scroll simple-surface about-panel">
       <div class="about-icon">课</div>
-      <h3>桌面课表</h3>
+      <h3>课刻</h3>
       <p>Windows 本地桌面课表组件</p>
-      <span>版本 0.2.0</span>
+      <span>版本 ${escapeHtml(applicationVersion || '读取中…')}</span>
       <p class="about-note">课表数据仅保存在本机，不会上传到服务器。</p>
     </div>
   `)
+}
+
+async function refreshAboutVersion(): Promise<void> {
+  if (!desktopRuntime || applicationVersion) return
+  try {
+    applicationVersion = await getVersion()
+  } catch {
+    applicationVersion = '未知'
+  }
+  if (surface === 'about') render()
 }
 
 function bindEvents(): void {
@@ -885,6 +897,7 @@ function openSurface(next: Exclude<Surface, 'course' | null>): void {
     timeEqualDuration = settings.equalDuration
   }
   render()
+  if (next === 'about') void refreshAboutVersion()
 }
 
 function closeSurface(reason: 'backdrop' | 'explicit'): void {

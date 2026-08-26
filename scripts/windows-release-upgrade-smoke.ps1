@@ -1,6 +1,10 @@
 param(
   [Parameter(Mandatory = $true)]
-  [string]$Candidate
+  [string]$Candidate,
+  [string]$BaseVersion = '0.5.0-beta.1',
+  [string]$BaseUrl = 'https://github.com/Tyr1onX/desktop-course-widget/releases/download/v0.5.0-beta.1/_0.5.0-beta.1_x64-setup.exe',
+  [string]$BaseSha256 = '8ac5d9e62bc492e0e80e3aad94c338c070b0cc349f0d11ec35c7f5a909980126',
+  [string]$LegacyProductName = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -14,10 +18,11 @@ $bundleId = [string]$config.identifier
 $expectedVersion = [string]$config.version
 $publisher = [string]$config.bundle.publisher
 
-$baseVersion = '0.5.0-beta.1'
-$baseUrl = 'https://github.com/Tyr1onX/desktop-course-widget/releases/download/v0.5.0-beta.1/_0.5.0-beta.1_x64-setup.exe'
-$baseSha256 = '8ac5d9e62bc492e0e80e3aad94c338c070b0cc349f0d11ec35c7f5a909980126'
-$baseInstaller = Join-Path $env:RUNNER_TEMP 'course-widget-v0.5.0-beta.1.exe'
+$baseVersion = $BaseVersion
+$baseUrl = $BaseUrl
+$baseSha256 = $BaseSha256.ToLowerInvariant()
+$baseInstaller = Join-Path $env:RUNNER_TEMP ("course-widget-{0}.exe" -f $baseVersion)
+$baseProductName = if ([string]::IsNullOrWhiteSpace($LegacyProductName)) { $productName } else { $LegacyProductName }
 $dataRoot = Join-Path $env:LOCALAPPDATA $bundleId
 $testCreatedDataRoot = -not (Test-Path -LiteralPath $dataRoot)
 
@@ -30,7 +35,7 @@ function Wait-Condition([scriptblock]$Condition, [string]$Message, [int]$Timeout
   throw $Message
 }
 
-function Get-UninstallEntries {
+function Get-UninstallEntries([string]$Name = $productName) {
   $roots = @(
     @{ Hive = 'HKCU'; Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' },
     @{ Hive = 'HKLM'; Path = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' },
@@ -39,7 +44,7 @@ function Get-UninstallEntries {
   $matches = foreach ($root in $roots) {
     Get-ItemProperty -Path $root.Path -ErrorAction SilentlyContinue |
       Where-Object {
-        $_.DisplayName -eq $productName -and
+        $_.DisplayName -eq $Name -and
         ([string]::IsNullOrWhiteSpace($publisher) -or $_.Publisher -eq $publisher)
       } |
       ForEach-Object {
@@ -54,10 +59,10 @@ function Get-UninstallEntries {
   return @($matches)
 }
 
-function Get-Registration([string]$Version) {
-  $entries = @(Get-UninstallEntries)
+function Get-Registration([string]$Version, [string]$Name = $productName) {
+  $entries = @(Get-UninstallEntries -Name $Name)
   if ($entries.Count -ne 1) {
-    throw "Expected exactly one $productName uninstall registration, found $($entries.Count)."
+    throw "Expected exactly one $Name uninstall registration, found $($entries.Count)."
   }
   $entry = $entries[0]
   if ($entry.Hive -ne 'HKCU') {
@@ -403,8 +408,11 @@ function Invoke-DeleteDataUninstall([string]$Uninstaller) {
   Invoke-UninstallerAction $uiHandle 10
 }
 
-if (@(Get-UninstallEntries).Count -ne 0) {
+if (@(Get-UninstallEntries -Name $productName).Count -ne 0) {
   throw "$productName is already installed on the release-upgrade runner."
+}
+if ($baseProductName -ne $productName -and @(Get-UninstallEntries -Name $baseProductName).Count -ne 0) {
+  throw "$baseProductName is already installed on the release-upgrade runner."
 }
 
 try {
@@ -418,10 +426,22 @@ try {
 
   $baseProcess = Start-Process -FilePath $baseInstaller -ArgumentList '/S' -PassThru -Wait
   if ($baseProcess.ExitCode -ne 0) { throw "Public $baseVersion installer exited with $($baseProcess.ExitCode)." }
-  $baseRegistration = Get-Registration $baseVersion
+  $baseRegistration = Get-Registration $baseVersion $baseProductName
   $basePaths = Get-InstalledPaths $baseRegistration
   Probe-App $basePaths.MainExe "public $baseVersion"
   Seed-Beta1UserData
+
+  $legacyStartShortcut = Join-Path ([Environment]::GetFolderPath('Programs')) "$baseProductName.lnk"
+  $legacyDesktopShortcut = Join-Path ([Environment]::GetFolderPath('Desktop')) "$baseProductName.lnk"
+  if ($baseProductName -ne $productName) {
+    if (-not (Test-Path -LiteralPath $legacyStartShortcut)) {
+      throw "Public $baseVersion did not create the expected legacy Start Menu shortcut: $legacyStartShortcut"
+    }
+    if (-not (Test-Path -LiteralPath $legacyDesktopShortcut)) {
+      throw "Public $baseVersion did not create the expected legacy desktop shortcut: $legacyDesktopShortcut"
+    }
+    Write-Host "legacy Windows identity verified before upgrade: DisplayName='$baseProductName' installRoot='$($basePaths.InstallRoot)'"
+  }
 
   $candidateProcess = Start-Process -FilePath $Candidate -ArgumentList '/S' -PassThru -Wait
   if ($candidateProcess.ExitCode -ne 0) { throw "Candidate installer exited with $($candidateProcess.ExitCode)." }
@@ -429,6 +449,31 @@ try {
   $candidatePaths = Get-InstalledPaths $candidateRegistration
   if ($candidatePaths.InstallRoot -ne $basePaths.InstallRoot) {
     throw "Upgrade changed install root: '$($basePaths.InstallRoot)' -> '$($candidatePaths.InstallRoot)'."
+  }
+  if ($baseProductName -ne $productName) {
+    if (@(Get-UninstallEntries -Name $baseProductName).Count -ne 0) {
+      throw "Legacy uninstall registration '$baseProductName' remained after candidate upgrade."
+    }
+    if (Test-Path -LiteralPath $legacyStartShortcut) {
+      throw "Legacy Start Menu shortcut remained after migration: $legacyStartShortcut"
+    }
+    if (Test-Path -LiteralPath $legacyDesktopShortcut) {
+      throw "Legacy desktop shortcut remained after migration: $legacyDesktopShortcut"
+    }
+    $newStartShortcut = Join-Path ([Environment]::GetFolderPath('Programs')) "$productName.lnk"
+    $newDesktopShortcut = Join-Path ([Environment]::GetFolderPath('Desktop')) "$productName.lnk"
+    foreach ($shortcut in @($newStartShortcut, $newDesktopShortcut)) {
+      if (-not (Test-Path -LiteralPath $shortcut)) {
+        throw "Migrated $productName shortcut is missing: $shortcut"
+      }
+    }
+    $shell = New-Object -ComObject WScript.Shell
+    $startTarget = [IO.Path]::GetFullPath($shell.CreateShortcut($newStartShortcut).TargetPath)
+    $expectedTarget = [IO.Path]::GetFullPath($candidatePaths.MainExe)
+    if ($startTarget -ne $expectedTarget) {
+      throw "Migrated Start Menu shortcut targets '$startTarget', expected '$expectedTarget'."
+    }
+    Write-Host "legacy brand migration verified: old registration/shortcuts removed; new identity='$productName'; installRoot preserved"
   }
   Probe-App $candidatePaths.MainExe "candidate $expectedVersion"
   Assert-RetainedUserData
@@ -451,7 +496,7 @@ try {
   Wait-Condition { -not (Test-Path -LiteralPath $dataRoot) } 'Delete-app-data option did not remove the application data directory.' 45
   Write-Host 'candidate uninstaller delete-app-data option removed application data as required.'
 
-  Write-Host "public release upgrade smoke passed: $baseVersion -> $expectedVersion; timetable/settings preserved; default uninstall preserved data; delete-app-data removed data"
+  Write-Host "public release upgrade smoke passed: $baseVersion -> $expectedVersion; baselineBrand=$baseProductName; timetable/settings preserved; default uninstall preserved data; delete-app-data removed data"
   if ($env:GITHUB_STEP_SUMMARY) {
     @(
       '### Public release upgrade smoke',
@@ -469,7 +514,8 @@ try {
 }
 finally {
   Stop-App
-  $entries = @(Get-UninstallEntries)
+  $entries = @(Get-UninstallEntries -Name $productName)
+  if ($baseProductName -ne $productName) { $entries += @(Get-UninstallEntries -Name $baseProductName) }
   foreach ($entry in $entries) {
     try {
       $paths = Get-InstalledPaths $entry

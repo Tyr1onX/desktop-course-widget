@@ -1,0 +1,168 @@
+name: Validate
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+env:
+  COURSE_WIDGET_BUILD_VERSION: "0.5.0-beta.5.${{ github.run_number }}.${{ github.run_attempt }}"
+
+concurrency:
+  group: validate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install web dependencies
+        run: npm ci
+
+      - name: Select stable Rust
+        run: rustup default stable
+
+      - name: Restore Rust dependency cache
+        id: rust_cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: "src-tauri -> target"
+          shared-key: windows-validate-v1
+          cache-on-failure: true
+
+      - name: Prepare v0.5.0 beta candidate version
+        run: node scripts/set-build-version.mjs $env:COURSE_WIDGET_BUILD_VERSION
+
+      - name: Check release version consistency
+        run: npm run check:version
+
+      - name: Check widget time-flow model
+        run: npm run check:time-flow
+
+      - name: Check import review helpers
+        run: npm run check:import-review
+
+      - name: Check screenshot import policy
+        run: npm run check:screenshot-import
+
+      - name: Check import review DOM lifecycle
+        run: npm run check:import-review-dom
+
+      - name: Check screenshot import DOM lifecycle
+        run: npm run check:screenshot-import-dom
+
+      - name: Check presentation clock
+        run: npm run check:presentation-clock
+
+      - name: Check Tauri security policy
+        run: npm run check:security-boundary
+
+      - name: Build web interface
+        id: web_build
+        shell: pwsh
+        run: |
+          npm run web:build *>&1 | Tee-Object -FilePath web-build.log
+          "exit_code=$LASTEXITCODE" >> $env:GITHUB_OUTPUT
+          exit 0
+
+      - name: Upload web build log
+        if: always() && steps.web_build.outcome != 'skipped'
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: web-build-log
+          path: web-build.log
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Fail when web build failed
+        if: steps.web_build.outputs.exit_code != '0'
+        shell: pwsh
+        run: exit 1
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
+
+      - name: Install screenshot experiment test dependencies
+        run: python -m pip install -r experiments/screenshot_import/requirements-test.txt
+
+      - name: Run screenshot experiment tests
+        run: python -m pytest experiments/screenshot_import/tests
+
+      - name: Check Rust dependencies without changing the lockfile
+        run: cargo check --locked --manifest-path src-tauri/Cargo.toml
+
+      - name: Run Rust library tests
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
+
+      - name: Prebuild ImportDraft validator example
+        run: cargo build --locked --quiet --manifest-path src-tauri/Cargo.toml --example validate_import_draft
+
+      - name: Validate Chinese timetable style families with Rust
+        shell: pwsh
+        run: |
+          $root = '.tmp/chinese-timetable-corpus'
+          python -m experiments.screenshot_import generate-chinese-corpus --output $root
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          foreach ($style in @('mobile_cards_12', 'minimal_lines_10', 'dense_export_12')) {
+            $output = "$root/$style-output"
+            python -m experiments.screenshot_import recognize `
+              --input "$root/$style.png" `
+              --output $output `
+              --engine fixture `
+              --fixture "$root/$style.ocr.json" `
+              --ocr-mode ocr-first `
+              --ground-truth "$root/$style.ground-truth.json" `
+              --repo-root .
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+            $report = Get-Content "$output/report.json" -Raw | ConvertFrom-Json
+            $evaluation = $report.fieldEvaluation
+            if ($report.courseCount -ne 4 `
+                -or $evaluation.courseCountMatched -ne 4 `
+                -or $evaluation.missingCourseCount -ne 0 `
+                -or $evaluation.falsePositiveCourseCount -ne 0 `
+                -or $evaluation.valueAccuracy.wrong -ne 0 `
+                -or $evaluation.valueAccuracy.valueMissing -ne 0 `
+                -or $evaluation.autoConfirmationErrors.Count -ne 0 `
+                -or $report.rustValidation.structuralValid -ne $true) {
+              throw "Chinese timetable style validation failed for $style`: $($evaluation | ConvertTo-Json -Depth 10)"
+            }
+          }
+
+      - name: Validate synthetic screenshot drafts with Rust
+        shell: pwsh
+        run: |
+          python -m experiments.screenshot_import generate-synthetic --output .tmp/screenshot-import
+          foreach ($sample in @('standard_10', 'tilted_12')) {
+            foreach ($mode in @('block', 'full')) {
+              python -m experiments.screenshot_import recognize `
+                --input ".tmp/screenshot-import/$sample.png" `
+                --output ".tmp/screenshot-import/$sample-$mode-output" `
+                --engine fixture `
+                --fixture ".tmp/screenshot-import/$sample.ocr.json" `
+                --ocr-mode $mode `
+                --ground-truth ".tmp/screenshot-import/$sample.ground-truth.json" `
+                --repo-root .
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            }
+          }
