@@ -4,7 +4,8 @@ param(
   [string]$BaseVersion = '0.5.0-beta.1',
   [string]$BaseUrl = 'https://github.com/Tyr1onX/desktop-course-widget/releases/download/v0.5.0-beta.1/_0.5.0-beta.1_x64-setup.exe',
   [string]$BaseSha256 = '8ac5d9e62bc492e0e80e3aad94c338c070b0cc349f0d11ec35c7f5a909980126',
-  [string]$LegacyProductName = ''
+  [string]$LegacyProductName = '',
+  [string]$ExpectedVersion = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -15,7 +16,7 @@ $PSNativeCommandUseErrorActionPreference = $true
 $config = Get-Content -Raw -LiteralPath 'src-tauri/tauri.conf.json' | ConvertFrom-Json
 $productName = [string]$config.productName
 $bundleId = [string]$config.identifier
-$expectedVersion = [string]$config.version
+$expectedVersion = if ([string]::IsNullOrWhiteSpace($ExpectedVersion)) { [string]$config.version } else { $ExpectedVersion }
 $publisher = [string]$config.bundle.publisher
 
 $baseVersion = $BaseVersion
@@ -227,6 +228,31 @@ function Assert-RetainedUserData {
     throw 'Upgrade did not preserve the lesson-time/settings marker.'
   }
   Write-Host "public upgrade data preserved: legacy='$legacyPath' catalog='$activePath' settings='$settingsPath'"
+}
+
+function Seed-LegacyIdentityResidue([string]$Name, [string]$InstallRoot, [string]$MainExe, [string]$Uninstaller) {
+  $uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$Name"
+  New-Item -Path $uninstallKey -Force | Out-Null
+  New-ItemProperty -LiteralPath $uninstallKey -Name DisplayName -Value $Name -PropertyType String -Force | Out-Null
+  New-ItemProperty -LiteralPath $uninstallKey -Name DisplayVersion -Value $baseVersion -PropertyType String -Force | Out-Null
+  New-ItemProperty -LiteralPath $uninstallKey -Name Publisher -Value $publisher -PropertyType String -Force | Out-Null
+  New-ItemProperty -LiteralPath $uninstallKey -Name InstallLocation -Value $InstallRoot -PropertyType String -Force | Out-Null
+  New-ItemProperty -LiteralPath $uninstallKey -Name UninstallString -Value ('"{0}"' -f $Uninstaller) -PropertyType String -Force | Out-Null
+  New-ItemProperty -LiteralPath $uninstallKey -Name MainBinaryName -Value ([IO.Path]::GetFileName($MainExe)) -PropertyType String -Force | Out-Null
+  $legacyProductKey = "HKCU:\Software\$publisher\$Name"
+  New-Item -Path $legacyProductKey -Force | Out-Null
+  Set-Item -LiteralPath $legacyProductKey -Value $InstallRoot
+  $shell = New-Object -ComObject WScript.Shell
+  foreach ($shortcutPath in @(
+    (Join-Path ([Environment]::GetFolderPath('Programs')) "$Name.lnk"),
+    (Join-Path ([Environment]::GetFolderPath('Desktop')) "$Name.lnk")
+  )) {
+    $shortcut = $shell.CreateShortcut($shortcutPath)
+    $shortcut.TargetPath = $MainExe
+    $shortcut.WorkingDirectory = $InstallRoot
+    $shortcut.Save()
+  }
+  Write-Host "seeded exact legacy identity residue while current '$productName' remains installed: '$Name'"
 }
 
 function Enable-DeleteDataOption([IntPtr]$Handle, [int]$TimeoutSeconds = 12) {
@@ -477,6 +503,30 @@ try {
   }
   Probe-App $candidatePaths.MainExe "candidate $expectedVersion"
   Assert-RetainedUserData
+
+  if ($baseProductName -ne $productName) {
+    Seed-LegacyIdentityResidue $baseProductName $candidatePaths.InstallRoot $candidatePaths.MainExe $candidatePaths.Uninstaller
+    if (@(Get-UninstallEntries -Name $productName).Count -ne 1 -or @(Get-UninstallEntries -Name $baseProductName).Count -ne 1) {
+      throw 'Failed to establish current-product + legacy-residue migration precondition.'
+    }
+    $residualUpgrade = Start-Process -FilePath $Candidate -ArgumentList '/S' -PassThru -Wait
+    if ($residualUpgrade.ExitCode -ne 0) { throw "Candidate residual-identity reinstall exited with $($residualUpgrade.ExitCode)." }
+    if (@(Get-UninstallEntries -Name $baseProductName).Count -ne 0) {
+      throw "Legacy uninstall registration '$baseProductName' remained when $productName was already installed."
+    }
+    if (@(Get-UninstallEntries -Name $productName).Count -ne 1) {
+      throw "Expected exactly one current '$productName' uninstall identity after residual cleanup."
+    }
+    foreach ($shortcut in @($legacyStartShortcut, $legacyDesktopShortcut)) {
+      if (Test-Path -LiteralPath $shortcut) {
+        throw "Legacy shortcut remained when $productName was already installed: $shortcut"
+      }
+    }
+    $candidateRegistration = Get-Registration $expectedVersion
+    $candidatePaths = Get-InstalledPaths $candidateRegistration
+    Assert-RetainedUserData
+    Write-Host "current product + legacy residue migration passed: only one '$productName' identity remains; user data preserved"
+  }
 
   Stop-App
   $defaultUninstall = Start-Process -FilePath $candidatePaths.Uninstaller -ArgumentList '/S' -PassThru -Wait
