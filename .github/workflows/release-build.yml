@@ -85,14 +85,17 @@ jobs:
       - name: Prepare unique v0.5.0 beta candidate version
         run: node scripts/set-build-version.mjs $env:COURSE_WIDGET_BUILD_VERSION
 
+      - name: Run Rust library tests
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
+
       - name: Check Rust dependencies without changing the lockfile
-        run: cargo check --locked --manifest-path src-tauri/Cargo.toml
+        run: cargo check --locked --manifest-path src-tauri/Cargo.toml --profile test
+
+      - name: Build Release OCR compile boundary
+        run: cargo build --release --locked --manifest-path src-tauri/Cargo.toml --features ocr-native-spike --bin ocr-native-spike
 
       - name: Check Release OCR compile boundary
         run: cargo check --release --locked --manifest-path src-tauri/Cargo.toml
-
-      - name: Run Rust library tests
-        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
 
       - name: Check release version consistency
         run: npm run check:version
@@ -152,8 +155,8 @@ jobs:
           if ($actualHash -ne $expectedHash) {
             throw "OCR public sample SHA-256 mismatch: $actualHash != $expectedHash"
           }
-          cargo run --release --locked --manifest-path src-tauri/Cargo.toml `
-            --features ocr-native-spike --bin ocr-native-spike -- `
+          $spike = (Resolve-Path 'src-tauri/target/release/ocr-native-spike.exe').Path
+          & $spike `
             --image $sample `
             --det-model src-tauri/resources/ocr-native/PP-OCRv5_mobile_det_fp16.mnn `
             --rec-model src-tauri/resources/ocr-native/PP-OCRv5_mobile_rec_fp16.mnn `
