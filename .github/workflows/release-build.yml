@@ -316,3 +316,10 @@ jobs:
             -BaseUrl 'https://github.com/Tyr1onX/desktop-course-widget/releases/download/v0.3.0/_0.3.0_x64-setup.exe' `
             -BaseSha256 '4a54a97c9dc0799098d123ffa0ba5ae253fe6557e1e8067968706a62404b99b6' `
             -LegacyProductName '桌面课表'
+
+      - name: Smoke test real v0.3.0 + beta.4 dual-install migration
+        shell: pwsh
+        run: |
+          ./scripts/windows-legacy-dual-install-smoke.ps1 `
+            -Candidate $env:CANDIDATE_INSTALLER `
+            -ExpectedVersion $env:COURSE_WIDGET_BUILD_VERSION
