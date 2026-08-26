@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## v0.5.0-beta.4 - 2026-08-26
+
+- Reused OCR course-card seed analysis after ownership filtering, avoiding a duplicated expensive parser pass without changing OCR heuristics or output rules; the synthetic Debug benchmark improved from 63.238s/iter to 39.235s/iter (about 38% lower time, 1.61× faster).
+- Updated the vulnerable transitive npm dependencies `postcss` from 8.5.22 to 8.5.26 and `nanoid` from 3.3.16 to 3.3.18; `npm audit` is clean and high/critical findings now block Windows release builds.
+- Kept `ocr-rs` 2.4.0 while building MNN from source on Windows MSVC so the native OCR path follows the same CRT mode as Rust, removing the previously reproducible `LNK4098` / `LIBCMT` conflict.
+- Reduced redundant cold Rust compilation in the Windows release workflow while preserving linked Rust tests, release OCR compile/check, real MNN inference, NSIS packaging, install/upgrade/uninstall smoke tests, packaged OCR verification, release executable smoke, clean-tree, and artifact gates.
+- Revalidated the complete Windows release lifecycle, including fresh and overwrite installs, public beta.1 upgrades, local data preservation, default uninstall data retention, explicit delete-data uninstall, bundled OCR resources, and packaged executable startup.
+
+### Known limitations
+
+- Screenshot recognition remains a Beta feature and unfamiliar timetable layouts may still require manual correction.
+- Some optional location fields may remain empty even when the core course arrangement is recovered correctly.
+- Use a complete, clear PNG/JPG timetable screenshot containing weekday headers, section markers, and all course cards.
+- The Windows installer is not commercially code-signed yet, so Windows may show an unknown-publisher or SmartScreen warning.
+
 ## v0.5.0-beta.3 - 2026-08-25
 
 - Improved screenshot import for traditional grid timetables, including weekday headers, lesson sections, week ranges, odd/even weeks, non-contiguous weeks, multiple courses in one grid area, and split-row information.
