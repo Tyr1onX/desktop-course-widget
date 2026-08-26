@@ -461,17 +461,31 @@ test('CSP permits only packaged assets and Tauri local IPC schemes', () => {
 
 test('release workflow is read-only, locked, reproducible, and leaves the tree clean', () => {
   const workflow = read('.github/workflows/release-build.yml')
+  const validateWorkflow = read('.github/workflows/validate.yml')
   assert(/permissions:\s*\n\s*contents:\s*read/.test(workflow))
   assert(!/contents:\s*write/.test(workflow))
   assert(!/git\s+(?:add|commit|push)\b/i.test(workflow))
   assert(!/npm install\s+--package-lock-only/i.test(workflow))
   assert(!/cargo\s+(?:update|generate-lockfile)\b/i.test(workflow))
 
+  assert(
+    validateWorkflow.includes('cargo check --locked --manifest-path src-tauri/Cargo.toml'),
+    'Validate workflow must preserve the ordinary locked Rust check gate',
+  )
+  assert(
+    validateWorkflow.includes('cargo test --locked --manifest-path src-tauri/Cargo.toml --lib'),
+    'Validate workflow must preserve the locked Rust library test gate',
+  )
+  assert(
+    !workflow.includes('cargo check --locked --manifest-path src-tauri/Cargo.toml --profile test'),
+    'Release workflow must not duplicate the metadata-only test-profile crate graph after linked library tests',
+  )
+
   for (const command of [
     'npm ci',
-    'cargo check --locked --manifest-path src-tauri/Cargo.toml',
-    'cargo check --release --locked --manifest-path src-tauri/Cargo.toml',
     'cargo test --locked --manifest-path src-tauri/Cargo.toml --lib',
+    'cargo build --release --locked --manifest-path src-tauri/Cargo.toml --features ocr-native-spike --bin ocr-native-spike',
+    'cargo check --release --locked --manifest-path src-tauri/Cargo.toml',
     'npm run check:version',
     'npm run check:time-flow',
     'npm run check:import-review',
