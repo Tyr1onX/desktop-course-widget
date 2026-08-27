@@ -51,7 +51,6 @@ test('installer generator only migrates the trusted historical product identity'
   assert.match(generator, /LegacyInstallDir/)
   assert.match(generator, /LegacyMainBinaryName/)
   assert.match(generator, /LegacyInstallDir != \$INSTDIR/)
-  assert.match(generator, /LegacyInstallDir.*uninstall\.exe.*\/S/)
   assert.match(generator, /refusing unsafe recursive cleanup/)
   assert.match(generator, /DeleteRegKey SHCTX.*LEGACY_UNINSTKEY/)
   assert.match(generator, /SMPROGRAMS.*LEGACY_PRODUCTNAME/)
@@ -75,17 +74,33 @@ test('legacy install root prefers manufacturer product key and normalizes quoted
   assert.match(generator, /Legacy identity paths disagree; refusing migration/)
 })
 
-test('legacy uninstaller must match the trusted install root before silent execution', () => {
+test('distinct legacy root uses a validated blocking NSIS uninstall without unsafe deletion', () => {
   const uninstallRead = generator.indexOf(
     'ReadRegStr $9 SHCTX "${LEGACY_UNINSTKEY}" "UninstallString"',
   )
   const migrationEnable = generator.indexOf('StrCpy $LegacyBrandMigration 1')
-  const silentUninstall = generator.indexOf('ExecWait')
+  const stageCopy = generator.indexOf(
+    'CopyFiles /SILENT /FILESONLY "$LegacyInstallDir\\\\uninstall.exe" "$PLUGINSDIR\\\\legacy-brand-migration"',
+  )
+  const blockingUninstall = generator.indexOf(
+    'ExecWait \\\'"$PLUGINSDIR\\\\legacy-brand-migration\\\\uninstall.exe" /S _?=$LegacyInstallDir\\\' $1',
+  )
+  const mainRemains = generator.indexOf(
+    'IfFileExists "$LegacyInstallDir\\\\$LegacyMainBinaryName" 0 legacy_program_removed',
+  )
   assert.ok(uninstallRead >= 0, 'legacy UninstallString validation is missing')
   assert.ok(migrationEnable > uninstallRead, 'migration must require validated UninstallString')
-  assert.ok(silentUninstall > migrationEnable, 'legacy uninstaller must only execute after validation')
-  assert.match(generator, /LegacyInstallDir\\\\uninstall\.exe.*\/S/)
+  assert.ok(stageCopy > migrationEnable, 'validated legacy uninstaller must be staged only after migration is trusted')
+  assert.ok(blockingUninstall > stageCopy, 'staged legacy uninstaller must use blocking NSIS _?= invocation')
+  assert.ok(mainRemains > blockingUninstall, 'old main executable must be checked after the blocking uninstall returns')
   assert.match(generator, /Legacy uninstall command does not match its trusted install root; refusing migration/)
+  assert.match(generator, /Legacy uninstaller missing; refusing unsafe recursive cleanup/)
+  assert.match(generator, /Legacy uninstaller failed with exit code/)
+  assert.match(generator, /Legacy main executable remained after uninstall/)
+  assert.match(generator, /InitPluginsDir/)
+  assert.match(generator, /_\?=\$LegacyInstallDir/)
+  assert.doesNotMatch(generator, /ExecWait[^\n]*\$LegacyInstallDir\\\\uninstall\.exe[^\n]*\/S\\\' \$1/)
+  assert.doesNotMatch(generator, /RMDir \/r[^\n]*LegacyInstallDir|RMDir \/r[^\n]*LEGACY_PRODUCTNAME/)
 })
 
 test('packaged OCR gate mirrors release runtime resolver roots', () => {
@@ -210,6 +225,23 @@ test('upgrade smoke covers current product plus exact legacy residue', () => {
   assert.match(upgradeSmoke, /Migrated Desktop/)
   assert.match(upgradeSmoke, /Residual cleanup Start Menu/)
   assert.match(upgradeSmoke, /Residual cleanup Desktop/)
+})
+
+test('dual migration failure snapshot remains read-only and runs before a candidate exit-code failure is thrown', () => {
+  const snapshot = topLevelFunctionBody(dualInstallSmoke, 'Write-DualInstallFailureSnapshot')
+  assert.match(snapshot, /Write-DualRegistrationSnapshot \$productName/)
+  assert.match(snapshot, /Write-DualRegistrationSnapshot \$legacyProductName/)
+  assert.match(snapshot, /Get-DualFileSnapshot/)
+  assert.match(snapshot, /Write-DualShortcutSnapshot 'current Start Menu'/)
+  assert.match(snapshot, /Write-DualShortcutSnapshot 'legacy Desktop'/)
+  assert.match(snapshot, /Write-DualDataSnapshot/)
+  assert.match(snapshot, /Get-Process -ErrorAction SilentlyContinue/)
+  assert.doesNotMatch(snapshot, /Remove-Item|Stop-Process|Set-Item|New-Item/)
+
+  const candidateStart = dualInstallSmoke.indexOf('$candidateInstall = Start-Process')
+  const failureSnapshot = dualInstallSmoke.indexOf('Write-DualInstallFailureSnapshot `', candidateStart)
+  const candidateThrow = dualInstallSmoke.indexOf('throw "Candidate installer exited with', candidateStart)
+  assert.ok(candidateStart >= 0 && failureSnapshot > candidateStart && candidateThrow > failureSnapshot)
 })
 
 test('v0.3 release gate covers real distinct legacy and current program roots', () => {
