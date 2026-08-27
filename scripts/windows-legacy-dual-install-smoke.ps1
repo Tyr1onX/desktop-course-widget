@@ -138,7 +138,8 @@ function Get-ActiveCatalogPath {
 function Seed-SharedUserData {
   $legacyPath = Join-Path $dataRoot 'schedule.json'
   $settingsPath = Join-Path $dataRoot 'settings.json'
-  $activePath = Get-ActiveCatalogPath
+  $indexPath = Join-Path $dataRoot 'schedules\index.json'
+  $activePath = if (Test-Path -LiteralPath $indexPath) { Get-ActiveCatalogPath } else { $null }
 
   $markerCourse = [ordered]@{
     name = '双目录迁移回归课'
@@ -158,31 +159,36 @@ function Seed-SharedUserData {
   }
   Write-Utf8Json $legacyPath $legacy
 
-  $catalog = Get-Content -Raw -LiteralPath $activePath | ConvertFrom-Json
-  if ([string]::IsNullOrWhiteSpace([string]$catalog.id) -or
-      [string]::IsNullOrWhiteSpace([string]$catalog.name)) {
-    throw 'Active catalog schedule is not a valid catalog document.'
-  }
-  $catalog.semesterStart = $legacy.semesterStart
-  $catalog.semesterEnd = $legacy.semesterEnd
-  $catalog.courses = @(
-    [ordered]@{
-      id = 'dual-root-upgrade-course'
-      name = $markerCourse.name
-      color = '#CFE1FF'
-      teacher = $markerCourse.teacher
-      weekday = $markerCourse.weekday
-      start = $markerCourse.start
-      end = $markerCourse.end
-      location = $markerCourse.location
-      weeks = $markerCourse.weeks
-      parity = $markerCourse.parity
+  if ($activePath) {
+    $catalog = Get-Content -Raw -LiteralPath $activePath | ConvertFrom-Json
+    if ([string]::IsNullOrWhiteSpace([string]$catalog.id) -or
+        [string]::IsNullOrWhiteSpace([string]$catalog.name)) {
+      throw 'Active catalog schedule is not a valid catalog document.'
     }
-  )
-  if ($catalog.PSObject.Properties.Name -contains 'updatedAt') {
-    $catalog.updatedAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    $catalog.semesterStart = $legacy.semesterStart
+    $catalog.semesterEnd = $legacy.semesterEnd
+    $catalog.courses = @(
+      [ordered]@{
+        id = 'dual-root-upgrade-course'
+        name = $markerCourse.name
+        color = '#CFE1FF'
+        teacher = $markerCourse.teacher
+        weekday = $markerCourse.weekday
+        start = $markerCourse.start
+        end = $markerCourse.end
+        location = $markerCourse.location
+        weeks = $markerCourse.weeks
+        parity = $markerCourse.parity
+      }
+    )
+    if ($catalog.PSObject.Properties.Name -contains 'updatedAt') {
+      $catalog.updatedAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    }
+    Write-Utf8Json $activePath $catalog
   }
-  Write-Utf8Json $activePath $catalog
+  else {
+    Write-Host "public $legacyVersion uses pre-catalog legacy schedule storage; public $currentVersion startup must migrate schedule.json into the shared catalog"
+  }
 
   if (-not (Test-Path -LiteralPath $settingsPath)) {
     throw 'Legacy startup did not create settings.json.'
@@ -199,7 +205,8 @@ function Seed-SharedUserData {
   $settings.lessonTimes[1].end = '11:45'
   Write-Utf8Json $settingsPath $settings
 
-  Write-Host "seeded shared user data under identifier '$bundleId': legacy='$legacyPath' catalog='$activePath' settings='$settingsPath'"
+  $catalogLabel = if ($activePath) { $activePath } else { '<pre-catalog baseline>' }
+  Write-Host "seeded shared user data under identifier '$bundleId': legacy='$legacyPath' catalog='$catalogLabel' settings='$settingsPath'"
 }
 
 function Assert-SharedUserData {

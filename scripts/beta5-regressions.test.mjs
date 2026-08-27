@@ -91,6 +91,7 @@ test('upgrade smoke covers current product plus exact legacy residue', () => {
   assert.match(upgradeSmoke, /Seed-LegacyIdentityResidue/)
   assert.match(upgradeSmoke, /current product \+ legacy residue migration passed/)
   assert.match(upgradeSmoke, /ExpectedVersion/)
+  assert.match(upgradeSmoke, /pre-catalog legacy schedule storage/)
 })
 
 test('v0.3 release gate covers real distinct legacy and current program roots', () => {
@@ -103,6 +104,7 @@ test('v0.3 release gate covers real distinct legacy and current program roots', 
   assert.match(dualInstallSmoke, /Assert-SharedUserData/)
   assert.match(dualInstallSmoke, /old program copy removed by its default-data-preserving uninstaller/)
   assert.match(dualInstallSmoke, /shared AppData\/timetable\/settings preserved/)
+  assert.match(dualInstallSmoke, /pre-catalog legacy schedule storage/)
   assert.match(releaseWorkflow, /Public v0\.3\.0 brand migration/)
   assert.match(releaseWorkflow, /Smoke test real v0\.3\.0 \+ beta\.4 dual-install migration/)
   assert.match(releaseWorkflow, /windows-legacy-dual-install-smoke\.ps1/)

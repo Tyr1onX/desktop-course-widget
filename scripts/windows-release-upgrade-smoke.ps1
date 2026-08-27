@@ -135,7 +135,8 @@ function Get-ActiveCatalogPath {
 function Seed-Beta1UserData {
   $legacyPath = Join-Path $dataRoot 'schedule.json'
   $settingsPath = Join-Path $dataRoot 'settings.json'
-  $activePath = Get-ActiveCatalogPath
+  $indexPath = Join-Path $dataRoot 'schedules\index.json'
+  $activePath = if (Test-Path -LiteralPath $indexPath) { Get-ActiveCatalogPath } else { $null }
 
   $markerCourse = [ordered]@{
     name = '发布升级回归课'
@@ -155,40 +156,45 @@ function Seed-Beta1UserData {
   }
   Write-Utf8Json $legacyPath $legacy
 
-  # beta.1 already uses the catalog schema. Keep that real schema intact and only
-  # replace the user-facing timetable fields so the upgrade starts from valid data.
-  $catalog = Get-Content -Raw -LiteralPath $activePath | ConvertFrom-Json
-  if ([string]::IsNullOrWhiteSpace([string]$catalog.id) -or
-      [string]::IsNullOrWhiteSpace([string]$catalog.name)) {
-    throw 'Public beta.1 active catalog schedule is not a valid catalog document.'
-  }
-  $catalog.semesterStart = $legacy.semesterStart
-  $catalog.semesterEnd = $legacy.semesterEnd
-  $catalog.courses = @(
-    [ordered]@{
-      id = 'release-upgrade-course'
-      name = $markerCourse.name
-      color = '#CFE1FF'
-      teacher = $markerCourse.teacher
-      weekday = $markerCourse.weekday
-      start = $markerCourse.start
-      end = $markerCourse.end
-      location = $markerCourse.location
-      weeks = $markerCourse.weeks
-      parity = $markerCourse.parity
+  if ($activePath) {
+    # beta.1 already uses the catalog schema. Keep that real schema intact and only
+    # replace the user-facing timetable fields so the upgrade starts from valid data.
+    $catalog = Get-Content -Raw -LiteralPath $activePath | ConvertFrom-Json
+    if ([string]::IsNullOrWhiteSpace([string]$catalog.id) -or
+        [string]::IsNullOrWhiteSpace([string]$catalog.name)) {
+      throw "Public $baseVersion active catalog schedule is not a valid catalog document."
     }
-  )
-  if ($catalog.PSObject.Properties.Name -contains 'updatedAt') {
-    $catalog.updatedAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    $catalog.semesterStart = $legacy.semesterStart
+    $catalog.semesterEnd = $legacy.semesterEnd
+    $catalog.courses = @(
+      [ordered]@{
+        id = 'release-upgrade-course'
+        name = $markerCourse.name
+        color = '#CFE1FF'
+        teacher = $markerCourse.teacher
+        weekday = $markerCourse.weekday
+        start = $markerCourse.start
+        end = $markerCourse.end
+        location = $markerCourse.location
+        weeks = $markerCourse.weeks
+        parity = $markerCourse.parity
+      }
+    )
+    if ($catalog.PSObject.Properties.Name -contains 'updatedAt') {
+      $catalog.updatedAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    }
+    Write-Utf8Json $activePath $catalog
   }
-  Write-Utf8Json $activePath $catalog
+  else {
+    Write-Host "public $baseVersion uses pre-catalog legacy schedule storage; candidate startup must migrate schedule.json into the active catalog"
+  }
 
   if (-not (Test-Path -LiteralPath $settingsPath)) {
-    throw 'Public beta.1 did not create settings.json after startup.'
+    throw "Public $baseVersion did not create settings.json after startup."
   }
   $settings = Get-Content -Raw -LiteralPath $settingsPath | ConvertFrom-Json
   if (@($settings.lessonTimes).Count -lt 2) {
-    throw 'Public beta.1 settings do not contain at least two lesson times.'
+    throw "Public $baseVersion settings do not contain at least two lesson times."
   }
   $settings.onboardingCompleted = $true
   $settings.equalDuration = $true
@@ -198,7 +204,8 @@ function Seed-Beta1UserData {
   $settings.lessonTimes[1].end = '09:45'
   Write-Utf8Json $settingsPath $settings
 
-  Write-Host "seeded valid beta.1 user data: legacy='$legacyPath' catalog='$activePath' settings='$settingsPath'"
+  $catalogLabel = if ($activePath) { $activePath } else { '<pre-catalog baseline>' }
+  Write-Host "seeded valid public $baseVersion user data: legacy='$legacyPath' catalog='$catalogLabel' settings='$settingsPath'"
 }
 
 function Assert-RetainedUserData {
