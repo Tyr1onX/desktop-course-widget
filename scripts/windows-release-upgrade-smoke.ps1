@@ -12,6 +12,7 @@ $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $true
 
 . (Join-Path $PSScriptRoot 'windows-installer-ui.ps1')
+. (Join-Path $PSScriptRoot 'windows-migration-smoke-helpers.ps1')
 
 $config = Get-Content -Raw -LiteralPath 'src-tauri/tauri.conf.json' | ConvertFrom-Json
 $productName = [string]$config.productName
@@ -189,44 +190,14 @@ function Seed-Beta1UserData {
     Write-Host "public $baseVersion uses pre-catalog legacy schedule storage; candidate startup must migrate schedule.json into the active catalog"
   }
 
-  if (Test-Path -LiteralPath $settingsPath) {
-    $settings = Get-Content -Raw -LiteralPath $settingsPath | ConvertFrom-Json
-    if (@($settings.lessonTimes).Count -lt 2) {
-      throw "Public $baseVersion settings do not contain at least two lesson times."
-    }
-    $settings.onboardingCompleted = $true
-    $settings.equalDuration = $true
-    $settings.lessonTimes[0].start = '08:10'
-    $settings.lessonTimes[0].end = '08:55'
-    $settings.lessonTimes[1].start = '09:00'
-    $settings.lessonTimes[1].end = '09:45'
-  }
-  elseif ($activePath) {
-    throw "Public $baseVersion did not create settings.json after startup."
-  }
-  else {
-    # Public v0.3.0 predates eager settings creation. Seed its real schema rather
-    # than inventing catalog state; the candidate still has to migrate this file.
-    $settings = [ordered]@{
-      schemaVersion = 1
-      onboardingCompleted = $true
-      lessonTimes = @(
-        [ordered]@{ section = 1; start = '08:10'; end = '08:55' },
-        [ordered]@{ section = 2; start = '09:00'; end = '09:45' },
-        [ordered]@{ section = 3; start = '10:00'; end = '10:45' },
-        [ordered]@{ section = 4; start = '10:55'; end = '11:40' },
-        [ordered]@{ section = 5; start = '13:30'; end = '14:15' },
-        [ordered]@{ section = 6; start = '14:25'; end = '15:10' },
-        [ordered]@{ section = 7; start = '15:30'; end = '16:15' },
-        [ordered]@{ section = 8; start = '16:25'; end = '17:10' },
-        [ordered]@{ section = 9; start = '18:00'; end = '18:45' },
-        [ordered]@{ section = 10; start = '18:55'; end = '19:40' }
-      )
-      equalDuration = $true
-    }
-    Write-Host "public $baseVersion pre-catalog baseline did not eagerly create settings.json; seeding v0.3-compatible settings"
-  }
-  Write-Utf8Json $settingsPath $settings
+  Set-V03MigrationSettingsMarker `
+    -SettingsPath $settingsPath `
+    -PreCatalogBaseline (-not $activePath) `
+    -BaselineLabel "Public $baseVersion" `
+    -FirstStart '08:10' `
+    -FirstEnd '08:55' `
+    -SecondStart '09:00' `
+    -SecondEnd '09:45'
 
   $catalogLabel = if ($activePath) { $activePath } else { '<pre-catalog baseline>' }
   Write-Host "seeded valid public $baseVersion user data: legacy='$legacyPath' catalog='$catalogLabel' settings='$settingsPath'"
@@ -519,17 +490,14 @@ try {
     }
     $newStartShortcut = Join-Path ([Environment]::GetFolderPath('Programs')) "$productName.lnk"
     $newDesktopShortcut = Join-Path ([Environment]::GetFolderPath('Desktop')) "$productName.lnk"
-    foreach ($shortcut in @($newStartShortcut, $newDesktopShortcut)) {
-      if (-not (Test-Path -LiteralPath $shortcut)) {
-        throw "Migrated $productName shortcut is missing: $shortcut"
-      }
-    }
-    $shell = New-Object -ComObject WScript.Shell
-    $startTarget = [IO.Path]::GetFullPath($shell.CreateShortcut($newStartShortcut).TargetPath)
-    $expectedTarget = [IO.Path]::GetFullPath($candidatePaths.MainExe)
-    if ($startTarget -ne $expectedTarget) {
-      throw "Migrated Start Menu shortcut targets '$startTarget', expected '$expectedTarget'."
-    }
+    Assert-MigrationShortcutTarget `
+      -ShortcutPath $newStartShortcut `
+      -ExpectedTarget $candidatePaths.MainExe `
+      -Label 'Migrated Start Menu'
+    Assert-MigrationShortcutTarget `
+      -ShortcutPath $newDesktopShortcut `
+      -ExpectedTarget $candidatePaths.MainExe `
+      -Label 'Migrated Desktop'
     Write-Host "legacy brand migration verified: old registration/shortcuts removed; new identity='$productName'; installRoot preserved"
   }
   Probe-App $candidatePaths.MainExe "candidate $expectedVersion"

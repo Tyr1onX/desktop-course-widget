@@ -8,7 +8,15 @@ const generator = readFileSync('scripts/generate-installer-template.mjs', 'utf8'
 const packageGate = readFileSync('scripts/verify-native-ocr-package.ps1', 'utf8')
 const upgradeSmoke = readFileSync('scripts/windows-release-upgrade-smoke.ps1', 'utf8')
 const dualInstallSmoke = readFileSync('scripts/windows-legacy-dual-install-smoke.ps1', 'utf8')
+const migrationHelpers = readFileSync('scripts/windows-migration-smoke-helpers.ps1', 'utf8')
 const releaseWorkflow = readFileSync('.github/workflows/release-build.yml', 'utf8')
+
+function topLevelFunctionBody(source, name) {
+  const start = source.indexOf(`function ${name}`)
+  assert.ok(start >= 0, `${name} is missing`)
+  const next = source.indexOf('\nfunction ', start + 1)
+  return source.slice(start, next >= 0 ? next : source.length)
+}
 
 test('About uses current brand and runtime application version', () => {
   assert.match(settings, /import \{ getVersion \} from '@tauri-apps\/api\/app'/)
@@ -87,11 +95,78 @@ test('packaged OCR gate mirrors release runtime resolver roots', () => {
   assert.doesNotMatch(packageGate, /Get-ChildItem -LiteralPath \$installRoot -Recurse -File \|\s*Where-Object \{ \$expected\.Contains/s)
 })
 
+test('direct and dual v0.3 migration use the same pre-catalog settings fixture', () => {
+  const helperImport = /\. \(Join-Path \$PSScriptRoot 'windows-migration-smoke-helpers\.ps1'\)/
+  assert.match(upgradeSmoke, helperImport)
+  assert.match(dualInstallSmoke, helperImport)
+
+  for (const [label, source] of [
+    ['direct upgrade', upgradeSmoke],
+    ['dual install', dualInstallSmoke],
+  ]) {
+    assert.match(source, /Set-V03MigrationSettingsMarker/)
+    assert.match(source, /-PreCatalogBaseline \(-not \$activePath\)/)
+    assert.equal(
+      (source.match(/Set-V03MigrationSettingsMarker/g) ?? []).length,
+      1,
+      `${label} must use exactly one shared settings baseline call`,
+    )
+  }
+
+  const fixture = topLevelFunctionBody(migrationHelpers, 'Set-V03MigrationSettingsMarker')
+  const rejectCatalogMissingSettings = fixture.indexOf('elseif (-not $PreCatalogBaseline)')
+  const seedPreCatalog = fixture.indexOf('New-V03CompatibleSettingsMarker')
+  assert.ok(rejectCatalogMissingSettings >= 0, 'catalog baselines must still require settings.json')
+  assert.ok(seedPreCatalog > rejectCatalogMissingSettings, 'only a pre-catalog baseline may seed settings')
+  assert.match(fixture, /Write-MigrationUtf8Json \$SettingsPath \$settings/)
+
+  const v03Fixture = topLevelFunctionBody(migrationHelpers, 'New-V03CompatibleSettingsMarker')
+  assert.match(v03Fixture, /schemaVersion = 1/)
+  assert.match(v03Fixture, /section = 10; start = '18:55'; end = '19:40'/)
+  assert.doesNotMatch(v03Fixture, /schedules|activeScheduleId|catalog/i)
+})
+
+test('shortcut verification diagnoses readers and guards target before path normalization', () => {
+  const verifier = topLevelFunctionBody(migrationHelpers, 'Assert-MigrationShortcutTarget')
+  const emptyGuard = verifier.indexOf('IsNullOrWhiteSpace([string]$target)')
+  const normalize = verifier.indexOf('[IO.Path]::GetFullPath([string]$target)')
+  const compare = verifier.indexOf('$actualTarget -ne $expectedFull')
+  const targetExists = verifier.indexOf('Test-Path -LiteralPath $actualTarget')
+  assert.ok(emptyGuard >= 0, 'shortcut target must be checked for empty input')
+  assert.ok(normalize > emptyGuard, 'GetFullPath must only run after the non-empty target guard')
+  assert.ok(compare > normalize, 'shortcut target equality check must remain after normalization')
+  assert.ok(targetExists > compare, 'shortcut target must also exist on disk')
+
+  const diagnostic = topLevelFunctionBody(migrationHelpers, 'Get-MigrationShortcutDiagnostic')
+  for (const field of ['Length', 'TargetPath', 'WorkingDirectory', 'Arguments', 'ShellTarget', 'ResolvedTarget']) {
+    assert.match(diagnostic, new RegExp(`${field} =`), `shortcut diagnostic lost ${field}`)
+  }
+  assert.match(diagnostic, /Shell\.Application/)
+  assert.match(diagnostic, /System\.Link\.TargetParsingPath/)
+
+  for (const [label, source] of [
+    ['direct upgrade', upgradeSmoke],
+    ['dual install', dualInstallSmoke],
+  ]) {
+    assert.ok(
+      (source.match(/Assert-MigrationShortcutTarget/g) ?? []).length >= 2,
+      `${label} must keep target validation for both Start Menu and Desktop shortcuts`,
+    )
+    assert.doesNotMatch(
+      source,
+      /GetFullPath\([^\n]*CreateShortcut\([^\n]*\.TargetPath/,
+      `${label} must not normalize an unchecked WScript TargetPath`,
+    )
+  }
+})
+
 test('upgrade smoke covers current product plus exact legacy residue', () => {
   assert.match(upgradeSmoke, /Seed-LegacyIdentityResidue/)
   assert.match(upgradeSmoke, /current product \+ legacy residue migration passed/)
   assert.match(upgradeSmoke, /ExpectedVersion/)
   assert.match(upgradeSmoke, /pre-catalog legacy schedule storage/)
+  assert.match(upgradeSmoke, /Migrated Start Menu/)
+  assert.match(upgradeSmoke, /Migrated Desktop/)
 })
 
 test('v0.3 release gate covers real distinct legacy and current program roots', () => {
@@ -105,6 +180,8 @@ test('v0.3 release gate covers real distinct legacy and current program roots', 
   assert.match(dualInstallSmoke, /old program copy removed by its default-data-preserving uninstaller/)
   assert.match(dualInstallSmoke, /shared AppData\/timetable\/settings preserved/)
   assert.match(dualInstallSmoke, /pre-catalog legacy schedule storage/)
+  assert.match(dualInstallSmoke, /Candidate Start Menu/)
+  assert.match(dualInstallSmoke, /Candidate Desktop/)
   assert.match(releaseWorkflow, /Public v0\.3\.0 brand migration/)
   assert.match(releaseWorkflow, /Smoke test real v0\.3\.0 \+ beta\.4 dual-install migration/)
   assert.match(releaseWorkflow, /windows-legacy-dual-install-smoke\.ps1/)

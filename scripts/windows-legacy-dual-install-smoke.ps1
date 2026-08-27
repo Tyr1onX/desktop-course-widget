@@ -8,6 +8,8 @@ param(
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $true
 
+. (Join-Path $PSScriptRoot 'windows-migration-smoke-helpers.ps1')
+
 $config = Get-Content -Raw -LiteralPath 'src-tauri/tauri.conf.json' | ConvertFrom-Json
 $productName = [string]$config.productName
 $bundleId = [string]$config.identifier
@@ -190,20 +192,14 @@ function Seed-SharedUserData {
     Write-Host "public $legacyVersion uses pre-catalog legacy schedule storage; public $currentVersion startup must migrate schedule.json into the shared catalog"
   }
 
-  if (-not (Test-Path -LiteralPath $settingsPath)) {
-    throw 'Legacy startup did not create settings.json.'
-  }
-  $settings = Get-Content -Raw -LiteralPath $settingsPath | ConvertFrom-Json
-  if (@($settings.lessonTimes).Count -lt 2) {
-    throw 'Settings do not contain at least two lesson times.'
-  }
-  $settings.onboardingCompleted = $true
-  $settings.equalDuration = $true
-  $settings.lessonTimes[0].start = '10:10'
-  $settings.lessonTimes[0].end = '10:55'
-  $settings.lessonTimes[1].start = '11:00'
-  $settings.lessonTimes[1].end = '11:45'
-  Write-Utf8Json $settingsPath $settings
+  Set-V03MigrationSettingsMarker `
+    -SettingsPath $settingsPath `
+    -PreCatalogBaseline (-not $activePath) `
+    -BaselineLabel "Public $legacyVersion" `
+    -FirstStart '10:10' `
+    -FirstEnd '10:55' `
+    -SecondStart '11:00' `
+    -SecondEnd '11:45'
 
   $catalogLabel = if ($activePath) { $activePath } else { '<pre-catalog baseline>' }
   Write-Host "seeded shared user data under identifier '$bundleId': legacy='$legacyPath' catalog='$catalogLabel' settings='$settingsPath'"
@@ -310,11 +306,14 @@ try {
 
   $currentStartShortcut = Join-Path ([Environment]::GetFolderPath('Programs')) "$productName.lnk"
   $currentDesktopShortcut = Join-Path ([Environment]::GetFolderPath('Desktop')) "$productName.lnk"
-  foreach ($shortcut in @($currentStartShortcut, $currentDesktopShortcut)) {
-    if (-not (Test-Path -LiteralPath $shortcut)) {
-      throw "Public $currentVersion did not create expected current shortcut: $shortcut"
-    }
-  }
+  Assert-MigrationShortcutTarget `
+    -ShortcutPath $currentStartShortcut `
+    -ExpectedTarget $currentPaths.MainExe `
+    -Label 'Public beta.4 Start Menu'
+  Assert-MigrationShortcutTarget `
+    -ShortcutPath $currentDesktopShortcut `
+    -ExpectedTarget $currentPaths.MainExe `
+    -Label 'Public beta.4 Desktop'
 
   Probe-App $legacyPaths.MainExe "legacy copy in distinct root"
   Probe-App $currentPaths.MainExe "current copy in distinct root"
@@ -343,19 +342,16 @@ try {
       throw "Legacy shortcut remained after candidate migration: $shortcut"
     }
   }
-  foreach ($shortcut in @($currentStartShortcut, $currentDesktopShortcut)) {
-    if (-not (Test-Path -LiteralPath $shortcut)) {
-      throw "Current shortcut is missing after candidate migration: $shortcut"
-    }
-  }
+  Assert-MigrationShortcutTarget `
+    -ShortcutPath $currentStartShortcut `
+    -ExpectedTarget $candidatePaths.MainExe `
+    -Label 'Candidate Start Menu'
+  Assert-MigrationShortcutTarget `
+    -ShortcutPath $currentDesktopShortcut `
+    -ExpectedTarget $candidatePaths.MainExe `
+    -Label 'Candidate Desktop'
 
-  $shell = New-Object -ComObject WScript.Shell
-  $startTarget = [IO.Path]::GetFullPath($shell.CreateShortcut($currentStartShortcut).TargetPath)
   $expectedTarget = [IO.Path]::GetFullPath($candidatePaths.MainExe)
-  if ($startTarget -ne $expectedTarget) {
-    throw "Current Start Menu shortcut targets '$startTarget', expected '$expectedTarget'."
-  }
-
   Wait-Condition { -not (Test-Path -LiteralPath $legacyPaths.MainExe) } 'Legacy main executable remained in the old program root.' 45
   Wait-Condition { -not (Test-Path -LiteralPath $legacyPaths.Uninstaller) } 'Legacy uninstaller remained in the old program root.' 45
   if (Test-Path -LiteralPath $currentPaths.MainExe) {
