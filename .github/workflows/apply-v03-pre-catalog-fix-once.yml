@@ -1,0 +1,33 @@
+name: Apply v0.3 pre-catalog smoke fix once
+
+on:
+  push:
+    branches:
+      - fix/v0.5.0-beta.5
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: fix/v0.5.0-beta.5
+          fetch-depth: 0
+      - name: Apply focused smoke patch
+        run: python .ci-patch-v03-pre-catalog.py
+      - name: Check focused regressions
+        run: |
+          node --test scripts/beta5-regressions.test.mjs
+          git diff --check
+      - name: Commit non-workflow changes
+        run: |
+          git add scripts/windows-release-upgrade-smoke.ps1 scripts/windows-legacy-dual-install-smoke.ps1 scripts/beta5-regressions.test.mjs
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'test: support real v0.3 pre-catalog upgrade data'
+          git push origin HEAD:fix/v0.5.0-beta.5
