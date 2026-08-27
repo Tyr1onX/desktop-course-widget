@@ -232,29 +232,112 @@ function Assert-RetainedUserData {
   Write-Host "public upgrade data preserved: legacy='$legacyPath' catalog='$activePath' settings='$settingsPath'"
 }
 
-function Seed-LegacyIdentityResidue([string]$Name, [string]$InstallRoot, [string]$MainExe, [string]$Uninstaller) {
-  $uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$Name"
-  New-Item -Path $uninstallKey -Force | Out-Null
-  New-ItemProperty -LiteralPath $uninstallKey -Name DisplayName -Value $Name -PropertyType String -Force | Out-Null
-  New-ItemProperty -LiteralPath $uninstallKey -Name DisplayVersion -Value $baseVersion -PropertyType String -Force | Out-Null
-  New-ItemProperty -LiteralPath $uninstallKey -Name Publisher -Value $publisher -PropertyType String -Force | Out-Null
-  New-ItemProperty -LiteralPath $uninstallKey -Name InstallLocation -Value $InstallRoot -PropertyType String -Force | Out-Null
-  New-ItemProperty -LiteralPath $uninstallKey -Name UninstallString -Value ('"{0}"' -f $Uninstaller) -PropertyType String -Force | Out-Null
-  New-ItemProperty -LiteralPath $uninstallKey -Name MainBinaryName -Value ([IO.Path]::GetFileName($MainExe)) -PropertyType String -Force | Out-Null
-  $legacyProductKey = "HKCU:\Software\$publisher\$Name"
-  New-Item -Path $legacyProductKey -Force | Out-Null
-  Set-Item -LiteralPath $legacyProductKey -Value $InstallRoot
-  $shell = New-Object -ComObject WScript.Shell
-  foreach ($shortcutPath in @(
-    (Join-Path ([Environment]::GetFolderPath('Programs')) "$Name.lnk"),
-    (Join-Path ([Environment]::GetFolderPath('Desktop')) "$Name.lnk")
-  )) {
-    $shortcut = $shell.CreateShortcut($shortcutPath)
-    $shortcut.TargetPath = $MainExe
-    $shortcut.WorkingDirectory = $InstallRoot
-    $shortcut.Save()
+function Seed-LegacyIdentityResidue {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Name,
+    [Parameter(Mandatory = $true)]
+    [string]$InstallRoot,
+    [Parameter(Mandatory = $true)]
+    [string]$MainExe,
+    [Parameter(Mandatory = $true)]
+    [string]$Uninstaller,
+    [Parameter(Mandatory = $true)]
+    [string]$CurrentStartShortcut,
+    [Parameter(Mandatory = $true)]
+    [string]$CurrentDesktopShortcut
+  )
+
+  $stage = 'initializing legacy residue fixture'
+  $objectPath = ''
+  try {
+    $uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$Name"
+    $stage = 'creating legacy uninstall registry'
+    $objectPath = $uninstallKey
+    Write-Host "residual fixture: $stage path='$objectPath'"
+    New-Item -Path $uninstallKey -Force | Out-Null
+
+    $stage = 'writing uninstall properties'
+    $objectPath = $uninstallKey
+    Write-Host "residual fixture: $stage path='$objectPath'"
+    New-ItemProperty -LiteralPath $uninstallKey -Name DisplayName -Value $Name -PropertyType String -Force | Out-Null
+    New-ItemProperty -LiteralPath $uninstallKey -Name DisplayVersion -Value $baseVersion -PropertyType String -Force | Out-Null
+    New-ItemProperty -LiteralPath $uninstallKey -Name Publisher -Value $publisher -PropertyType String -Force | Out-Null
+    New-ItemProperty -LiteralPath $uninstallKey -Name InstallLocation -Value $InstallRoot -PropertyType String -Force | Out-Null
+    New-ItemProperty -LiteralPath $uninstallKey -Name UninstallString -Value ('"{0}"' -f $Uninstaller) -PropertyType String -Force | Out-Null
+    New-ItemProperty -LiteralPath $uninstallKey -Name MainBinaryName -Value ([IO.Path]::GetFileName($MainExe)) -PropertyType String -Force | Out-Null
+
+    $legacyProductKey = "HKCU:\Software\$publisher\$Name"
+    $stage = 'creating manufacturer product key'
+    $objectPath = $legacyProductKey
+    Write-Host "residual fixture: $stage path='$objectPath'"
+    New-Item -Path $legacyProductKey -Force | Out-Null
+
+    $stage = 'writing product root'
+    $objectPath = $legacyProductKey
+    Write-Host "residual fixture: $stage path='$objectPath' value='$InstallRoot'"
+    Set-Item -LiteralPath $legacyProductKey -Value $InstallRoot
+
+    $legacyStartShortcut = Join-Path ([Environment]::GetFolderPath('Programs')) "$Name.lnk"
+    $legacyDesktopShortcut = Join-Path ([Environment]::GetFolderPath('Desktop')) "$Name.lnk"
+
+    $stage = 'creating Start Menu legacy shortcut'
+    $objectPath = $legacyStartShortcut
+    Write-Host "residual fixture: $stage source='$CurrentStartShortcut' path='$objectPath'"
+    if (-not (Test-Path -LiteralPath $CurrentStartShortcut)) {
+      throw "Current Start Menu shortcut source is missing: $CurrentStartShortcut"
+    }
+    Copy-Item -LiteralPath $CurrentStartShortcut -Destination $legacyStartShortcut -Force
+
+    $stage = 'creating Desktop legacy shortcut'
+    $objectPath = $legacyDesktopShortcut
+    Write-Host "residual fixture: $stage source='$CurrentDesktopShortcut' path='$objectPath'"
+    if (-not (Test-Path -LiteralPath $CurrentDesktopShortcut)) {
+      throw "Current Desktop shortcut source is missing: $CurrentDesktopShortcut"
+    }
+    Copy-Item -LiteralPath $CurrentDesktopShortcut -Destination $legacyDesktopShortcut -Force
+
+    $stage = 'verifying seeded legacy registration'
+    $objectPath = $uninstallKey
+    Write-Host "residual fixture: $stage path='$objectPath'"
+    $seeded = Get-ItemProperty -LiteralPath $uninstallKey
+    if ([string]$seeded.DisplayName -ne $Name -or [string]$seeded.Publisher -ne $publisher) {
+      throw "Seeded legacy registration identity is invalid: DisplayName='$($seeded.DisplayName)' Publisher='$($seeded.Publisher)'."
+    }
+    if ([IO.Path]::GetFullPath(([string]$seeded.InstallLocation).Trim('"')) -ne [IO.Path]::GetFullPath($InstallRoot)) {
+      throw "Seeded legacy InstallLocation does not match '$InstallRoot'."
+    }
+    if (([string]$seeded.UninstallString).Trim('"') -ne $Uninstaller) {
+      throw "Seeded legacy UninstallString does not match '$Uninstaller'."
+    }
+    $storedProductRoot = [string](Get-Item -LiteralPath $legacyProductKey).GetValue('')
+    if ([string]::IsNullOrWhiteSpace($storedProductRoot) -or
+        [IO.Path]::GetFullPath($storedProductRoot) -ne [IO.Path]::GetFullPath($InstallRoot)) {
+      throw "Seeded legacy manufacturer product root '$storedProductRoot' does not match '$InstallRoot'."
+    }
+
+    $stage = 'verifying seeded Start Menu shortcut'
+    $objectPath = $legacyStartShortcut
+    Write-Host "residual fixture: $stage path='$objectPath'"
+    Assert-MigrationShortcutTarget `
+      -ShortcutPath $legacyStartShortcut `
+      -ExpectedTarget $MainExe `
+      -Label 'Seeded legacy Start Menu residue'
+
+    $stage = 'verifying seeded Desktop shortcut'
+    $objectPath = $legacyDesktopShortcut
+    Write-Host "residual fixture: $stage path='$objectPath'"
+    Assert-MigrationShortcutTarget `
+      -ShortcutPath $legacyDesktopShortcut `
+      -ExpectedTarget $MainExe `
+      -Label 'Seeded legacy Desktop residue'
+
+    Write-Host "seeded exact legacy identity residue while current '$productName' remains installed: '$Name'"
   }
-  Write-Host "seeded exact legacy identity residue while current '$productName' remains installed: '$Name'"
+  catch {
+    $exceptionType = $_.Exception.GetType().FullName
+    throw "Seed-LegacyIdentityResidue failed: stage='$stage' path='$objectPath' exception='$exceptionType' message='$($_.Exception.Message)'"
+  }
 }
 
 function Enable-DeleteDataOption([IntPtr]$Handle, [int]$TimeoutSeconds = 12) {
@@ -504,7 +587,13 @@ try {
   Assert-RetainedUserData
 
   if ($baseProductName -ne $productName) {
-    Seed-LegacyIdentityResidue $baseProductName $candidatePaths.InstallRoot $candidatePaths.MainExe $candidatePaths.Uninstaller
+    Seed-LegacyIdentityResidue `
+      -Name $baseProductName `
+      -InstallRoot $candidatePaths.InstallRoot `
+      -MainExe $candidatePaths.MainExe `
+      -Uninstaller $candidatePaths.Uninstaller `
+      -CurrentStartShortcut $newStartShortcut `
+      -CurrentDesktopShortcut $newDesktopShortcut
     if (@(Get-UninstallEntries -Name $productName).Count -ne 1 -or @(Get-UninstallEntries -Name $baseProductName).Count -ne 1) {
       throw 'Failed to establish current-product + legacy-residue migration precondition.'
     }
@@ -523,6 +612,14 @@ try {
     }
     $candidateRegistration = Get-Registration $expectedVersion
     $candidatePaths = Get-InstalledPaths $candidateRegistration
+    Assert-MigrationShortcutTarget `
+      -ShortcutPath $newStartShortcut `
+      -ExpectedTarget $candidatePaths.MainExe `
+      -Label 'Residual cleanup Start Menu'
+    Assert-MigrationShortcutTarget `
+      -ShortcutPath $newDesktopShortcut `
+      -ExpectedTarget $candidatePaths.MainExe `
+      -Label 'Residual cleanup Desktop'
     Assert-RetainedUserData
     Write-Host "current product + legacy residue migration passed: only one '$productName' identity remains; user data preserved"
   }
