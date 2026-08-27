@@ -1,0 +1,436 @@
+name: Publish v0.5.0-beta.5
+
+on:
+  push:
+    branches:
+      - release/v0.5.0-beta.5
+    paths:
+      - .github/workflows/publish-v0.5.0-beta.5.yml
+
+permissions:
+  contents: write
+
+env:
+  RELEASE_VERSION: "0.5.0-beta.5"
+  RELEASE_TAG: "v0.5.0-beta.5"
+  RELEASE_COMMIT: "eb3d1c2faee37d91f461b2542170c8b096155134"
+  COURSE_WIDGET_BUILD_VERSION: "0.5.0-beta.5"
+  VITE_BUILD_SHA: "eb3d1c2faee37d91f461b2542170c8b096155134"
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    timeout-minutes: 55
+
+    steps:
+      - name: Checkout immutable release commit
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: eb3d1c2faee37d91f461b2542170c8b096155134
+          fetch-depth: 0
+
+      - name: Verify immutable release identity and clean source
+        shell: pwsh
+        run: |
+          $head = (git rev-parse HEAD).Trim()
+          if ($head -ne $env:RELEASE_COMMIT) {
+            throw "Release checkout mismatch: $head != $env:RELEASE_COMMIT"
+          }
+          $packageVersion = (Get-Content -Raw package.json | ConvertFrom-Json).version
+          $tauriVersion = (Get-Content -Raw src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          $cargoVersion = ([regex]::Match((Get-Content -Raw src-tauri/Cargo.toml), '(?m)^version = "([^"]+)"')).Groups[1].Value
+          foreach ($actual in @($packageVersion, $tauriVersion, $cargoVersion)) {
+            if ($actual -ne $env:RELEASE_VERSION) {
+              throw "Release version mismatch: $actual != $env:RELEASE_VERSION"
+            }
+          }
+          git diff --exit-code
+          $status = @(git status --porcelain)
+          if ($status.Count -ne 0) {
+            git status --short
+            throw 'Formal release source is not clean before build.'
+          }
+          Write-Host "release identity verified: version=$packageVersion commit=$head"
+
+      - name: Refuse an existing beta.5 tag or release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            throw "Release $env:RELEASE_TAG already exists; refusing to replace it."
+          }
+          gh api "repos/$env:GITHUB_REPOSITORY/git/ref/tags/$env:RELEASE_TAG" *> $null
+          if ($LASTEXITCODE -eq 0) {
+            throw "Tag $env:RELEASE_TAG already exists; refusing to replace it."
+          }
+          Write-Host "release preflight: tag and Release do not exist"
+          $global:LASTEXITCODE = 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check npm audit findings
+        shell: pwsh
+        run: |
+          $auditJson = npm audit --json 2>$null | Out-String
+          $auditExit = $LASTEXITCODE
+          if ([string]::IsNullOrWhiteSpace($auditJson)) {
+            throw "npm audit produced no JSON output (exit $auditExit)."
+          }
+          $audit = $auditJson | ConvertFrom-Json
+          $metadata = $audit.metadata.vulnerabilities
+          Write-Host "npm audit: info=$($metadata.info) low=$($metadata.low) moderate=$($metadata.moderate) high=$($metadata.high) critical=$($metadata.critical)"
+          foreach ($property in $audit.vulnerabilities.PSObject.Properties) {
+            $item = $property.Value
+            $via = @($item.via | ForEach-Object {
+              if ($_ -is [string]) { $_ }
+              elseif ($_.title) { "$($_.source): $($_.title)" }
+            }) -join '; '
+            Write-Host "npm audit finding: package=$($property.Name) severity=$($item.severity) direct=$($item.isDirect) range=$($item.range) fixAvailable=$($item.fixAvailable) via=$via"
+          }
+          if ($metadata.high -gt 0 -or $metadata.critical -gt 0) {
+            throw "npm audit found blocking vulnerabilities: high=$($metadata.high) critical=$($metadata.critical)"
+          }
+
+      - name: Select stable Rust
+        run: rustup default stable
+
+      - name: Restore Rust dependency cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: "src-tauri -> target"
+          shared-key: windows-release-v3
+          cache-on-failure: true
+
+      - name: Run Rust library tests
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'formal-rust-tests.log'
+          $output = & cargo test --locked --manifest-path src-tauri/Cargo.toml --lib 2>&1
+          $exit = $LASTEXITCODE
+          $output | Tee-Object -FilePath $log
+          if ($exit -ne 0) { throw "Rust library tests failed with exit code $exit." }
+
+      - name: Build Release OCR compile boundary
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'formal-release-ocr-build.log'
+          $output = & cargo build --release --locked --manifest-path src-tauri/Cargo.toml --features ocr-native-spike --bin ocr-native-spike 2>&1
+          $exit = $LASTEXITCODE
+          $output | Tee-Object -FilePath $log
+          if ($exit -ne 0) { throw "Release OCR build failed with exit code $exit." }
+
+      - name: Check Release OCR compile boundary
+        run: cargo check --release --locked --manifest-path src-tauri/Cargo.toml
+
+      - name: Check release version consistency
+        run: npm run check:version
+
+      - name: Check installer template contract
+        run: npm run check:installer-template
+
+      - name: Check widget time-flow model
+        run: npm run check:time-flow
+
+      - name: Check import review helpers
+        run: npm run check:import-review
+
+      - name: Check screenshot import policy
+        run: npm run check:screenshot-import
+
+      - name: Check import review DOM lifecycle
+        run: npm run check:import-review-dom
+
+      - name: Check screenshot capability DOM lifecycle
+        run: npm run check:screenshot-import-dom
+
+      - name: Check presentation clock
+        run: npm run check:presentation-clock
+
+      - name: Check Tauri security policy
+        run: npm run check:security-boundary
+
+      - name: Build web interface
+        run: npm run web:build
+
+      - name: Download pinned native OCR models
+        shell: pwsh
+        run: ./scripts/download-native-ocr-models.ps1
+
+      - name: Run native OCR inference smoke
+        shell: pwsh
+        run: |
+          $sample = Join-Path $env:RUNNER_TEMP 'stundenplan.png'
+          $sampleUrl = 'https://upload.wikimedia.org/wikipedia/commons/6/64/Stundenplan.PNG'
+          $expectedHash = '173635c94fbf3e99facc14b2ab1217e1661c33b4e1a215c3e6b412dbcf4f1c41'
+          Invoke-WebRequest -Uri $sampleUrl -OutFile $sample
+          $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $sample).Hash.ToLowerInvariant()
+          if ($actualHash -ne $expectedHash) {
+            throw "OCR public sample SHA-256 mismatch: $actualHash != $expectedHash"
+          }
+          $spike = (Resolve-Path 'src-tauri/target/release/ocr-native-spike.exe').Path
+          $log = Join-Path $env:RUNNER_TEMP 'formal-native-ocr-inference.log'
+          $output = & $spike `
+            --image $sample `
+            --det-model src-tauri/resources/ocr-native/PP-OCRv5_mobile_det_fp16.mnn `
+            --rec-model src-tauri/resources/ocr-native/PP-OCRv5_mobile_rec_fp16.mnn `
+            --charset src-tauri/resources/ocr-native/ppocr_keys_v5.txt `
+            --max-cold-seconds 60 2>&1
+          $exit = $LASTEXITCODE
+          $output | Tee-Object -FilePath $log
+          if ($exit -ne 0) { throw "Native OCR inference smoke failed with exit code $exit." }
+
+      - name: Clear generated installer review assets
+        shell: pwsh
+        run: |
+          Remove-Item -Force -ErrorAction SilentlyContinue `
+            'src-tauri/installer/header.bmp', `
+            'src-tauri/installer/sidebar.bmp', `
+            'src-tauri/installer/installer-v2.nsi'
+
+      - name: Build formal Windows NSIS installer
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'formal-tauri-build.log'
+          $output = & npm run tauri:build 2>&1
+          $exit = $LASTEXITCODE
+          $output | Tee-Object -FilePath $log
+          if ($exit -ne 0) { throw "Formal Windows NSIS build failed with exit code $exit." }
+
+      - name: Verify native link conflict count
+        shell: pwsh
+        run: |
+          $logs = @(
+            (Join-Path $env:RUNNER_TEMP 'formal-rust-tests.log'),
+            (Join-Path $env:RUNNER_TEMP 'formal-release-ocr-build.log'),
+            (Join-Path $env:RUNNER_TEMP 'formal-tauri-build.log')
+          )
+          $lnk4098Count = 0
+          $libcmtConflictCount = 0
+          foreach ($log in $logs) {
+            if (-not (Test-Path -LiteralPath $log)) { throw "Expected build log not found: $log" }
+            foreach ($line in Get-Content -LiteralPath $log) {
+              $lnk4098Count += ([regex]::Matches($line, 'LNK4098', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)).Count
+              if ($line -match '(?i)LIBCMT' -and $line -match '(?i)conflict') {
+                $libcmtConflictCount++
+              }
+            }
+          }
+          Write-Host "LNK4098_COUNT=$lnk4098Count"
+          Write-Host "LIBCMT_CONFLICT_COUNT=$libcmtConflictCount"
+          if ($lnk4098Count -ne 0 -or $libcmtConflictCount -ne 0) {
+            throw "Native CRT/link conflict detected: LNK4098=$lnk4098Count LIBCMT_conflict=$libcmtConflictCount"
+          }
+
+      - name: Verify installer branding contract
+        run: node scripts/check-installer-branding.mjs
+
+      - name: Verify formal installer identity
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'Windows NSIS installer was not produced.' }
+          $expectedName = "课刻_$($env:RELEASE_VERSION)_x64-setup.exe"
+          if ($installer.Name -ne $expectedName) {
+            throw "Unexpected formal installer name: $($installer.Name) != $expectedName"
+          }
+          Write-Host "formal installer=$($installer.Name)"
+
+      - name: Capture installer review screenshots
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'Windows NSIS installer was not produced.' }
+          ./scripts/capture-installer-review.ps1 `
+            -Installer $installer.FullName `
+            -OutputDir (Join-Path $env:RUNNER_TEMP 'installer-review')
+
+      - name: Smoke test installed Windows package
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'Windows NSIS installer was not produced.' }
+          ./scripts/windows-installer-smoke.ps1 -Installer $installer.FullName
+
+      - name: Smoke test public v0.5.0-beta.1 upgrade
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'Windows NSIS installer was not produced.' }
+          ./scripts/windows-release-upgrade-smoke.ps1 -Candidate $installer.FullName
+
+      - name: Verify packaged native OCR resources
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'Windows NSIS installer was not produced.' }
+          ./scripts/verify-native-ocr-package.ps1 -Installer $installer.FullName
+
+      - name: Smoke test release executable windows
+        shell: pwsh
+        run: ./scripts/windows-window-smoke.ps1
+
+      - name: Verify build left release source unchanged
+        shell: pwsh
+        run: |
+          Remove-Item -Force -ErrorAction SilentlyContinue `
+            'src-tauri/resources/ocr-native/PP-OCRv5_mobile_det_fp16.mnn', `
+            'src-tauri/resources/ocr-native/PP-OCRv5_mobile_rec_fp16.mnn', `
+            'src-tauri/resources/ocr-native/ppocr_keys_v5.txt', `
+            'src-tauri/resources/ocr-native/manifest.json'
+          git diff --exit-code
+          $status = @(git status --porcelain)
+          if ($status.Count -ne 0) {
+            git status --short
+            throw 'Formal release build left untracked or modified source files.'
+          }
+          Write-Host 'formal release source clean after build'
+
+      - name: Publish and strongly verify GitHub prerelease
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'Windows NSIS installer was not produced.' }
+
+          $assetName = "课刻_$($env:RELEASE_VERSION)_x64-setup.exe"
+          if ($installer.Name -ne $assetName) {
+            throw "Formal installer name changed before publish: $($installer.Name) != $assetName"
+          }
+
+          $releaseDir = Join-Path $env:RUNNER_TEMP "release-$($env:RELEASE_VERSION)"
+          New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
+          $assetPath = Join-Path $releaseDir $assetName
+          Copy-Item -LiteralPath $installer.FullName -Destination $assetPath
+          $sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $assetPath).Hash.ToLowerInvariant()
+          $shaPath = Join-Path $releaseDir 'SHA256SUMS.txt'
+          "$sha256  $assetName" | Set-Content -Encoding utf8NoBOM -LiteralPath $shaPath
+          $shaFileDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath $shaPath).Hash.ToLowerInvariant()
+
+          $notesPath = Join-Path $releaseDir 'release-notes.md'
+          $notes = @(
+            '# 课刻 v0.5.0-beta.5',
+            '',
+            '本次 Beta 聚焦旧品牌迁移与发布回归收口，不新增功能。',
+            '',
+            '## 修复与验证',
+            '',
+            '- “关于”页面统一使用“课刻”品牌，并从 Tauri 运行时读取真实应用版本，不再显示硬编码旧版本。',
+            '- Windows NSIS 迁移仅识别经过 DisplayName、Publisher、安装目录和卸载命令校验的历史“桌面课表”身份；当“课刻”与“桌面课表”真实双目录同时存在时，保留当前“课刻”安装目录，并通过旧安装自身经过验证的 NSIS uninstaller 安全退休独立旧目录，不递归暴力删除共享数据。',
+            '- 修复 distinct legacy-root 卸载等待语义：从安全临时目录执行已验证的旧 uninstaller，并使用 NSIS `_?=` 安装目录参数等待真实卸载完成后再继续旧 executable 安全检查。',
+            '- `.week-empty` 收敛为单一、非居中的顶部弱提示规则。',
+            '- packaged OCR 验证改为与正式运行时一致的资源解析根，不再递归接受任意位置的资源文件。',
+            '- PR #108 exact-head 已通过 Validate、完整 Windows Release、public v0.3.0 direct migration、current 课刻 + exact 桌面课表 residue migration，以及真实 public v0.3.0 + public beta.4 双目录 migration。',
+            '',
+            '## 已知限制',
+            '',
+            '- 截图识别仍为 Beta 功能，陌生课表布局可能需要手动校正。',
+            '- Windows 安装包暂未进行商业代码签名，Windows 可能显示未知发布者或 SmartScreen 提示。'
+          ) -join "`r`n"
+          $notes = $notes.TrimEnd() + "`r`n`r`n## 文件校验`r`n`r`n$assetName`r`n`r`nSHA-256：$sha256`r`n"
+          $notes | Set-Content -Encoding utf8NoBOM -LiteralPath $notesPath
+
+          gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            throw "Release $env:RELEASE_TAG appeared during build; refusing to replace it."
+          }
+          gh api "repos/$env:GITHUB_REPOSITORY/git/ref/tags/$env:RELEASE_TAG" *> $null
+          if ($LASTEXITCODE -eq 0) {
+            throw "Tag $env:RELEASE_TAG appeared during build; refusing to replace it."
+          }
+          $global:LASTEXITCODE = 0
+
+          $mainRefBeforePublish = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/heads/main" | ConvertFrom-Json
+          if ($mainRefBeforePublish.object.sha -ne $env:RELEASE_COMMIT) {
+            throw "main changed before formal publish: $($mainRefBeforePublish.object.sha) != $env:RELEASE_COMMIT"
+          }
+
+          $installerSpec = "$assetPath#$assetName"
+          $shaSpec = "$shaPath#SHA256SUMS.txt"
+          gh release create $env:RELEASE_TAG `
+            $installerSpec `
+            $shaSpec `
+            --repo $env:GITHUB_REPOSITORY `
+            --target $env:RELEASE_COMMIT `
+            --title "课刻 $env:RELEASE_TAG" `
+            --notes-file $notesPath `
+            --prerelease
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub prerelease creation failed.' }
+
+          $release = $null
+          $installerAsset = $null
+          for ($attempt = 1; $attempt -le 12; $attempt++) {
+            $release = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:RELEASE_TAG" | ConvertFrom-Json
+            $installerAsset = @($release.assets | Where-Object { $_.label -eq $assetName -or $_.name -eq $assetName }) | Select-Object -First 1
+            if ($installerAsset -and $installerAsset.digest) { break }
+            Start-Sleep -Seconds 5
+          }
+
+          if (-not $release) { throw 'Published Release could not be reloaded.' }
+          if ($release.draft) { throw 'Published release is still a draft.' }
+          if (-not $release.prerelease) { throw 'Published Beta release is not marked as prerelease.' }
+          if ($release.tag_name -ne $env:RELEASE_TAG) {
+            throw "Release tag name mismatch: $($release.tag_name) != $env:RELEASE_TAG"
+          }
+          if ($release.target_commitish -ne $env:RELEASE_COMMIT) {
+            throw "Release target mismatch: $($release.target_commitish) != $env:RELEASE_COMMIT"
+          }
+          if ($release.name -ne "课刻 $env:RELEASE_TAG") {
+            throw "Release title mismatch: $($release.name)"
+          }
+
+          $tagRef = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/tags/$env:RELEASE_TAG" | ConvertFrom-Json
+          if ($tagRef.object.type -ne 'commit' -or $tagRef.object.sha -ne $env:RELEASE_COMMIT) {
+            throw "Release tag target mismatch: type=$($tagRef.object.type) sha=$($tagRef.object.sha) expected=$env:RELEASE_COMMIT"
+          }
+
+          if (-not $installerAsset) { throw "Release installer asset not found: $assetName" }
+          if ($installerAsset.label -ne $assetName -and $installerAsset.name -ne $assetName) {
+            throw "Release installer asset identity mismatch: name=$($installerAsset.name) label=$($installerAsset.label)"
+          }
+          $expectedDigest = "sha256:$sha256"
+          if ($installerAsset.digest -ne $expectedDigest) {
+            throw "Release installer digest mismatch: $($installerAsset.digest) != $expectedDigest"
+          }
+
+          $shaAsset = @($release.assets | Where-Object { $_.label -eq 'SHA256SUMS.txt' -or $_.name -eq 'SHA256SUMS.txt' }) | Select-Object -First 1
+          if (-not $shaAsset) { throw 'Release SHA256SUMS.txt asset not found.' }
+          $expectedShaFileDigest = "sha256:$shaFileDigest"
+          if ($shaAsset.digest -ne $expectedShaFileDigest) {
+            throw "Release SHA256SUMS digest mismatch: $($shaAsset.digest) != $expectedShaFileDigest"
+          }
+
+          $expectedNotes = ((Get-Content -Raw -LiteralPath $notesPath) -replace "`r`n", "`n").TrimEnd()
+          $publishedNotes = (($release.body) -replace "`r`n", "`n").TrimEnd()
+          if ($publishedNotes -ne $expectedNotes) {
+            throw 'Published Release Notes do not match the prepared beta.5 notes.'
+          }
+
+          $mainRef = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/heads/main" | ConvertFrom-Json
+          if ($mainRef.object.sha -ne $env:RELEASE_COMMIT) {
+            throw "main changed during formal publish: $($mainRef.object.sha) != $env:RELEASE_COMMIT"
+          }
+
+          git diff --exit-code
+          $status = @(git status --porcelain)
+          if ($status.Count -ne 0) {
+            git status --short
+            throw 'Formal publish changed the checked-out release source.'
+          }
+
+          Write-Host "PUBLISHED_RELEASE_URL=$($release.html_url)"
+          Write-Host "FORMAL_INSTALLER=$assetName"
+          Write-Host "FORMAL_INSTALLER_SHA256=$sha256"
+          Write-Host "SHA256SUMS_MATCH=true"
+          Write-Host "RELEASE_DRAFT=$($release.draft)"
+          Write-Host "RELEASE_PRERELEASE=$($release.prerelease)"
+          Write-Host "RELEASE_TARGET=$($release.target_commitish)"
