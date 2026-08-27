@@ -68,7 +68,11 @@ const requiredFragments = [
   'Legacy uninstall command does not match its trusted install root; refusing migration.',
   'StrCpy $LegacyBrandMigration 1',
   '${AndIf} $LegacyInstallDir != $INSTDIR',
-  'ExecWait \'"$LegacyInstallDir\\uninstall.exe" /S\' $1',
+  'InitPluginsDir',
+  'CreateDirectory "$PLUGINSDIR\\legacy-brand-migration"',
+  'CopyFiles /SILENT /FILESONLY "$LegacyInstallDir\\uninstall.exe" "$PLUGINSDIR\\legacy-brand-migration"',
+  'IfFileExists "$PLUGINSDIR\\legacy-brand-migration\\uninstall.exe" legacy_uninstaller_staged 0',
+  'ExecWait \'"$PLUGINSDIR\\legacy-brand-migration\\uninstall.exe" /S _?=$LegacyInstallDir\' $1',
   'IfFileExists "$LegacyInstallDir\\$LegacyMainBinaryName" 0 legacy_program_removed',
   'refusing unsafe recursive cleanup',
   'ReadRegStr $2 SHCTX "${LEGACY_UNINSTKEY}" "Publisher"',
@@ -92,6 +96,15 @@ const registrationLocationRead = template.indexOf(
 )
 const migrationEnable = template.indexOf('StrCpy $LegacyBrandMigration 1')
 const publisherCheck = template.indexOf('${AndIf} $6 == "${MANUFACTURER}"')
+const legacyStageCopy = template.indexOf(
+  'CopyFiles /SILENT /FILESONLY "$LegacyInstallDir\\uninstall.exe" "$PLUGINSDIR\\legacy-brand-migration"',
+)
+const blockingLegacyUninstall = template.indexOf(
+  'ExecWait \'"$PLUGINSDIR\\legacy-brand-migration\\uninstall.exe" /S _?=$LegacyInstallDir\' $1',
+)
+const legacyMainCheck = template.indexOf(
+  'IfFileExists "$LegacyInstallDir\\$LegacyMainBinaryName" 0 legacy_program_removed',
+)
 if (
   productKeyRead < 0 ||
   registrationLocationRead < 0 ||
@@ -101,6 +114,16 @@ if (
 }
 if (publisherCheck < 0 || migrationEnable < 0 || publisherCheck >= migrationEnable) {
   throw new Error('legacy migration must validate Publisher before enabling migration')
+}
+if (
+  legacyStageCopy < 0 ||
+  blockingLegacyUninstall <= legacyStageCopy ||
+  legacyMainCheck <= blockingLegacyUninstall
+) {
+  throw new Error('distinct legacy cleanup must stage the trusted uninstaller, block with _?=, then verify the old main executable is gone')
+}
+if (template.includes('ExecWait \'"$LegacyInstallDir\\uninstall.exe" /S\' $1')) {
+  throw new Error('distinct legacy cleanup regressed to a non-blocking in-place NSIS uninstall invocation')
 }
 
 if (/^\s*!define\s+MUI_FINISHPAGE_NOAUTOCLOSE\b/m.test(template)) {
@@ -114,5 +137,5 @@ if (installPage < 0 || finishPage <= installPage) {
 }
 
 console.log(
-  'installer template contract passed: currentUser + native headers + installer sidebar + uninstaller icon + uninstall registry preserved; 桌面课表 migration requires matching publisher/root/uninstall command, prefers manufacturer product root, normalizes quoted registration fallback, and safely uninstalls distinct legacy roots; finish page auto-advance enabled',
+  'installer template contract passed: currentUser + native headers + installer sidebar + uninstaller icon + uninstall registry preserved; 桌面课表 migration requires matching publisher/root/uninstall command, prefers manufacturer product root, normalizes quoted registration fallback, stages the trusted distinct-root uninstaller and waits with NSIS _?= before verifying retirement; finish page auto-advance enabled',
 )
