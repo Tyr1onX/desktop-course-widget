@@ -228,7 +228,11 @@ test('upgrade smoke covers current product plus exact legacy residue', () => {
 })
 
 test('dual migration failure snapshot remains read-only and runs before a candidate exit-code failure is thrown', () => {
-  const snapshot = topLevelFunctionBody(dualInstallSmoke, 'Write-DualInstallFailureSnapshot')
+  const snapshotStart = dualInstallSmoke.indexOf('function Write-DualInstallFailureSnapshot')
+  const snapshotEndMarker = '\n}\n\nif (@(Get-UninstallEntries $legacyProductName)'
+  const snapshotEnd = dualInstallSmoke.indexOf(snapshotEndMarker, snapshotStart)
+  assert.ok(snapshotStart >= 0 && snapshotEnd > snapshotStart, 'dual failure snapshot function boundary is missing')
+  const snapshot = dualInstallSmoke.slice(snapshotStart, snapshotEnd + 2)
   assert.match(snapshot, /Write-DualRegistrationSnapshot \$productName/)
   assert.match(snapshot, /Write-DualRegistrationSnapshot \$legacyProductName/)
   assert.match(snapshot, /Get-DualFileSnapshot/)
