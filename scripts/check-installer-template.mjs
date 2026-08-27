@@ -51,16 +51,28 @@ const requiredFragments = [
   'DeleteRegKey HKCU "${UNINSTKEY}"',
   '!define LEGACY_PRODUCTNAME "桌面课表"',
   '!define LEGACY_UNINSTKEY "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${LEGACY_PRODUCTNAME}"',
+  '!define LEGACY_MANUPRODUCTKEY "${MANUKEY}\\${LEGACY_PRODUCTNAME}"',
   'Var LegacyBrandMigration',
   'Var LegacyInstallDir',
   'Var LegacyMainBinaryName',
   'ReadRegStr $5 SHCTX "${LEGACY_UNINSTKEY}" "DisplayName"',
+  'ReadRegStr $6 SHCTX "${LEGACY_UNINSTKEY}" "Publisher"',
+  '${AndIf} $6 == "${MANUFACTURER}"',
+  'ReadRegStr $LegacyInstallDir SHCTX "${LEGACY_MANUPRODUCTKEY}" ""',
+  'ReadRegStr $7 SHCTX "${LEGACY_UNINSTKEY}" "InstallLocation"',
+  'StrCpy $7 $7 "" 1',
+  'StrCpy $7 $7 -1',
+  'Legacy identity paths disagree; refusing migration.',
+  'ReadRegStr $9 SHCTX "${LEGACY_UNINSTKEY}" "UninstallString"',
+  'StrCpy $8 "$\\"$LegacyInstallDir\\uninstall.exe$\\""',
+  'Legacy uninstall command does not match its trusted install root; refusing migration.',
   'StrCpy $LegacyBrandMigration 1',
-  'ReadRegStr $LegacyInstallDir SHCTX "${LEGACY_UNINSTKEY}" "InstallLocation"',
   '${AndIf} $LegacyInstallDir != $INSTDIR',
   'ExecWait \'"$LegacyInstallDir\\uninstall.exe" /S\' $1',
   'IfFileExists "$LegacyInstallDir\\$LegacyMainBinaryName" 0 legacy_program_removed',
   'refusing unsafe recursive cleanup',
+  'ReadRegStr $2 SHCTX "${LEGACY_UNINSTKEY}" "Publisher"',
+  '${AndIf} $2 == "${MANUFACTURER}"',
   'DeleteRegKey SHCTX "${LEGACY_UNINSTKEY}"',
   'Delete "$SMPROGRAMS\\${LEGACY_PRODUCTNAME}.lnk"',
   'Delete "$DESKTOP\\${LEGACY_PRODUCTNAME}.lnk"',
@@ -70,6 +82,25 @@ for (const fragment of requiredFragments) {
   if (!template.includes(fragment)) {
     throw new Error(`custom NSIS template lost required Tauri contract: ${fragment}`)
   }
+}
+
+const productKeyRead = template.indexOf(
+  'ReadRegStr $LegacyInstallDir SHCTX "${LEGACY_MANUPRODUCTKEY}" ""',
+)
+const registrationLocationRead = template.indexOf(
+  'ReadRegStr $7 SHCTX "${LEGACY_UNINSTKEY}" "InstallLocation"',
+)
+const migrationEnable = template.indexOf('StrCpy $LegacyBrandMigration 1')
+const publisherCheck = template.indexOf('${AndIf} $6 == "${MANUFACTURER}"')
+if (
+  productKeyRead < 0 ||
+  registrationLocationRead < 0 ||
+  productKeyRead >= registrationLocationRead
+) {
+  throw new Error('legacy install root must prefer the manufacturer product key before registration fallback')
+}
+if (publisherCheck < 0 || migrationEnable < 0 || publisherCheck >= migrationEnable) {
+  throw new Error('legacy migration must validate Publisher before enabling migration')
 }
 
 if (/^\s*!define\s+MUI_FINISHPAGE_NOAUTOCLOSE\b/m.test(template)) {
@@ -83,5 +114,5 @@ if (installPage < 0 || finishPage <= installPage) {
 }
 
 console.log(
-  'installer template contract passed: currentUser + native headers + installer sidebar + uninstaller icon + uninstall registry preserved; exact 桌面课表→课刻 migration preserves same-root upgrades and safely uninstalls distinct legacy roots; finish page auto-advance enabled',
+  'installer template contract passed: currentUser + native headers + installer sidebar + uninstaller icon + uninstall registry preserved; 桌面课表 migration requires matching publisher/root/uninstall command, prefers manufacturer product root, normalizes quoted registration fallback, and safely uninstalls distinct legacy roots; finish page auto-advance enabled',
 )
