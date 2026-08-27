@@ -51,8 +51,10 @@ function Get-UninstallEntries([string]$Name) {
         [pscustomobject]@{
           Hive = $root.Hive
           DisplayVersion = [string]$_.DisplayVersion
+          Publisher = [string]$_.Publisher
           InstallLocation = ([string]$_.InstallLocation).Trim('"')
           MainBinaryName = [string]$_.MainBinaryName
+          UninstallString = [string]$_.UninstallString
         }
       }
   }
@@ -253,6 +255,149 @@ function Download-VerifiedInstaller([string]$Version, [string]$Url, [string]$Sha
   Write-Host "public release installer verified: version=$Version sha256=$actual"
 }
 
+function Get-DualFileSnapshot([string]$Path) {
+  $exists = Test-Path -LiteralPath $Path
+  $length = [int64]0
+  $version = ''
+  $sha256 = ''
+  if ($exists) {
+    try {
+      $item = Get-Item -LiteralPath $Path
+      $length = [int64]$item.Length
+      $version = [string]$item.VersionInfo.FileVersion
+    }
+    catch {}
+    try { $sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant() } catch {}
+  }
+  [pscustomobject]@{ Path = $Path; Exists = $exists; Length = $length; Version = $version; Sha256 = $sha256 }
+}
+
+function Write-DualRegistrationSnapshot([string]$Name) {
+  $entries = @(Get-UninstallEntries $Name)
+  Write-Host "dual failure registration: name='$Name' count=$($entries.Count)"
+  foreach ($entry in $entries) {
+    $expectedUninstaller = if ([string]::IsNullOrWhiteSpace($entry.InstallLocation)) { '' } else { Join-Path $entry.InstallLocation 'uninstall.exe' }
+    $actualUninstaller = ([string]$entry.UninstallString).Trim('"')
+    $uninstallMatchesRoot = $false
+    if (-not [string]::IsNullOrWhiteSpace($expectedUninstaller) -and -not [string]::IsNullOrWhiteSpace($actualUninstaller)) {
+      try { $uninstallMatchesRoot = [IO.Path]::GetFullPath($actualUninstaller) -eq [IO.Path]::GetFullPath($expectedUninstaller) } catch {}
+    }
+    Write-Host "dual failure registration entry: name='$Name' hive='$($entry.Hive)' version='$($entry.DisplayVersion)' publisher='$($entry.Publisher)' installRoot='$($entry.InstallLocation)' mainBinary='$($entry.MainBinaryName)' uninstallMatchesRoot=$uninstallMatchesRoot"
+  }
+}
+
+function Write-DualShortcutSnapshot([string]$Label, [string]$Path) {
+  $diagnostic = Get-MigrationShortcutDiagnostic $Path
+  Write-Host ("dual failure shortcut: label='{0}' path='{1}' exists={2} length={3} TargetPath='{4}' WorkingDirectory='{5}' Arguments='{6}' shellTarget='{7}' resolvedTarget='{8}' wscriptError='{9}' shellError='{10}'" -f `
+    $Label,
+    $diagnostic.Path,
+    $diagnostic.Exists,
+    $diagnostic.Length,
+    $diagnostic.TargetPath,
+    $diagnostic.WorkingDirectory,
+    $diagnostic.Arguments,
+    $diagnostic.ShellTarget,
+    $diagnostic.ResolvedTarget,
+    $diagnostic.WScriptError,
+    $diagnostic.ShellError)
+}
+
+function Write-DualDataSnapshot {
+  $legacyPath = Join-Path $dataRoot 'schedule.json'
+  $settingsPath = Join-Path $dataRoot 'settings.json'
+  $indexPath = Join-Path $dataRoot 'schedules\index.json'
+  $legacyMarker = $false
+  $catalogMarker = $false
+  $settingsMarker = $false
+  $activePath = ''
+  try {
+    if (Test-Path -LiteralPath $legacyPath) {
+      $legacy = Get-Content -Raw -LiteralPath $legacyPath | ConvertFrom-Json
+      $legacyMarker = @($legacy.courses | Where-Object { $_.name -eq '双目录迁移回归课' }).Count -gt 0
+    }
+  }
+  catch {}
+  try {
+    if (Test-Path -LiteralPath $indexPath) {
+      $index = Get-Content -Raw -LiteralPath $indexPath | ConvertFrom-Json
+      if (-not [string]::IsNullOrWhiteSpace([string]$index.activeScheduleId)) {
+        $activePath = Join-Path $dataRoot ("schedules\{0}.json" -f $index.activeScheduleId)
+        if (Test-Path -LiteralPath $activePath) {
+          $active = Get-Content -Raw -LiteralPath $activePath | ConvertFrom-Json
+          $catalogMarker = @($active.courses | Where-Object { $_.name -eq '双目录迁移回归课' }).Count -gt 0
+        }
+      }
+    }
+  }
+  catch {}
+  try {
+    if (Test-Path -LiteralPath $settingsPath) {
+      $settings = Get-Content -Raw -LiteralPath $settingsPath | ConvertFrom-Json
+      $lesson1 = @($settings.lessonTimes | Where-Object { $_.section -eq 1 }) | Select-Object -First 1
+      $lesson2 = @($settings.lessonTimes | Where-Object { $_.section -eq 2 }) | Select-Object -First 1
+      $settingsMarker = $settings.onboardingCompleted -and $settings.equalDuration -and
+        $lesson1.start -eq '10:10' -and $lesson1.end -eq '10:55' -and
+        $lesson2.start -eq '11:00' -and $lesson2.end -eq '11:45'
+    }
+  }
+  catch {}
+  Write-Host "dual failure AppData: root='$dataRoot' exists=$(Test-Path -LiteralPath $dataRoot) scheduleExists=$(Test-Path -LiteralPath $legacyPath) scheduleMarker=$legacyMarker catalogIndexExists=$(Test-Path -LiteralPath $indexPath) activeCatalog='$activePath' catalogMarker=$catalogMarker settingsExists=$(Test-Path -LiteralPath $settingsPath) settingsMarker=$settingsMarker"
+}
+
+function Write-DualInstallFailureSnapshot {
+  param(
+    [int]$ExitCode,
+    [string]$LegacyMainHashBefore,
+    [string]$LegacyUninstallerHashBefore,
+    [string]$CurrentMainHashBefore,
+    [string]$CurrentUninstallerHashBefore,
+    [string]$LegacyStartShortcut,
+    [string]$LegacyDesktopShortcut,
+    [string]$CurrentStartShortcut,
+    [string]$CurrentDesktopShortcut,
+    $LegacyPaths,
+    $CurrentPaths
+  )
+
+  Write-Host "dual candidate failure snapshot: exitCode=$ExitCode candidate='$Candidate' expectedVersion='$ExpectedVersion'"
+  Write-DualRegistrationSnapshot $productName
+  Write-DualRegistrationSnapshot $legacyProductName
+
+  foreach ($entry in @(
+    @{ Label = 'current main'; Path = $CurrentPaths.MainExe; Before = $CurrentMainHashBefore },
+    @{ Label = 'current uninstaller'; Path = $CurrentPaths.Uninstaller; Before = $CurrentUninstallerHashBefore },
+    @{ Label = 'legacy main'; Path = $LegacyPaths.MainExe; Before = $LegacyMainHashBefore },
+    @{ Label = 'legacy uninstaller'; Path = $LegacyPaths.Uninstaller; Before = $LegacyUninstallerHashBefore }
+  )) {
+    $snapshot = Get-DualFileSnapshot $entry.Path
+    $changed = if ([string]::IsNullOrWhiteSpace($entry.Before) -or [string]::IsNullOrWhiteSpace($snapshot.Sha256)) { '<unknown>' } else { [string]($entry.Before -ne $snapshot.Sha256) }
+    Write-Host "dual failure file: label='$($entry.Label)' path='$($snapshot.Path)' exists=$($snapshot.Exists) length=$($snapshot.Length) version='$($snapshot.Version)' sha256='$($snapshot.Sha256)' changed=$changed"
+  }
+
+  Write-Host "dual failure root: label='current' path='$($CurrentPaths.InstallRoot)' exists=$(Test-Path -LiteralPath $CurrentPaths.InstallRoot)"
+  Write-Host "dual failure root: label='legacy' path='$($LegacyPaths.InstallRoot)' exists=$(Test-Path -LiteralPath $LegacyPaths.InstallRoot)"
+  Write-DualShortcutSnapshot 'current Start Menu' $CurrentStartShortcut
+  Write-DualShortcutSnapshot 'current Desktop' $CurrentDesktopShortcut
+  Write-DualShortcutSnapshot 'legacy Start Menu' $LegacyStartShortcut
+  Write-DualShortcutSnapshot 'legacy Desktop' $LegacyDesktopShortcut
+  Write-DualDataSnapshot
+
+  $candidateProcessName = [IO.Path]::GetFileNameWithoutExtension($Candidate)
+  $processes = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
+    $_.ProcessName -eq 'desktop-course-widget' -or
+    $_.ProcessName -eq 'uninstall' -or
+    $_.ProcessName -eq $candidateProcessName
+  })
+  if ($processes.Count -eq 0) {
+    Write-Host 'dual failure processes: <none>'
+  }
+  else {
+    foreach ($process in $processes) {
+      Write-Host "dual failure process: name='$($process.ProcessName)' pid=$($process.Id)"
+    }
+  }
+}
+
 if (@(Get-UninstallEntries $legacyProductName).Count -ne 0 -or
     @(Get-UninstallEntries $productName).Count -ne 0) {
   throw 'Dual-install runner already contains a legacy or current course-widget installation.'
@@ -320,8 +465,25 @@ try {
   Assert-SharedUserData
   Write-Host "real dual-install precondition verified: legacyRoot='$legacyRoot' currentRoot='$currentRoot'; both copies independently runnable"
 
+  $legacyMainHashBefore = (Get-FileHash -Algorithm SHA256 -LiteralPath $legacyPaths.MainExe).Hash.ToLowerInvariant()
+  $legacyUninstallerHashBefore = (Get-FileHash -Algorithm SHA256 -LiteralPath $legacyPaths.Uninstaller).Hash.ToLowerInvariant()
+  $currentMainHashBefore = (Get-FileHash -Algorithm SHA256 -LiteralPath $currentPaths.MainExe).Hash.ToLowerInvariant()
+  $currentUninstallerHashBefore = (Get-FileHash -Algorithm SHA256 -LiteralPath $currentPaths.Uninstaller).Hash.ToLowerInvariant()
+
   $candidateInstall = Start-Process -FilePath $Candidate -ArgumentList '/S' -PassThru -Wait
   if ($candidateInstall.ExitCode -ne 0) {
+    Write-DualInstallFailureSnapshot `
+      -ExitCode $candidateInstall.ExitCode `
+      -LegacyMainHashBefore $legacyMainHashBefore `
+      -LegacyUninstallerHashBefore $legacyUninstallerHashBefore `
+      -CurrentMainHashBefore $currentMainHashBefore `
+      -CurrentUninstallerHashBefore $currentUninstallerHashBefore `
+      -LegacyStartShortcut $legacyStartShortcut `
+      -LegacyDesktopShortcut $legacyDesktopShortcut `
+      -CurrentStartShortcut $currentStartShortcut `
+      -CurrentDesktopShortcut $currentDesktopShortcut `
+      -LegacyPaths $legacyPaths `
+      -CurrentPaths $currentPaths
     throw "Candidate installer exited with $($candidateInstall.ExitCode)."
   }
 
