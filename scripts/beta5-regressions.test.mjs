@@ -160,6 +160,47 @@ test('shortcut verification diagnoses readers and guards target before path norm
   }
 })
 
+test('residual identity fixture creates real old-brand links from proven candidate links and remains a hard gate', () => {
+  const fixture = topLevelFunctionBody(upgradeSmoke, 'Seed-LegacyIdentityResidue')
+  const stages = [
+    'creating legacy uninstall registry',
+    'writing uninstall properties',
+    'creating manufacturer product key',
+    'writing product root',
+    'creating Start Menu legacy shortcut',
+    'creating Desktop legacy shortcut',
+    'verifying seeded legacy registration',
+    'verifying seeded Start Menu shortcut',
+    'verifying seeded Desktop shortcut',
+  ]
+  let prior = -1
+  for (const stage of stages) {
+    const position = fixture.indexOf(stage)
+    assert.ok(position > prior, `residual fixture stage missing or out of order: ${stage}`)
+    prior = position
+  }
+
+  assert.doesNotMatch(fixture, /CreateShortcut\(/)
+  assert.match(fixture, /Copy-Item -LiteralPath \$CurrentStartShortcut -Destination \$legacyStartShortcut -Force/)
+  assert.match(fixture, /Copy-Item -LiteralPath \$CurrentDesktopShortcut -Destination \$legacyDesktopShortcut -Force/)
+  assert.ok((fixture.match(/Assert-MigrationShortcutTarget/g) ?? []).length >= 2)
+  assert.match(fixture, /Get-ItemProperty -LiteralPath \$uninstallKey/)
+  assert.match(fixture, /GetValue\('\'\)/)
+  assert.match(fixture, /Seed-LegacyIdentityResidue failed: stage=/)
+
+  const call = upgradeSmoke.indexOf('Seed-LegacyIdentityResidue `')
+  const reinstall = upgradeSmoke.indexOf('$residualUpgrade = Start-Process', call)
+  const passed = upgradeSmoke.indexOf('current product + legacy residue migration passed', reinstall)
+  assert.ok(call >= 0 && reinstall > call && passed > reinstall)
+  const setup = upgradeSmoke.slice(call, reinstall)
+  assert.match(setup, /-CurrentStartShortcut \$newStartShortcut/)
+  assert.match(setup, /-CurrentDesktopShortcut \$newDesktopShortcut/)
+  const cleanup = upgradeSmoke.slice(reinstall, passed)
+  assert.match(cleanup, /Get-UninstallEntries -Name \$baseProductName/)
+  assert.match(cleanup, /Legacy shortcut remained when \$productName was already installed/)
+  assert.ok((cleanup.match(/Assert-MigrationShortcutTarget/g) ?? []).length >= 2)
+})
+
 test('upgrade smoke covers current product plus exact legacy residue', () => {
   assert.match(upgradeSmoke, /Seed-LegacyIdentityResidue/)
   assert.match(upgradeSmoke, /current product \+ legacy residue migration passed/)
@@ -167,6 +208,8 @@ test('upgrade smoke covers current product plus exact legacy residue', () => {
   assert.match(upgradeSmoke, /pre-catalog legacy schedule storage/)
   assert.match(upgradeSmoke, /Migrated Start Menu/)
   assert.match(upgradeSmoke, /Migrated Desktop/)
+  assert.match(upgradeSmoke, /Residual cleanup Start Menu/)
+  assert.match(upgradeSmoke, /Residual cleanup Desktop/)
 })
 
 test('v0.3 release gate covers real distinct legacy and current program roots', () => {
@@ -183,6 +226,9 @@ test('v0.3 release gate covers real distinct legacy and current program roots', 
   assert.match(dualInstallSmoke, /Candidate Start Menu/)
   assert.match(dualInstallSmoke, /Candidate Desktop/)
   assert.match(releaseWorkflow, /Public v0\.3\.0 brand migration/)
+  assert.match(releaseWorkflow, /Smoke test public v0\.3\.0 legacy-brand upgrade/)
   assert.match(releaseWorkflow, /Smoke test real v0\.3\.0 \+ beta\.4 dual-install migration/)
+  assert.match(releaseWorkflow, /windows-release-upgrade-smoke\.ps1/)
   assert.match(releaseWorkflow, /windows-legacy-dual-install-smoke\.ps1/)
+  assert.doesNotMatch(releaseWorkflow, /continue-on-error:\s*true/)
 })
