@@ -189,19 +189,43 @@ function Seed-Beta1UserData {
     Write-Host "public $baseVersion uses pre-catalog legacy schedule storage; candidate startup must migrate schedule.json into the active catalog"
   }
 
-  if (-not (Test-Path -LiteralPath $settingsPath)) {
+  if (Test-Path -LiteralPath $settingsPath) {
+    $settings = Get-Content -Raw -LiteralPath $settingsPath | ConvertFrom-Json
+    if (@($settings.lessonTimes).Count -lt 2) {
+      throw "Public $baseVersion settings do not contain at least two lesson times."
+    }
+    $settings.onboardingCompleted = $true
+    $settings.equalDuration = $true
+    $settings.lessonTimes[0].start = '08:10'
+    $settings.lessonTimes[0].end = '08:55'
+    $settings.lessonTimes[1].start = '09:00'
+    $settings.lessonTimes[1].end = '09:45'
+  }
+  elseif ($activePath) {
     throw "Public $baseVersion did not create settings.json after startup."
   }
-  $settings = Get-Content -Raw -LiteralPath $settingsPath | ConvertFrom-Json
-  if (@($settings.lessonTimes).Count -lt 2) {
-    throw "Public $baseVersion settings do not contain at least two lesson times."
+  else {
+    # Public v0.3.0 predates eager settings creation. Seed its real schema rather
+    # than inventing catalog state; the candidate still has to migrate this file.
+    $settings = [ordered]@{
+      schemaVersion = 1
+      onboardingCompleted = $true
+      lessonTimes = @(
+        [ordered]@{ section = 1; start = '08:10'; end = '08:55' },
+        [ordered]@{ section = 2; start = '09:00'; end = '09:45' },
+        [ordered]@{ section = 3; start = '10:00'; end = '10:45' },
+        [ordered]@{ section = 4; start = '10:55'; end = '11:40' },
+        [ordered]@{ section = 5; start = '13:30'; end = '14:15' },
+        [ordered]@{ section = 6; start = '14:25'; end = '15:10' },
+        [ordered]@{ section = 7; start = '15:30'; end = '16:15' },
+        [ordered]@{ section = 8; start = '16:25'; end = '17:10' },
+        [ordered]@{ section = 9; start = '18:00'; end = '18:45' },
+        [ordered]@{ section = 10; start = '18:55'; end = '19:40' }
+      )
+      equalDuration = $true
+    }
+    Write-Host "public $baseVersion pre-catalog baseline did not eagerly create settings.json; seeding v0.3-compatible settings"
   }
-  $settings.onboardingCompleted = $true
-  $settings.equalDuration = $true
-  $settings.lessonTimes[0].start = '08:10'
-  $settings.lessonTimes[0].end = '08:55'
-  $settings.lessonTimes[1].start = '09:00'
-  $settings.lessonTimes[1].end = '09:45'
   Write-Utf8Json $settingsPath $settings
 
   $catalogLabel = if ($activePath) { $activePath } else { '<pre-catalog baseline>' }
