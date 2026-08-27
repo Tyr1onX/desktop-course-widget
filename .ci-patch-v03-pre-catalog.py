@@ -6,7 +6,7 @@ def replace_function(path, start_name, next_name, replacement):
     p = Path(path)
     text = p.read_text(encoding='utf-8')
     pattern = rf'function {re.escape(start_name)} \{{.*?(?=function {re.escape(next_name)} \{{)'
-    updated, count = re.subn(pattern, replacement.rstrip() + '\n\n', text, count=1, flags=re.S)
+    updated, count = re.subn(pattern, lambda _: replacement.rstrip() + '\n\n', text, count=1, flags=re.S)
     if count != 1:
         raise SystemExit(f'{path}: expected one {start_name} block, found {count}')
     p.write_text(updated, encoding='utf-8')
