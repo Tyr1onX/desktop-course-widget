@@ -8,9 +8,10 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 env:
-  COURSE_WIDGET_BUILD_VERSION: "0.5.0-beta.4.${{ github.run_number }}.${{ github.run_attempt }}"
+  COURSE_WIDGET_BUILD_VERSION: "0.5.0-beta.5.${{ github.run_number }}.${{ github.run_attempt }}"
   VITE_BUILD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
 concurrency:
@@ -273,3 +274,52 @@ jobs:
           path: build-metadata.json
           if-no-files-found: error
           retention-days: 7
+
+  legacy-brand-upgrade:
+    name: Public v0.3.0 brand migration
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: build-release
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout release branch
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Download candidate installer from build-release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $artifactDir = Join-Path $env:RUNNER_TEMP 'beta5-candidate'
+          New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
+          gh run download $env:GITHUB_RUN_ID `
+            --repo $env:GITHUB_REPOSITORY `
+            --name desktop-course-widget-windows-release `
+            --dir $artifactDir
+          $installer = @(Get-ChildItem -LiteralPath $artifactDir -Filter '*.exe' -File)
+          if ($installer.Count -ne 1) {
+            throw "Expected exactly one candidate installer artifact, found $($installer.Count)."
+          }
+          "CANDIDATE_INSTALLER=$($installer[0].FullName)" >> $env:GITHUB_ENV
+
+      - name: Smoke test public v0.3.0 legacy-brand upgrade
+        shell: pwsh
+        run: |
+          ./scripts/windows-release-upgrade-smoke.ps1 `
+            -Candidate $env:CANDIDATE_INSTALLER `
+            -ExpectedVersion $env:COURSE_WIDGET_BUILD_VERSION `
+            -BaseVersion '0.3.0' `
+            -BaseUrl 'https://github.com/Tyr1onX/desktop-course-widget/releases/download/v0.3.0/_0.3.0_x64-setup.exe' `
+            -BaseSha256 '4a54a97c9dc0799098d123ffa0ba5ae253fe6557e1e8067968706a62404b99b6' `
+            -LegacyProductName '桌面课表'
+
+      - name: Smoke test real v0.3.0 + beta.4 dual-install migration
+        shell: pwsh
+        run: |
+          ./scripts/windows-legacy-dual-install-smoke.ps1 `
+            -Candidate $env:CANDIDATE_INSTALLER `
+            -ExpectedVersion $env:COURSE_WIDGET_BUILD_VERSION

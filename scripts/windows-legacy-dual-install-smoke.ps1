@@ -1,0 +1,563 @@
+param(
+  [Parameter(Mandatory = $true)]
+  [string]$Candidate,
+  [Parameter(Mandatory = $true)]
+  [string]$ExpectedVersion
+)
+
+$ErrorActionPreference = 'Stop'
+$PSNativeCommandUseErrorActionPreference = $true
+
+. (Join-Path $PSScriptRoot 'windows-migration-smoke-helpers.ps1')
+
+$config = Get-Content -Raw -LiteralPath 'src-tauri/tauri.conf.json' | ConvertFrom-Json
+$productName = [string]$config.productName
+$bundleId = [string]$config.identifier
+$publisher = [string]$config.bundle.publisher
+$legacyProductName = '桌面课表'
+$legacyVersion = '0.3.0'
+$legacyUrl = 'https://github.com/Tyr1onX/desktop-course-widget/releases/download/v0.3.0/_0.3.0_x64-setup.exe'
+$legacySha256 = '4a54a97c9dc0799098d123ffa0ba5ae253fe6557e1e8067968706a62404b99b6'
+$currentVersion = '0.5.0-beta.4'
+$currentUrl = 'https://github.com/Tyr1onX/desktop-course-widget/releases/download/v0.5.0-beta.4/_0.5.0-beta.4_x64-setup.exe'
+$currentSha256 = 'f1a63b08482d3b04c6e857a9191ede0184b19e0f42768121300c047957ebec25'
+$legacyInstaller = Join-Path $env:RUNNER_TEMP 'course-widget-v0.3.0.exe'
+$currentInstaller = Join-Path $env:RUNNER_TEMP 'course-widget-v0.5.0-beta.4.exe'
+$dataRoot = Join-Path $env:LOCALAPPDATA $bundleId
+$testCreatedDataRoot = -not (Test-Path -LiteralPath $dataRoot)
+
+function Wait-Condition([scriptblock]$Condition, [string]$Message, [int]$TimeoutSeconds = 30) {
+  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+  while ((Get-Date) -lt $deadline) {
+    if (& $Condition) { return }
+    Start-Sleep -Milliseconds 300
+  }
+  throw $Message
+}
+
+function Get-UninstallEntries([string]$Name) {
+  $roots = @(
+    @{ Hive = 'HKCU'; Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' },
+    @{ Hive = 'HKLM'; Path = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' },
+    @{ Hive = 'HKLM32'; Path = 'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*' }
+  )
+  $matches = foreach ($root in $roots) {
+    Get-ItemProperty -Path $root.Path -ErrorAction SilentlyContinue |
+      Where-Object {
+        $_.DisplayName -eq $Name -and
+        ([string]::IsNullOrWhiteSpace($publisher) -or $_.Publisher -eq $publisher)
+      } |
+      ForEach-Object {
+        [pscustomobject]@{
+          Hive = $root.Hive
+          DisplayVersion = [string]$_.DisplayVersion
+          Publisher = [string]$_.Publisher
+          InstallLocation = ([string]$_.InstallLocation).Trim('"')
+          MainBinaryName = [string]$_.MainBinaryName
+          UninstallString = [string]$_.UninstallString
+        }
+      }
+  }
+  return @($matches)
+}
+
+function Get-Registration([string]$Name, [string]$Version) {
+  $entries = @(Get-UninstallEntries $Name)
+  if ($entries.Count -ne 1) {
+    throw "Expected exactly one '$Name' uninstall registration, found $($entries.Count)."
+  }
+  $entry = $entries[0]
+  if ($entry.Hive -ne 'HKCU') {
+    throw "Expected current-user uninstall registration for '$Name', found $($entry.Hive)."
+  }
+  if ($entry.DisplayVersion -ne $Version) {
+    throw "Installed '$Name' version is '$($entry.DisplayVersion)', expected '$Version'."
+  }
+  return $entry
+}
+
+function Get-InstalledPaths($Registration) {
+  $installRoot = [string]$Registration.InstallLocation
+  if ([string]::IsNullOrWhiteSpace($installRoot)) {
+    throw 'InstallLocation is missing from the uninstall registration.'
+  }
+  $mainBinary = [string]$Registration.MainBinaryName
+  if ([string]::IsNullOrWhiteSpace($mainBinary)) {
+    $mainBinary = 'desktop-course-widget.exe'
+  }
+  $mainExe = Join-Path $installRoot $mainBinary
+  $uninstaller = Join-Path $installRoot 'uninstall.exe'
+  foreach ($path in @($mainExe, $uninstaller)) {
+    if (-not (Test-Path -LiteralPath $path)) {
+      throw "Installed file is missing: $path"
+    }
+  }
+  return [pscustomobject]@{
+    InstallRoot = $installRoot
+    MainExe = $mainExe
+    Uninstaller = $uninstaller
+  }
+}
+
+function Stop-App {
+  Get-Process -Name 'desktop-course-widget' -ErrorAction SilentlyContinue |
+    Stop-Process -Force -ErrorAction SilentlyContinue
+  Start-Sleep -Milliseconds 400
+}
+
+function Probe-App([string]$Executable, [string]$Label) {
+  Stop-App
+  $process = Start-Process -FilePath $Executable -PassThru
+  Start-Sleep -Seconds 4
+  if ($process.HasExited) {
+    throw "$Label exited during startup probe with code $($process.ExitCode)."
+  }
+  Stop-App
+  Write-Host "$Label startup probe passed."
+}
+
+function Write-Utf8Json([string]$Path, $Value) {
+  $parent = Split-Path -Parent $Path
+  New-Item -ItemType Directory -Force -Path $parent | Out-Null
+  $json = $Value | ConvertTo-Json -Depth 30
+  [IO.File]::WriteAllText($Path, $json, [Text.UTF8Encoding]::new($false))
+}
+
+function Get-ActiveCatalogPath {
+  $indexPath = Join-Path $dataRoot 'schedules\index.json'
+  if (-not (Test-Path -LiteralPath $indexPath)) {
+    throw "Legacy startup did not create schedules/index.json: $indexPath"
+  }
+  $index = Get-Content -Raw -LiteralPath $indexPath | ConvertFrom-Json
+  if ([string]::IsNullOrWhiteSpace([string]$index.activeScheduleId)) {
+    throw 'Legacy/current shared catalog has no activeScheduleId.'
+  }
+  $activePath = Join-Path $dataRoot ("schedules\{0}.json" -f $index.activeScheduleId)
+  if (-not (Test-Path -LiteralPath $activePath)) {
+    throw "Active catalog schedule is missing: $activePath"
+  }
+  return $activePath
+}
+
+function Seed-SharedUserData {
+  $legacyPath = Join-Path $dataRoot 'schedule.json'
+  $settingsPath = Join-Path $dataRoot 'settings.json'
+  $indexPath = Join-Path $dataRoot 'schedules\index.json'
+  $activePath = if (Test-Path -LiteralPath $indexPath) { Get-ActiveCatalogPath } else { $null }
+
+  $markerCourse = [ordered]@{
+    name = '双目录迁移回归课'
+    teacher = 'Dual Root QA'
+    weekday = 4
+    start = '10:10'
+    end = '11:45'
+    location = 'B-407'
+    weeks = @(2, 4, 6, 8, 10)
+    parity = 'all'
+  }
+  $legacy = [ordered]@{
+    schemaVersion = 1
+    semesterStart = '2026-08-24'
+    semesterEnd = '2027-01-18'
+    courses = @($markerCourse)
+  }
+  Write-Utf8Json $legacyPath $legacy
+
+  if ($activePath) {
+    $catalog = Get-Content -Raw -LiteralPath $activePath | ConvertFrom-Json
+    if ([string]::IsNullOrWhiteSpace([string]$catalog.id) -or
+        [string]::IsNullOrWhiteSpace([string]$catalog.name)) {
+      throw 'Active catalog schedule is not a valid catalog document.'
+    }
+    $catalog.semesterStart = $legacy.semesterStart
+    $catalog.semesterEnd = $legacy.semesterEnd
+    $catalog.courses = @(
+      [ordered]@{
+        id = 'dual-root-upgrade-course'
+        name = $markerCourse.name
+        color = '#CFE1FF'
+        teacher = $markerCourse.teacher
+        weekday = $markerCourse.weekday
+        start = $markerCourse.start
+        end = $markerCourse.end
+        location = $markerCourse.location
+        weeks = $markerCourse.weeks
+        parity = $markerCourse.parity
+      }
+    )
+    if ($catalog.PSObject.Properties.Name -contains 'updatedAt') {
+      $catalog.updatedAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    }
+    Write-Utf8Json $activePath $catalog
+  }
+  else {
+    Write-Host "public $legacyVersion uses pre-catalog legacy schedule storage; public $currentVersion startup must migrate schedule.json into the shared catalog"
+  }
+
+  Set-V03MigrationSettingsMarker `
+    -SettingsPath $settingsPath `
+    -PreCatalogBaseline (-not $activePath) `
+    -BaselineLabel "Public $legacyVersion" `
+    -FirstStart '10:10' `
+    -FirstEnd '10:55' `
+    -SecondStart '11:00' `
+    -SecondEnd '11:45'
+
+  $catalogLabel = if ($activePath) { $activePath } else { '<pre-catalog baseline>' }
+  Write-Host "seeded shared user data under identifier '$bundleId': legacy='$legacyPath' catalog='$catalogLabel' settings='$settingsPath'"
+}
+
+function Assert-SharedUserData {
+  if (-not (Test-Path -LiteralPath $dataRoot)) {
+    throw "Shared AppData root was removed: $dataRoot"
+  }
+  $legacyPath = Join-Path $dataRoot 'schedule.json'
+  $activePath = Get-ActiveCatalogPath
+  $settingsPath = Join-Path $dataRoot 'settings.json'
+
+  foreach ($schedulePath in @($legacyPath, $activePath)) {
+    if (-not (Test-Path -LiteralPath $schedulePath)) {
+      throw "Retained timetable file is missing: $schedulePath"
+    }
+    $schedule = Get-Content -Raw -LiteralPath $schedulePath | ConvertFrom-Json
+    $course = @($schedule.courses | Where-Object { $_.name -eq '双目录迁移回归课' }) | Select-Object -First 1
+    if (-not $course) {
+      throw "Dual-root upgrade did not preserve the timetable marker in $schedulePath."
+    }
+    $weeks = @($course.weeks | ForEach-Object { [int]$_ })
+    if ([int]$course.weekday -ne 4 -or [string]$course.location -ne 'B-407' -or
+        ($weeks -join ',') -ne '2,4,6,8,10') {
+      throw "Dual-root timetable marker changed unexpectedly in $schedulePath."
+    }
+  }
+
+  if (-not (Test-Path -LiteralPath $settingsPath)) {
+    throw 'Dual-root upgrade removed settings.json.'
+  }
+  $settings = Get-Content -Raw -LiteralPath $settingsPath | ConvertFrom-Json
+  $lesson1 = @($settings.lessonTimes | Where-Object { $_.section -eq 1 }) | Select-Object -First 1
+  $lesson2 = @($settings.lessonTimes | Where-Object { $_.section -eq 2 }) | Select-Object -First 1
+  if (-not $settings.onboardingCompleted -or -not $settings.equalDuration -or
+      $lesson1.start -ne '10:10' -or $lesson1.end -ne '10:55' -or
+      $lesson2.start -ne '11:00' -or $lesson2.end -ne '11:45') {
+    throw 'Dual-root upgrade did not preserve the lesson-time/settings marker.'
+  }
+  Write-Host "shared AppData/timetable/settings preserved: $dataRoot"
+}
+
+function Download-VerifiedInstaller([string]$Version, [string]$Url, [string]$Sha256, [string]$OutFile) {
+  Write-Host "Downloading public release $Version from $Url"
+  Invoke-WebRequest -Uri $Url -OutFile $OutFile
+  $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $OutFile).Hash.ToLowerInvariant()
+  if ($actual -ne $Sha256.ToLowerInvariant()) {
+    throw "Public $Version installer SHA-256 mismatch: $actual != $($Sha256.ToLowerInvariant())"
+  }
+  Write-Host "public release installer verified: version=$Version sha256=$actual"
+}
+
+function Get-DualFileSnapshot([string]$Path) {
+  $exists = Test-Path -LiteralPath $Path
+  $length = [int64]0
+  $version = ''
+  $sha256 = ''
+  if ($exists) {
+    try {
+      $item = Get-Item -LiteralPath $Path
+      $length = [int64]$item.Length
+      $version = [string]$item.VersionInfo.FileVersion
+    }
+    catch {}
+    try { $sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant() } catch {}
+  }
+  [pscustomobject]@{ Path = $Path; Exists = $exists; Length = $length; Version = $version; Sha256 = $sha256 }
+}
+
+function Write-DualRegistrationSnapshot([string]$Name) {
+  $entries = @(Get-UninstallEntries $Name)
+  Write-Host "dual failure registration: name='$Name' count=$($entries.Count)"
+  foreach ($entry in $entries) {
+    $expectedUninstaller = if ([string]::IsNullOrWhiteSpace($entry.InstallLocation)) { '' } else { Join-Path $entry.InstallLocation 'uninstall.exe' }
+    $actualUninstaller = ([string]$entry.UninstallString).Trim('"')
+    $uninstallMatchesRoot = $false
+    if (-not [string]::IsNullOrWhiteSpace($expectedUninstaller) -and -not [string]::IsNullOrWhiteSpace($actualUninstaller)) {
+      try { $uninstallMatchesRoot = [IO.Path]::GetFullPath($actualUninstaller) -eq [IO.Path]::GetFullPath($expectedUninstaller) } catch {}
+    }
+    Write-Host "dual failure registration entry: name='$Name' hive='$($entry.Hive)' version='$($entry.DisplayVersion)' publisher='$($entry.Publisher)' installRoot='$($entry.InstallLocation)' mainBinary='$($entry.MainBinaryName)' uninstallMatchesRoot=$uninstallMatchesRoot"
+  }
+}
+
+function Write-DualShortcutSnapshot([string]$Label, [string]$Path) {
+  $diagnostic = Get-MigrationShortcutDiagnostic $Path
+  Write-Host ("dual failure shortcut: label='{0}' path='{1}' exists={2} length={3} TargetPath='{4}' WorkingDirectory='{5}' Arguments='{6}' shellTarget='{7}' resolvedTarget='{8}' wscriptError='{9}' shellError='{10}'" -f `
+    $Label,
+    $diagnostic.Path,
+    $diagnostic.Exists,
+    $diagnostic.Length,
+    $diagnostic.TargetPath,
+    $diagnostic.WorkingDirectory,
+    $diagnostic.Arguments,
+    $diagnostic.ShellTarget,
+    $diagnostic.ResolvedTarget,
+    $diagnostic.WScriptError,
+    $diagnostic.ShellError)
+}
+
+function Write-DualDataSnapshot {
+  $legacyPath = Join-Path $dataRoot 'schedule.json'
+  $settingsPath = Join-Path $dataRoot 'settings.json'
+  $indexPath = Join-Path $dataRoot 'schedules\index.json'
+  $legacyMarker = $false
+  $catalogMarker = $false
+  $settingsMarker = $false
+  $activePath = ''
+  try {
+    if (Test-Path -LiteralPath $legacyPath) {
+      $legacy = Get-Content -Raw -LiteralPath $legacyPath | ConvertFrom-Json
+      $legacyMarker = @($legacy.courses | Where-Object { $_.name -eq '双目录迁移回归课' }).Count -gt 0
+    }
+  }
+  catch {}
+  try {
+    if (Test-Path -LiteralPath $indexPath) {
+      $index = Get-Content -Raw -LiteralPath $indexPath | ConvertFrom-Json
+      if (-not [string]::IsNullOrWhiteSpace([string]$index.activeScheduleId)) {
+        $activePath = Join-Path $dataRoot ("schedules\{0}.json" -f $index.activeScheduleId)
+        if (Test-Path -LiteralPath $activePath) {
+          $active = Get-Content -Raw -LiteralPath $activePath | ConvertFrom-Json
+          $catalogMarker = @($active.courses | Where-Object { $_.name -eq '双目录迁移回归课' }).Count -gt 0
+        }
+      }
+    }
+  }
+  catch {}
+  try {
+    if (Test-Path -LiteralPath $settingsPath) {
+      $settings = Get-Content -Raw -LiteralPath $settingsPath | ConvertFrom-Json
+      $lesson1 = @($settings.lessonTimes | Where-Object { $_.section -eq 1 }) | Select-Object -First 1
+      $lesson2 = @($settings.lessonTimes | Where-Object { $_.section -eq 2 }) | Select-Object -First 1
+      $settingsMarker = $settings.onboardingCompleted -and $settings.equalDuration -and
+        $lesson1.start -eq '10:10' -and $lesson1.end -eq '10:55' -and
+        $lesson2.start -eq '11:00' -and $lesson2.end -eq '11:45'
+    }
+  }
+  catch {}
+  Write-Host "dual failure AppData: root='$dataRoot' exists=$(Test-Path -LiteralPath $dataRoot) scheduleExists=$(Test-Path -LiteralPath $legacyPath) scheduleMarker=$legacyMarker catalogIndexExists=$(Test-Path -LiteralPath $indexPath) activeCatalog='$activePath' catalogMarker=$catalogMarker settingsExists=$(Test-Path -LiteralPath $settingsPath) settingsMarker=$settingsMarker"
+}
+
+function Write-DualInstallFailureSnapshot {
+  param(
+    [int]$ExitCode,
+    [string]$LegacyMainHashBefore,
+    [string]$LegacyUninstallerHashBefore,
+    [string]$CurrentMainHashBefore,
+    [string]$CurrentUninstallerHashBefore,
+    [string]$LegacyStartShortcut,
+    [string]$LegacyDesktopShortcut,
+    [string]$CurrentStartShortcut,
+    [string]$CurrentDesktopShortcut,
+    $LegacyPaths,
+    $CurrentPaths
+  )
+
+  Write-Host "dual candidate failure snapshot: exitCode=$ExitCode candidate='$Candidate' expectedVersion='$ExpectedVersion'"
+  Write-DualRegistrationSnapshot $productName
+  Write-DualRegistrationSnapshot $legacyProductName
+
+  foreach ($entry in @(
+    @{ Label = 'current main'; Path = $CurrentPaths.MainExe; Before = $CurrentMainHashBefore },
+    @{ Label = 'current uninstaller'; Path = $CurrentPaths.Uninstaller; Before = $CurrentUninstallerHashBefore },
+    @{ Label = 'legacy main'; Path = $LegacyPaths.MainExe; Before = $LegacyMainHashBefore },
+    @{ Label = 'legacy uninstaller'; Path = $LegacyPaths.Uninstaller; Before = $LegacyUninstallerHashBefore }
+  )) {
+    $snapshot = Get-DualFileSnapshot $entry.Path
+    $changed = if ([string]::IsNullOrWhiteSpace($entry.Before) -or [string]::IsNullOrWhiteSpace($snapshot.Sha256)) { '<unknown>' } else { [string]($entry.Before -ne $snapshot.Sha256) }
+    Write-Host "dual failure file: label='$($entry.Label)' path='$($snapshot.Path)' exists=$($snapshot.Exists) length=$($snapshot.Length) version='$($snapshot.Version)' sha256='$($snapshot.Sha256)' changed=$changed"
+  }
+
+  Write-Host "dual failure root: label='current' path='$($CurrentPaths.InstallRoot)' exists=$(Test-Path -LiteralPath $CurrentPaths.InstallRoot)"
+  Write-Host "dual failure root: label='legacy' path='$($LegacyPaths.InstallRoot)' exists=$(Test-Path -LiteralPath $LegacyPaths.InstallRoot)"
+  Write-DualShortcutSnapshot 'current Start Menu' $CurrentStartShortcut
+  Write-DualShortcutSnapshot 'current Desktop' $CurrentDesktopShortcut
+  Write-DualShortcutSnapshot 'legacy Start Menu' $LegacyStartShortcut
+  Write-DualShortcutSnapshot 'legacy Desktop' $LegacyDesktopShortcut
+  Write-DualDataSnapshot
+
+  $candidateProcessName = [IO.Path]::GetFileNameWithoutExtension($Candidate)
+  $processes = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
+    $_.ProcessName -eq 'desktop-course-widget' -or
+    $_.ProcessName -eq 'uninstall' -or
+    $_.ProcessName -eq $candidateProcessName
+  })
+  if ($processes.Count -eq 0) {
+    Write-Host 'dual failure processes: <none>'
+  }
+  else {
+    foreach ($process in $processes) {
+      Write-Host "dual failure process: name='$($process.ProcessName)' pid=$($process.Id)"
+    }
+  }
+}
+
+if (@(Get-UninstallEntries $legacyProductName).Count -ne 0 -or
+    @(Get-UninstallEntries $productName).Count -ne 0) {
+  throw 'Dual-install runner already contains a legacy or current course-widget installation.'
+}
+
+try {
+  Download-VerifiedInstaller $legacyVersion $legacyUrl $legacySha256 $legacyInstaller
+  Download-VerifiedInstaller $currentVersion $currentUrl $currentSha256 $currentInstaller
+
+  $legacyInstall = Start-Process -FilePath $legacyInstaller -ArgumentList '/S' -PassThru -Wait
+  if ($legacyInstall.ExitCode -ne 0) {
+    throw "Public $legacyVersion installer exited with $($legacyInstall.ExitCode)."
+  }
+  $legacyRegistration = Get-Registration $legacyProductName $legacyVersion
+  $legacyPaths = Get-InstalledPaths $legacyRegistration
+  Probe-App $legacyPaths.MainExe "public $legacyVersion '$legacyProductName'"
+  Seed-SharedUserData
+
+  $legacyStartShortcut = Join-Path ([Environment]::GetFolderPath('Programs')) "$legacyProductName.lnk"
+  $legacyDesktopShortcut = Join-Path ([Environment]::GetFolderPath('Desktop')) "$legacyProductName.lnk"
+  foreach ($shortcut in @($legacyStartShortcut, $legacyDesktopShortcut)) {
+    if (-not (Test-Path -LiteralPath $shortcut)) {
+      throw "Public $legacyVersion did not create expected legacy shortcut: $shortcut"
+    }
+  }
+
+  $currentInstall = Start-Process -FilePath $currentInstaller -ArgumentList '/S' -PassThru -Wait
+  if ($currentInstall.ExitCode -ne 0) {
+    throw "Public $currentVersion installer exited with $($currentInstall.ExitCode)."
+  }
+  $currentRegistration = Get-Registration $productName $currentVersion
+  $currentPaths = Get-InstalledPaths $currentRegistration
+
+  $legacyRoot = [IO.Path]::GetFullPath($legacyPaths.InstallRoot)
+  $currentRoot = [IO.Path]::GetFullPath($currentPaths.InstallRoot)
+  $expectedLegacyRoot = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA $legacyProductName))
+  $expectedCurrentRoot = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA $productName))
+  if ($legacyRoot -ne $expectedLegacyRoot) {
+    throw "Legacy install root is '$legacyRoot', expected '$expectedLegacyRoot'."
+  }
+  if ($currentRoot -ne $expectedCurrentRoot) {
+    throw "Current install root is '$currentRoot', expected '$expectedCurrentRoot'."
+  }
+  if ($legacyRoot -eq $currentRoot) {
+    throw "Real dual-install precondition failed: roots are identical ('$legacyRoot')."
+  }
+  if (@(Get-UninstallEntries $legacyProductName).Count -ne 1 -or
+      @(Get-UninstallEntries $productName).Count -ne 1) {
+    throw 'Real dual-install precondition failed: expected one legacy and one current registration.'
+  }
+
+  $currentStartShortcut = Join-Path ([Environment]::GetFolderPath('Programs')) "$productName.lnk"
+  $currentDesktopShortcut = Join-Path ([Environment]::GetFolderPath('Desktop')) "$productName.lnk"
+  Assert-MigrationShortcutTarget `
+    -ShortcutPath $currentStartShortcut `
+    -ExpectedTarget $currentPaths.MainExe `
+    -Label 'Public beta.4 Start Menu'
+  Assert-MigrationShortcutTarget `
+    -ShortcutPath $currentDesktopShortcut `
+    -ExpectedTarget $currentPaths.MainExe `
+    -Label 'Public beta.4 Desktop'
+
+  Probe-App $legacyPaths.MainExe "legacy copy in distinct root"
+  Probe-App $currentPaths.MainExe "current copy in distinct root"
+  Assert-SharedUserData
+  Write-Host "real dual-install precondition verified: legacyRoot='$legacyRoot' currentRoot='$currentRoot'; both copies independently runnable"
+
+  $legacyMainHashBefore = (Get-FileHash -Algorithm SHA256 -LiteralPath $legacyPaths.MainExe).Hash.ToLowerInvariant()
+  $legacyUninstallerHashBefore = (Get-FileHash -Algorithm SHA256 -LiteralPath $legacyPaths.Uninstaller).Hash.ToLowerInvariant()
+  $currentMainHashBefore = (Get-FileHash -Algorithm SHA256 -LiteralPath $currentPaths.MainExe).Hash.ToLowerInvariant()
+  $currentUninstallerHashBefore = (Get-FileHash -Algorithm SHA256 -LiteralPath $currentPaths.Uninstaller).Hash.ToLowerInvariant()
+
+  $candidateInstall = Start-Process -FilePath $Candidate -ArgumentList '/S' -PassThru -Wait
+  if ($candidateInstall.ExitCode -ne 0) {
+    Write-DualInstallFailureSnapshot `
+      -ExitCode $candidateInstall.ExitCode `
+      -LegacyMainHashBefore $legacyMainHashBefore `
+      -LegacyUninstallerHashBefore $legacyUninstallerHashBefore `
+      -CurrentMainHashBefore $currentMainHashBefore `
+      -CurrentUninstallerHashBefore $currentUninstallerHashBefore `
+      -LegacyStartShortcut $legacyStartShortcut `
+      -LegacyDesktopShortcut $legacyDesktopShortcut `
+      -CurrentStartShortcut $currentStartShortcut `
+      -CurrentDesktopShortcut $currentDesktopShortcut `
+      -LegacyPaths $legacyPaths `
+      -CurrentPaths $currentPaths
+    throw "Candidate installer exited with $($candidateInstall.ExitCode)."
+  }
+
+  $candidateRegistration = Get-Registration $productName $ExpectedVersion
+  $candidatePaths = Get-InstalledPaths $candidateRegistration
+  if ([IO.Path]::GetFullPath($candidatePaths.InstallRoot) -ne $currentRoot) {
+    throw "Candidate selected wrong root: '$($candidatePaths.InstallRoot)' instead of current '$currentRoot'."
+  }
+  if (@(Get-UninstallEntries $legacyProductName).Count -ne 0) {
+    throw "Legacy '$legacyProductName' registration remained after candidate migration."
+  }
+  if (@(Get-UninstallEntries $productName).Count -ne 1) {
+    throw "Expected exactly one '$productName' registration after candidate migration."
+  }
+
+  foreach ($shortcut in @($legacyStartShortcut, $legacyDesktopShortcut)) {
+    if (Test-Path -LiteralPath $shortcut) {
+      throw "Legacy shortcut remained after candidate migration: $shortcut"
+    }
+  }
+  Assert-MigrationShortcutTarget `
+    -ShortcutPath $currentStartShortcut `
+    -ExpectedTarget $candidatePaths.MainExe `
+    -Label 'Candidate Start Menu'
+  Assert-MigrationShortcutTarget `
+    -ShortcutPath $currentDesktopShortcut `
+    -ExpectedTarget $candidatePaths.MainExe `
+    -Label 'Candidate Desktop'
+
+  $expectedTarget = [IO.Path]::GetFullPath($candidatePaths.MainExe)
+  Wait-Condition { -not (Test-Path -LiteralPath $legacyPaths.MainExe) } 'Legacy main executable remained in the old program root.' 45
+  Wait-Condition { -not (Test-Path -LiteralPath $legacyPaths.Uninstaller) } 'Legacy uninstaller remained in the old program root.' 45
+  if (Test-Path -LiteralPath $currentPaths.MainExe) {
+    $currentAfter = [IO.Path]::GetFullPath($currentPaths.MainExe)
+    if ($currentAfter -ne $expectedTarget) {
+      throw "Unexpected current executable path after candidate migration: $currentAfter"
+    }
+  }
+
+  Assert-SharedUserData
+  Probe-App $candidatePaths.MainExe "candidate $ExpectedVersion after dual-root migration"
+  Assert-SharedUserData
+
+  Write-Host "real v0.3.0 dual-root migration passed: old program copy removed by its default-data-preserving uninstaller; only one '$productName' identity remains; new shortcuts valid; shared AppData/timetable/settings preserved"
+  if ($env:GITHUB_STEP_SUMMARY) {
+    @(
+      '### Public v0.3.0 real dual-install migration',
+      '',
+      "- legacy root: $legacyRoot",
+      "- current root: $currentRoot",
+      '- precondition: both real public installations existed and were independently runnable',
+      '- legacy registration: removed',
+      '- legacy shortcuts: removed',
+      '- legacy executable/uninstaller: removed by legacy silent uninstaller',
+      '- current registration: exactly one',
+      '- current shortcuts: valid',
+      '- shared AppData/timetable/settings: preserved'
+    ) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+  }
+}
+finally {
+  Stop-App
+  foreach ($name in @($productName, $legacyProductName)) {
+    foreach ($entry in @(Get-UninstallEntries $name)) {
+      try {
+        $paths = Get-InstalledPaths $entry
+        Start-Process -FilePath $paths.Uninstaller -ArgumentList '/S' -Wait -ErrorAction SilentlyContinue | Out-Null
+      }
+      catch {}
+    }
+  }
+  if ($testCreatedDataRoot -and (Test-Path -LiteralPath $dataRoot)) {
+    Remove-Item -Recurse -Force -LiteralPath $dataRoot -ErrorAction SilentlyContinue
+  }
+  Remove-Item -Force -LiteralPath $legacyInstaller -ErrorAction SilentlyContinue
+  Remove-Item -Force -LiteralPath $currentInstaller -ErrorAction SilentlyContinue
+}

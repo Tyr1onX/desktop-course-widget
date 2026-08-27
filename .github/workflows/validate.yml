@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 env:
-  COURSE_WIDGET_BUILD_VERSION: "0.5.0-beta.4.${{ github.run_number }}.${{ github.run_attempt }}"
+  COURSE_WIDGET_BUILD_VERSION: "0.5.0-beta.5.${{ github.run_number }}.${{ github.run_attempt }}"
 
 concurrency:
   group: validate-${{ github.workflow }}-${{ github.ref }}
@@ -67,6 +67,9 @@ jobs:
 
       - name: Check screenshot import DOM lifecycle
         run: npm run check:screenshot-import-dom
+
+      - name: Check beta.5 regression contracts
+        run: node --test scripts/beta5-regressions.test.mjs
 
       - name: Check presentation clock
         run: npm run check:presentation-clock

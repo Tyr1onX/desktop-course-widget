@@ -24,25 +24,43 @@ try {
     throw "Installer exited with code $($process.ExitCode)."
   }
 
-  $models = @(
-    Get-ChildItem -LiteralPath $installRoot -Recurse -File |
-      Where-Object { $expected.Contains($_.Name) }
-  )
-  if ($models.Count -ne $expected.Count) {
-    throw "Expected $($expected.Count) native OCR model files, got $($models.Count)."
+  $registrationPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\课刻'
+  $registration = Get-ItemProperty -LiteralPath $registrationPath -ErrorAction Stop
+  $mainBinaryName = [string]$registration.MainBinaryName
+  if ([string]::IsNullOrWhiteSpace($mainBinaryName)) {
+    $mainBinaryName = 'desktop-course-widget.exe'
+  }
+  $mainExe = Join-Path $installRoot $mainBinaryName
+  if (-not (Test-Path -LiteralPath $mainExe -PathType Leaf)) {
+    throw "Installed main executable is missing: $mainExe"
   }
 
-  $modelRoots = @($models.Directory.FullName | Sort-Object -Unique)
-  if ($modelRoots.Count -ne 1) {
-    throw "Native OCR model files are split across $($modelRoots.Count) directories."
+  $exeDir = Split-Path -Parent $mainExe
+  $runtimeRoots = @(
+    (Join-Path $exeDir 'ocr-native'),
+    (Join-Path $exeDir 'resources\ocr-native'),
+    (Join-Path $exeDir '_up_\resources\ocr-native')
+  )
+  $modelRoot = $null
+  foreach ($candidateRoot in $runtimeRoots) {
+    $complete = $true
+    foreach ($name in $expected.Keys) {
+      if (-not (Test-Path -LiteralPath (Join-Path $candidateRoot $name) -PathType Leaf)) {
+        $complete = $false
+        break
+      }
+    }
+    if ($complete) {
+      $modelRoot = $candidateRoot
+      break
+    }
   }
-  $modelRoot = $modelRoots[0]
+  if (-not $modelRoot) {
+    throw "Installed OCR resources are not visible from any packaged runtime resolver root: $($runtimeRoots -join '; ')"
+  }
 
   foreach ($entry in $expected.GetEnumerator()) {
     $path = Join-Path $modelRoot $entry.Key
-    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-      throw "Installed native OCR resource is missing: $($entry.Key)"
-    }
     $actual = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($actual -ne $entry.Value) {
       throw "Installed native OCR resource hash mismatch for $($entry.Key): $actual"
@@ -69,8 +87,9 @@ try {
     throw "Installer contains a forbidden Python/Paddle runtime path: $($forbidden[0].FullName)"
   }
 
-  "installed_model_root=$modelRoot" >> $env:GITHUB_STEP_SUMMARY
-  "installed_model_count=$($models.Count)" >> $env:GITHUB_STEP_SUMMARY
+  Write-Host "packaged runtime OCR resolver root verified: $modelRoot"
+  "runtime_resolver_model_root=$modelRoot" >> $env:GITHUB_STEP_SUMMARY
+  "installed_model_count=$($expected.Count)" >> $env:GITHUB_STEP_SUMMARY
   "python_runtime_files=0" >> $env:GITHUB_STEP_SUMMARY
 }
 finally {

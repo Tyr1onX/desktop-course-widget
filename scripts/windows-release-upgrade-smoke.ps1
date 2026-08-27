@@ -1,23 +1,30 @@
 param(
   [Parameter(Mandatory = $true)]
-  [string]$Candidate
+  [string]$Candidate,
+  [string]$BaseVersion = '0.5.0-beta.1',
+  [string]$BaseUrl = 'https://github.com/Tyr1onX/desktop-course-widget/releases/download/v0.5.0-beta.1/_0.5.0-beta.1_x64-setup.exe',
+  [string]$BaseSha256 = '8ac5d9e62bc492e0e80e3aad94c338c070b0cc349f0d11ec35c7f5a909980126',
+  [string]$LegacyProductName = '',
+  [string]$ExpectedVersion = ''
 )
 
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $true
 
 . (Join-Path $PSScriptRoot 'windows-installer-ui.ps1')
+. (Join-Path $PSScriptRoot 'windows-migration-smoke-helpers.ps1')
 
 $config = Get-Content -Raw -LiteralPath 'src-tauri/tauri.conf.json' | ConvertFrom-Json
 $productName = [string]$config.productName
 $bundleId = [string]$config.identifier
-$expectedVersion = [string]$config.version
+$expectedVersion = if ([string]::IsNullOrWhiteSpace($ExpectedVersion)) { [string]$config.version } else { $ExpectedVersion }
 $publisher = [string]$config.bundle.publisher
 
-$baseVersion = '0.5.0-beta.1'
-$baseUrl = 'https://github.com/Tyr1onX/desktop-course-widget/releases/download/v0.5.0-beta.1/_0.5.0-beta.1_x64-setup.exe'
-$baseSha256 = '8ac5d9e62bc492e0e80e3aad94c338c070b0cc349f0d11ec35c7f5a909980126'
-$baseInstaller = Join-Path $env:RUNNER_TEMP 'course-widget-v0.5.0-beta.1.exe'
+$baseVersion = $BaseVersion
+$baseUrl = $BaseUrl
+$baseSha256 = $BaseSha256.ToLowerInvariant()
+$baseInstaller = Join-Path $env:RUNNER_TEMP ("course-widget-{0}.exe" -f $baseVersion)
+$baseProductName = if ([string]::IsNullOrWhiteSpace($LegacyProductName)) { $productName } else { $LegacyProductName }
 $dataRoot = Join-Path $env:LOCALAPPDATA $bundleId
 $testCreatedDataRoot = -not (Test-Path -LiteralPath $dataRoot)
 
@@ -30,7 +37,7 @@ function Wait-Condition([scriptblock]$Condition, [string]$Message, [int]$Timeout
   throw $Message
 }
 
-function Get-UninstallEntries {
+function Get-UninstallEntries([string]$Name = $productName) {
   $roots = @(
     @{ Hive = 'HKCU'; Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' },
     @{ Hive = 'HKLM'; Path = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' },
@@ -39,7 +46,7 @@ function Get-UninstallEntries {
   $matches = foreach ($root in $roots) {
     Get-ItemProperty -Path $root.Path -ErrorAction SilentlyContinue |
       Where-Object {
-        $_.DisplayName -eq $productName -and
+        $_.DisplayName -eq $Name -and
         ([string]::IsNullOrWhiteSpace($publisher) -or $_.Publisher -eq $publisher)
       } |
       ForEach-Object {
@@ -54,10 +61,10 @@ function Get-UninstallEntries {
   return @($matches)
 }
 
-function Get-Registration([string]$Version) {
-  $entries = @(Get-UninstallEntries)
+function Get-Registration([string]$Version, [string]$Name = $productName) {
+  $entries = @(Get-UninstallEntries -Name $Name)
   if ($entries.Count -ne 1) {
-    throw "Expected exactly one $productName uninstall registration, found $($entries.Count)."
+    throw "Expected exactly one $Name uninstall registration, found $($entries.Count)."
   }
   $entry = $entries[0]
   if ($entry.Hive -ne 'HKCU') {
@@ -129,7 +136,8 @@ function Get-ActiveCatalogPath {
 function Seed-Beta1UserData {
   $legacyPath = Join-Path $dataRoot 'schedule.json'
   $settingsPath = Join-Path $dataRoot 'settings.json'
-  $activePath = Get-ActiveCatalogPath
+  $indexPath = Join-Path $dataRoot 'schedules\index.json'
+  $activePath = if (Test-Path -LiteralPath $indexPath) { Get-ActiveCatalogPath } else { $null }
 
   $markerCourse = [ordered]@{
     name = '发布升级回归课'
@@ -149,50 +157,50 @@ function Seed-Beta1UserData {
   }
   Write-Utf8Json $legacyPath $legacy
 
-  # beta.1 already uses the catalog schema. Keep that real schema intact and only
-  # replace the user-facing timetable fields so the upgrade starts from valid data.
-  $catalog = Get-Content -Raw -LiteralPath $activePath | ConvertFrom-Json
-  if ([string]::IsNullOrWhiteSpace([string]$catalog.id) -or
-      [string]::IsNullOrWhiteSpace([string]$catalog.name)) {
-    throw 'Public beta.1 active catalog schedule is not a valid catalog document.'
-  }
-  $catalog.semesterStart = $legacy.semesterStart
-  $catalog.semesterEnd = $legacy.semesterEnd
-  $catalog.courses = @(
-    [ordered]@{
-      id = 'release-upgrade-course'
-      name = $markerCourse.name
-      color = '#CFE1FF'
-      teacher = $markerCourse.teacher
-      weekday = $markerCourse.weekday
-      start = $markerCourse.start
-      end = $markerCourse.end
-      location = $markerCourse.location
-      weeks = $markerCourse.weeks
-      parity = $markerCourse.parity
+  if ($activePath) {
+    # beta.1 already uses the catalog schema. Keep that real schema intact and only
+    # replace the user-facing timetable fields so the upgrade starts from valid data.
+    $catalog = Get-Content -Raw -LiteralPath $activePath | ConvertFrom-Json
+    if ([string]::IsNullOrWhiteSpace([string]$catalog.id) -or
+        [string]::IsNullOrWhiteSpace([string]$catalog.name)) {
+      throw "Public $baseVersion active catalog schedule is not a valid catalog document."
     }
-  )
-  if ($catalog.PSObject.Properties.Name -contains 'updatedAt') {
-    $catalog.updatedAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    $catalog.semesterStart = $legacy.semesterStart
+    $catalog.semesterEnd = $legacy.semesterEnd
+    $catalog.courses = @(
+      [ordered]@{
+        id = 'release-upgrade-course'
+        name = $markerCourse.name
+        color = '#CFE1FF'
+        teacher = $markerCourse.teacher
+        weekday = $markerCourse.weekday
+        start = $markerCourse.start
+        end = $markerCourse.end
+        location = $markerCourse.location
+        weeks = $markerCourse.weeks
+        parity = $markerCourse.parity
+      }
+    )
+    if ($catalog.PSObject.Properties.Name -contains 'updatedAt') {
+      $catalog.updatedAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    }
+    Write-Utf8Json $activePath $catalog
   }
-  Write-Utf8Json $activePath $catalog
+  else {
+    Write-Host "public $baseVersion uses pre-catalog legacy schedule storage; candidate startup must migrate schedule.json into the active catalog"
+  }
 
-  if (-not (Test-Path -LiteralPath $settingsPath)) {
-    throw 'Public beta.1 did not create settings.json after startup.'
-  }
-  $settings = Get-Content -Raw -LiteralPath $settingsPath | ConvertFrom-Json
-  if (@($settings.lessonTimes).Count -lt 2) {
-    throw 'Public beta.1 settings do not contain at least two lesson times.'
-  }
-  $settings.onboardingCompleted = $true
-  $settings.equalDuration = $true
-  $settings.lessonTimes[0].start = '08:10'
-  $settings.lessonTimes[0].end = '08:55'
-  $settings.lessonTimes[1].start = '09:00'
-  $settings.lessonTimes[1].end = '09:45'
-  Write-Utf8Json $settingsPath $settings
+  Set-V03MigrationSettingsMarker `
+    -SettingsPath $settingsPath `
+    -PreCatalogBaseline (-not $activePath) `
+    -BaselineLabel "Public $baseVersion" `
+    -FirstStart '08:10' `
+    -FirstEnd '08:55' `
+    -SecondStart '09:00' `
+    -SecondEnd '09:45'
 
-  Write-Host "seeded valid beta.1 user data: legacy='$legacyPath' catalog='$activePath' settings='$settingsPath'"
+  $catalogLabel = if ($activePath) { $activePath } else { '<pre-catalog baseline>' }
+  Write-Host "seeded valid public $baseVersion user data: legacy='$legacyPath' catalog='$catalogLabel' settings='$settingsPath'"
 }
 
 function Assert-RetainedUserData {
@@ -222,6 +230,114 @@ function Assert-RetainedUserData {
     throw 'Upgrade did not preserve the lesson-time/settings marker.'
   }
   Write-Host "public upgrade data preserved: legacy='$legacyPath' catalog='$activePath' settings='$settingsPath'"
+}
+
+function Seed-LegacyIdentityResidue {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Name,
+    [Parameter(Mandatory = $true)]
+    [string]$InstallRoot,
+    [Parameter(Mandatory = $true)]
+    [string]$MainExe,
+    [Parameter(Mandatory = $true)]
+    [string]$Uninstaller,
+    [Parameter(Mandatory = $true)]
+    [string]$CurrentStartShortcut,
+    [Parameter(Mandatory = $true)]
+    [string]$CurrentDesktopShortcut
+  )
+
+  $stage = 'initializing legacy residue fixture'
+  $objectPath = ''
+  try {
+    $uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$Name"
+    $stage = 'creating legacy uninstall registry'
+    $objectPath = $uninstallKey
+    Write-Host "residual fixture: $stage path='$objectPath'"
+    New-Item -Path $uninstallKey -Force | Out-Null
+
+    $stage = 'writing uninstall properties'
+    $objectPath = $uninstallKey
+    Write-Host "residual fixture: $stage path='$objectPath'"
+    New-ItemProperty -LiteralPath $uninstallKey -Name DisplayName -Value $Name -PropertyType String -Force | Out-Null
+    New-ItemProperty -LiteralPath $uninstallKey -Name DisplayVersion -Value $baseVersion -PropertyType String -Force | Out-Null
+    New-ItemProperty -LiteralPath $uninstallKey -Name Publisher -Value $publisher -PropertyType String -Force | Out-Null
+    New-ItemProperty -LiteralPath $uninstallKey -Name InstallLocation -Value $InstallRoot -PropertyType String -Force | Out-Null
+    New-ItemProperty -LiteralPath $uninstallKey -Name UninstallString -Value ('"{0}"' -f $Uninstaller) -PropertyType String -Force | Out-Null
+    New-ItemProperty -LiteralPath $uninstallKey -Name MainBinaryName -Value ([IO.Path]::GetFileName($MainExe)) -PropertyType String -Force | Out-Null
+
+    $legacyProductKey = "HKCU:\Software\$publisher\$Name"
+    $stage = 'creating manufacturer product key'
+    $objectPath = $legacyProductKey
+    Write-Host "residual fixture: $stage path='$objectPath'"
+    New-Item -Path $legacyProductKey -Force | Out-Null
+
+    $stage = 'writing product root'
+    $objectPath = $legacyProductKey
+    Write-Host "residual fixture: $stage path='$objectPath' value='$InstallRoot'"
+    Set-Item -LiteralPath $legacyProductKey -Value $InstallRoot
+
+    $legacyStartShortcut = Join-Path ([Environment]::GetFolderPath('Programs')) "$Name.lnk"
+    $legacyDesktopShortcut = Join-Path ([Environment]::GetFolderPath('Desktop')) "$Name.lnk"
+
+    $stage = 'creating Start Menu legacy shortcut'
+    $objectPath = $legacyStartShortcut
+    Write-Host "residual fixture: $stage source='$CurrentStartShortcut' path='$objectPath'"
+    if (-not (Test-Path -LiteralPath $CurrentStartShortcut)) {
+      throw "Current Start Menu shortcut source is missing: $CurrentStartShortcut"
+    }
+    Copy-Item -LiteralPath $CurrentStartShortcut -Destination $legacyStartShortcut -Force
+
+    $stage = 'creating Desktop legacy shortcut'
+    $objectPath = $legacyDesktopShortcut
+    Write-Host "residual fixture: $stage source='$CurrentDesktopShortcut' path='$objectPath'"
+    if (-not (Test-Path -LiteralPath $CurrentDesktopShortcut)) {
+      throw "Current Desktop shortcut source is missing: $CurrentDesktopShortcut"
+    }
+    Copy-Item -LiteralPath $CurrentDesktopShortcut -Destination $legacyDesktopShortcut -Force
+
+    $stage = 'verifying seeded legacy registration'
+    $objectPath = $uninstallKey
+    Write-Host "residual fixture: $stage path='$objectPath'"
+    $seeded = Get-ItemProperty -LiteralPath $uninstallKey
+    if ([string]$seeded.DisplayName -ne $Name -or [string]$seeded.Publisher -ne $publisher) {
+      throw "Seeded legacy registration identity is invalid: DisplayName='$($seeded.DisplayName)' Publisher='$($seeded.Publisher)'."
+    }
+    if ([IO.Path]::GetFullPath(([string]$seeded.InstallLocation).Trim('"')) -ne [IO.Path]::GetFullPath($InstallRoot)) {
+      throw "Seeded legacy InstallLocation does not match '$InstallRoot'."
+    }
+    if (([string]$seeded.UninstallString).Trim('"') -ne $Uninstaller) {
+      throw "Seeded legacy UninstallString does not match '$Uninstaller'."
+    }
+    $storedProductRoot = [string](Get-Item -LiteralPath $legacyProductKey).GetValue('')
+    if ([string]::IsNullOrWhiteSpace($storedProductRoot) -or
+        [IO.Path]::GetFullPath($storedProductRoot) -ne [IO.Path]::GetFullPath($InstallRoot)) {
+      throw "Seeded legacy manufacturer product root '$storedProductRoot' does not match '$InstallRoot'."
+    }
+
+    $stage = 'verifying seeded Start Menu shortcut'
+    $objectPath = $legacyStartShortcut
+    Write-Host "residual fixture: $stage path='$objectPath'"
+    Assert-MigrationShortcutTarget `
+      -ShortcutPath $legacyStartShortcut `
+      -ExpectedTarget $MainExe `
+      -Label 'Seeded legacy Start Menu residue'
+
+    $stage = 'verifying seeded Desktop shortcut'
+    $objectPath = $legacyDesktopShortcut
+    Write-Host "residual fixture: $stage path='$objectPath'"
+    Assert-MigrationShortcutTarget `
+      -ShortcutPath $legacyDesktopShortcut `
+      -ExpectedTarget $MainExe `
+      -Label 'Seeded legacy Desktop residue'
+
+    Write-Host "seeded exact legacy identity residue while current '$productName' remains installed: '$Name'"
+  }
+  catch {
+    $exceptionType = $_.Exception.GetType().FullName
+    throw "Seed-LegacyIdentityResidue failed: stage='$stage' path='$objectPath' exception='$exceptionType' message='$($_.Exception.Message)'"
+  }
 }
 
 function Enable-DeleteDataOption([IntPtr]$Handle, [int]$TimeoutSeconds = 12) {
@@ -403,8 +519,11 @@ function Invoke-DeleteDataUninstall([string]$Uninstaller) {
   Invoke-UninstallerAction $uiHandle 10
 }
 
-if (@(Get-UninstallEntries).Count -ne 0) {
+if (@(Get-UninstallEntries -Name $productName).Count -ne 0) {
   throw "$productName is already installed on the release-upgrade runner."
+}
+if ($baseProductName -ne $productName -and @(Get-UninstallEntries -Name $baseProductName).Count -ne 0) {
+  throw "$baseProductName is already installed on the release-upgrade runner."
 }
 
 try {
@@ -418,10 +537,22 @@ try {
 
   $baseProcess = Start-Process -FilePath $baseInstaller -ArgumentList '/S' -PassThru -Wait
   if ($baseProcess.ExitCode -ne 0) { throw "Public $baseVersion installer exited with $($baseProcess.ExitCode)." }
-  $baseRegistration = Get-Registration $baseVersion
+  $baseRegistration = Get-Registration $baseVersion $baseProductName
   $basePaths = Get-InstalledPaths $baseRegistration
   Probe-App $basePaths.MainExe "public $baseVersion"
   Seed-Beta1UserData
+
+  $legacyStartShortcut = Join-Path ([Environment]::GetFolderPath('Programs')) "$baseProductName.lnk"
+  $legacyDesktopShortcut = Join-Path ([Environment]::GetFolderPath('Desktop')) "$baseProductName.lnk"
+  if ($baseProductName -ne $productName) {
+    if (-not (Test-Path -LiteralPath $legacyStartShortcut)) {
+      throw "Public $baseVersion did not create the expected legacy Start Menu shortcut: $legacyStartShortcut"
+    }
+    if (-not (Test-Path -LiteralPath $legacyDesktopShortcut)) {
+      throw "Public $baseVersion did not create the expected legacy desktop shortcut: $legacyDesktopShortcut"
+    }
+    Write-Host "legacy Windows identity verified before upgrade: DisplayName='$baseProductName' installRoot='$($basePaths.InstallRoot)'"
+  }
 
   $candidateProcess = Start-Process -FilePath $Candidate -ArgumentList '/S' -PassThru -Wait
   if ($candidateProcess.ExitCode -ne 0) { throw "Candidate installer exited with $($candidateProcess.ExitCode)." }
@@ -430,8 +561,68 @@ try {
   if ($candidatePaths.InstallRoot -ne $basePaths.InstallRoot) {
     throw "Upgrade changed install root: '$($basePaths.InstallRoot)' -> '$($candidatePaths.InstallRoot)'."
   }
+  if ($baseProductName -ne $productName) {
+    if (@(Get-UninstallEntries -Name $baseProductName).Count -ne 0) {
+      throw "Legacy uninstall registration '$baseProductName' remained after candidate upgrade."
+    }
+    if (Test-Path -LiteralPath $legacyStartShortcut) {
+      throw "Legacy Start Menu shortcut remained after migration: $legacyStartShortcut"
+    }
+    if (Test-Path -LiteralPath $legacyDesktopShortcut) {
+      throw "Legacy desktop shortcut remained after migration: $legacyDesktopShortcut"
+    }
+    $newStartShortcut = Join-Path ([Environment]::GetFolderPath('Programs')) "$productName.lnk"
+    $newDesktopShortcut = Join-Path ([Environment]::GetFolderPath('Desktop')) "$productName.lnk"
+    Assert-MigrationShortcutTarget `
+      -ShortcutPath $newStartShortcut `
+      -ExpectedTarget $candidatePaths.MainExe `
+      -Label 'Migrated Start Menu'
+    Assert-MigrationShortcutTarget `
+      -ShortcutPath $newDesktopShortcut `
+      -ExpectedTarget $candidatePaths.MainExe `
+      -Label 'Migrated Desktop'
+    Write-Host "legacy brand migration verified: old registration/shortcuts removed; new identity='$productName'; installRoot preserved"
+  }
   Probe-App $candidatePaths.MainExe "candidate $expectedVersion"
   Assert-RetainedUserData
+
+  if ($baseProductName -ne $productName) {
+    Seed-LegacyIdentityResidue `
+      -Name $baseProductName `
+      -InstallRoot $candidatePaths.InstallRoot `
+      -MainExe $candidatePaths.MainExe `
+      -Uninstaller $candidatePaths.Uninstaller `
+      -CurrentStartShortcut $newStartShortcut `
+      -CurrentDesktopShortcut $newDesktopShortcut
+    if (@(Get-UninstallEntries -Name $productName).Count -ne 1 -or @(Get-UninstallEntries -Name $baseProductName).Count -ne 1) {
+      throw 'Failed to establish current-product + legacy-residue migration precondition.'
+    }
+    $residualUpgrade = Start-Process -FilePath $Candidate -ArgumentList '/S' -PassThru -Wait
+    if ($residualUpgrade.ExitCode -ne 0) { throw "Candidate residual-identity reinstall exited with $($residualUpgrade.ExitCode)." }
+    if (@(Get-UninstallEntries -Name $baseProductName).Count -ne 0) {
+      throw "Legacy uninstall registration '$baseProductName' remained when $productName was already installed."
+    }
+    if (@(Get-UninstallEntries -Name $productName).Count -ne 1) {
+      throw "Expected exactly one current '$productName' uninstall identity after residual cleanup."
+    }
+    foreach ($shortcut in @($legacyStartShortcut, $legacyDesktopShortcut)) {
+      if (Test-Path -LiteralPath $shortcut) {
+        throw "Legacy shortcut remained when $productName was already installed: $shortcut"
+      }
+    }
+    $candidateRegistration = Get-Registration $expectedVersion
+    $candidatePaths = Get-InstalledPaths $candidateRegistration
+    Assert-MigrationShortcutTarget `
+      -ShortcutPath $newStartShortcut `
+      -ExpectedTarget $candidatePaths.MainExe `
+      -Label 'Residual cleanup Start Menu'
+    Assert-MigrationShortcutTarget `
+      -ShortcutPath $newDesktopShortcut `
+      -ExpectedTarget $candidatePaths.MainExe `
+      -Label 'Residual cleanup Desktop'
+    Assert-RetainedUserData
+    Write-Host "current product + legacy residue migration passed: only one '$productName' identity remains; user data preserved"
+  }
 
   Stop-App
   $defaultUninstall = Start-Process -FilePath $candidatePaths.Uninstaller -ArgumentList '/S' -PassThru -Wait
@@ -451,7 +642,7 @@ try {
   Wait-Condition { -not (Test-Path -LiteralPath $dataRoot) } 'Delete-app-data option did not remove the application data directory.' 45
   Write-Host 'candidate uninstaller delete-app-data option removed application data as required.'
 
-  Write-Host "public release upgrade smoke passed: $baseVersion -> $expectedVersion; timetable/settings preserved; default uninstall preserved data; delete-app-data removed data"
+  Write-Host "public release upgrade smoke passed: $baseVersion -> $expectedVersion; baselineBrand=$baseProductName; timetable/settings preserved; default uninstall preserved data; delete-app-data removed data"
   if ($env:GITHUB_STEP_SUMMARY) {
     @(
       '### Public release upgrade smoke',
@@ -469,7 +660,8 @@ try {
 }
 finally {
   Stop-App
-  $entries = @(Get-UninstallEntries)
+  $entries = @(Get-UninstallEntries -Name $productName)
+  if ($baseProductName -ne $productName) { $entries += @(Get-UninstallEntries -Name $baseProductName) }
   foreach ($entry in $entries) {
     try {
       $paths = Get-InstalledPaths $entry
