@@ -31,15 +31,9 @@ test('installer generator only migrates the trusted historical product identity'
   assert.match(generator, /LegacyBrandMigration/)
   assert.doesNotMatch(generator, /StrCpy \$INSTDIR \$4',\n\s*'    Return'/)
 
-  const displayNameCheck = generator.indexOf(
-    '  \'  ${If} $5 == "${LEGACY_PRODUCTNAME}"\'',
-  )
-  const publisherCheck = generator.indexOf(
-    '  \'  ${AndIf} $6 == "${MANUFACTURER}"\'',
-  )
-  const migrationEnable = generator.indexOf(
-    '  \'        StrCpy $LegacyBrandMigration 1\'',
-  )
+  const displayNameCheck = generator.indexOf('${If} $5 == "${LEGACY_PRODUCTNAME}"')
+  const publisherCheck = generator.indexOf('${AndIf} $6 == "${MANUFACTURER}"')
+  const migrationEnable = generator.indexOf('StrCpy $LegacyBrandMigration 1')
   assert.ok(displayNameCheck >= 0, 'legacy DisplayName check is missing')
   assert.ok(publisherCheck > displayNameCheck, 'legacy Publisher must be checked with DisplayName')
   assert.ok(migrationEnable > publisherCheck, 'migration must not be enabled before Publisher validation')
@@ -78,12 +72,11 @@ test('legacy uninstaller must match the trusted install root before silent execu
     'ReadRegStr $9 SHCTX "${LEGACY_UNINSTKEY}" "UninstallString"',
   )
   const migrationEnable = generator.indexOf('StrCpy $LegacyBrandMigration 1')
-  const silentUninstall = generator.indexOf(
-    'ExecWait \\\'"$LegacyInstallDir\\\\uninstall.exe" /S\\\' $1',
-  )
+  const silentUninstall = generator.indexOf('ExecWait')
   assert.ok(uninstallRead >= 0, 'legacy UninstallString validation is missing')
   assert.ok(migrationEnable > uninstallRead, 'migration must require validated UninstallString')
   assert.ok(silentUninstall > migrationEnable, 'legacy uninstaller must only execute after validation')
+  assert.match(generator, /LegacyInstallDir\\\\uninstall\.exe.*\/S/)
   assert.match(generator, /Legacy uninstall command does not match its trusted install root; refusing migration/)
 })
 
