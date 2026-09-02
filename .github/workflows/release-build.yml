@@ -175,6 +175,13 @@ jobs:
       - name: Verify installer branding contract
         run: node scripts/check-installer-branding.mjs
 
+      - name: Smoke test installer state isolation and stale-root recovery
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'Windows NSIS installer was not produced.' }
+          ./scripts/windows-installer-state-isolation-smoke.ps1 -Installer $installer.FullName
+
       - name: Upload installer visual asset
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:

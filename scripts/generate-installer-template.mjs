@@ -79,6 +79,8 @@ generated = replaceExactlyOnce(
   'Var PassiveMode',
   [
     'Var PassiveMode',
+    'Var IsolatedInstall',
+    'Var StaleCurrentInstallState',
     'Var LegacyBrandMigration',
     'Var LegacyInstallDir',
     'Var LegacyMainBinaryName',
@@ -96,9 +98,58 @@ const restoreAnchor = [
 const restoreWithLegacy = [
   'Function RestorePreviousInstallLocation',
   '  StrCpy $LegacyBrandMigration 0',
+  '  StrCpy $StaleCurrentInstallState 0',
   '  StrCpy $LegacyInstallDir ""',
   '  StrCpy $LegacyMainBinaryName ""',
   '  ReadRegStr $4 SHCTX "${MANUPRODUCTKEY}" ""',
+  '  ReadRegStr $R0 SHCTX "${UNINSTKEY}" "DisplayName"',
+  '  ReadRegStr $R1 SHCTX "${UNINSTKEY}" "Publisher"',
+  '  ReadRegStr $R2 SHCTX "${UNINSTKEY}" "InstallLocation"',
+  '  ReadRegStr $R3 SHCTX "${UNINSTKEY}" "UninstallString"',
+  '  ${If} $4 != ""',
+  '    ; Never trust the manufacturer install root by itself. It must agree with a complete production uninstall registration.',
+  '    StrCpy $R4 $R2 1',
+  '    ${If} $R4 == "$\\\""',
+  '      StrCpy $R2 $R2 "" 1',
+  '    ${EndIf}',
+  '    StrCpy $R4 $R2 1 -1',
+  '    ${If} $R4 == "$\\\""',
+  '      StrCpy $R2 $R2 -1',
+  '    ${EndIf}',
+  '    StrCpy $R4 "$\\\"$4\\uninstall.exe$\\\""',
+  '    ${If} $R0 != "${PRODUCTNAME}"',
+  '    ${OrIf} $R1 != "${MANUFACTURER}"',
+  '    ${OrIf} $R2 != $4',
+  '    ${OrIf} $R3 != $R4',
+  '      DetailPrint "Saved install location is incomplete or inconsistent; using the canonical default."',
+  '      StrCpy $StaleCurrentInstallState 1',
+  '      StrCpy $4 ""',
+  '    ${EndIf}',
+  '  ${ElseIf} $R0 != ""',
+  '  ${OrIf} $R1 != ""',
+  '  ${OrIf} $R2 != ""',
+  '  ${OrIf} $R3 != ""',
+  '    DetailPrint "Current uninstall registration has no matching manufacturer install root; treating it as stale."',
+  '    StrCpy $StaleCurrentInstallState 1',
+  '  ${EndIf}',
+  '',
+  '  ${If} $4 != ""',
+  '    ; Historical dev/marketing installs used the production identity with ephemeral roots. Refuse to inherit those roots.',
+  '    ${StrCase} $R4 $4 "L"',
+  '    ${StrCase} $R5 "$TEMP\\" "L"',
+  '    ${StrLoc} $R6 $R4 ".marketing-install" ">"',
+  '    ${StrLoc} $R7 "$R4\\" $R5 ">"',
+  '    ${If} $R6 != ""',
+  '      DetailPrint "Saved install location points at a marketing/dev root; using the canonical default: $4"',
+  '      StrCpy $StaleCurrentInstallState 1',
+  '      StrCpy $4 ""',
+  '    ${ElseIf} $R7 == "0"',
+  '      DetailPrint "Saved install location points inside TEMP; using the canonical default: $4"',
+  '      StrCpy $StaleCurrentInstallState 1',
+  '      StrCpy $4 ""',
+  '    ${EndIf}',
+  '  ${EndIf}',
+  '',
   '  ${If} $4 != ""',
   '    StrCpy $INSTDIR $4',
   '  ${EndIf}',
@@ -140,8 +191,10 @@ const restoreWithLegacy = [
   '        ${If} $LegacyMainBinaryName == ""',
   '          StrCpy $LegacyMainBinaryName "${MAINBINARYNAME}.exe"',
   '        ${EndIf}',
-  '        ; Reuse the historical install root only when the current product has no saved location.',
+  '        ; Reuse the historical install root only for a clean brand migration.',
+  '        ; If the current product identity was stale/rejected, keep the canonical new-product root and retire legacy separately.',
   '        ${If} $4 == ""',
+  '        ${AndIf} $StaleCurrentInstallState != 1',
   '          StrCpy $INSTDIR $LegacyInstallDir',
   '        ${EndIf}',
   '      ${Else}',
@@ -157,6 +210,31 @@ generated = replaceExactlyOnce(
   restoreAnchor,
   restoreWithLegacy,
   'legacy install location migration',
+)
+
+
+const reinstallDetectionAnchor = [
+  '  wix_loop_done:',
+  '',
+  '  ; Check if there is an existing installation, if not, abort the reinstall page',
+].join('\n')
+const reinstallDetectionWithStaleGuard = [
+  '  wix_loop_done:',
+  '',
+  '  ; A rejected/incomplete NSIS identity must never be offered as a maintenance target.',
+  '  ; Continue with a normal install so the successful install can overwrite stale registration and shortcuts.',
+  '  ${If} $StaleCurrentInstallState = 1',
+  '  ${AndIf} $WixMode != 1',
+  '    Abort',
+  '  ${EndIf}',
+  '',
+  '  ; Check if there is an existing installation, if not, abort the reinstall page',
+].join('\n')
+generated = replaceExactlyOnce(
+  generated,
+  reinstallDetectionAnchor,
+  reinstallDetectionWithStaleGuard,
+  'stale current identity maintenance-page guard',
 )
 
 const postInstallAnchor = [
@@ -221,6 +299,140 @@ generated = replaceExactlyOnce(
   postInstallMigration,
   'legacy post-install cleanup',
 )
+
+
+const initPassiveAnchor = [
+  'Function .onInit',
+  '  ${GetOptions} $CMDLINE "/P" $PassiveMode',
+  '  ${IfNot} ${Errors}',
+  '    StrCpy $PassiveMode 1',
+  '  ${EndIf}',
+  '',
+  '  ${GetOptions} $CMDLINE "/NS" $NoShortcutMode',
+].join('\n')
+const initWithIsolatedFlag = [
+  'Function .onInit',
+  '  ${GetOptions} $CMDLINE "/P" $PassiveMode',
+  '  ${IfNot} ${Errors}',
+  '    StrCpy $PassiveMode 1',
+  '  ${EndIf}',
+  '',
+  '  ${GetOptions} $CMDLINE "/ISOLATED" $IsolatedInstall',
+  '  ${IfNot} ${Errors}',
+  '    StrCpy $IsolatedInstall 1',
+  '  ${EndIf}',
+  '',
+  '  ${GetOptions} $CMDLINE "/NS" $NoShortcutMode',
+].join('\n')
+generated = replaceExactlyOnce(
+  generated,
+  initPassiveAnchor,
+  initWithIsolatedFlag,
+  'isolated installer flag parsing',
+)
+
+const setContextAnchor = [
+  '  !insertmacro SetContext',
+  '',
+  '  ${If} $INSTDIR == "${PLACEHOLDER_INSTALL_DIR}"',
+].join('\n')
+const setContextWithIsolation = [
+  '  !insertmacro SetContext',
+  '',
+  '  ; /ISOLATED is an internal dev/CI mode. It must be silent and must use an explicit /D= root.',
+  '  ; In this mode files are laid down for runtime verification without touching production registry or shortcuts.',
+  '  ${If} $IsolatedInstall = 1',
+  '    ${IfNot} ${Silent}',
+  '      DetailPrint "Isolated install requires /S; refusing an interactive production-identity install."',
+  '      SetErrorLevel 87',
+  '      Quit',
+  '    ${EndIf}',
+  '    ${If} $INSTDIR == "${PLACEHOLDER_INSTALL_DIR}"',
+  '      DetailPrint "Isolated install requires an explicit /D=<path>; refusing to use the production install root."',
+  '      SetErrorLevel 87',
+  '      Quit',
+  '    ${EndIf}',
+  '  ${EndIf}',
+  '',
+  '  ${If} $INSTDIR == "${PLACEHOLDER_INSTALL_DIR}"',
+].join('\n')
+generated = replaceExactlyOnce(
+  generated,
+  setContextAnchor,
+  setContextWithIsolation,
+  'isolated installer safety preconditions',
+)
+
+const associationsAnchor = '  ; Create file associations'
+generated = replaceExactlyOnce(
+  generated,
+  associationsAnchor,
+  [
+    '  ; Isolated installs are runtime/package probes only and must not create system integration.',
+    '  ${If} $IsolatedInstall != 1',
+    associationsAnchor,
+  ].join('\n'),
+  'isolated file-association guard',
+)
+
+const uninstallerAnchor = [
+  '  ; Create uninstaller',
+  '  WriteUninstaller "$INSTDIR\\uninstall.exe"',
+].join('\n')
+generated = replaceExactlyOnce(
+  generated,
+  uninstallerAnchor,
+  [
+    '  ${EndIf}',
+    '',
+    '  ; Production registration is intentionally skipped for isolated dev/CI installs.',
+    '  ${If} $IsolatedInstall != 1',
+    uninstallerAnchor,
+  ].join('\n'),
+  'isolated production-registration guard start',
+)
+
+const shortcutTailAnchor = [
+  '  ${If} $PassiveMode = 1',
+  '  ${OrIf} ${Silent}',
+  '    Call CreateOrUpdateDesktopShortcut',
+  '  ${EndIf}',
+  '',
+  '  !ifmacrodef NSIS_HOOK_POSTINSTALL',
+].join('\n')
+const shortcutTailWithIsolation = [
+  '  ${If} $PassiveMode = 1',
+  '  ${OrIf} ${Silent}',
+  '    Call CreateOrUpdateDesktopShortcut',
+  '  ${EndIf}',
+  '  ${Else}',
+  '    DetailPrint "Isolated install complete: production registry, uninstaller, file associations, and shortcuts were skipped."',
+  '  ${EndIf}',
+  '',
+  '  !ifmacrodef NSIS_HOOK_POSTINSTALL',
+].join('\n')
+generated = replaceExactlyOnce(
+  generated,
+  shortcutTailAnchor,
+  shortcutTailWithIsolation,
+  'isolated production-registration guard end',
+)
+
+for (const functionName of ['CreateOrUpdateStartMenuShortcut', 'CreateOrUpdateDesktopShortcut']) {
+  const anchor = `Function ${functionName}`
+  generated = replaceExactlyOnce(
+    generated,
+    anchor,
+    [
+      anchor,
+      '  ${If} $IsolatedInstall = 1',
+      '    DetailPrint "Isolated install: shortcut creation suppressed."',
+      '    Return',
+      '  ${EndIf}',
+    ].join('\n'),
+    `isolated ${functionName} guard`,
+  )
+}
 
 mkdirSync(outDir, { recursive: true })
 writeFileSync(outPath, generated, 'utf8')

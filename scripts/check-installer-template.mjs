@@ -55,6 +55,28 @@ const requiredFragments = [
   'Var LegacyBrandMigration',
   'Var LegacyInstallDir',
   'Var LegacyMainBinaryName',
+  'Var IsolatedInstall',
+  'Var StaleCurrentInstallState',
+  '${GetOptions} $CMDLINE "/ISOLATED" $IsolatedInstall',
+  'Isolated install requires /S; refusing an interactive production-identity install.',
+  'Isolated install requires an explicit /D=<path>; refusing to use the production install root.',
+  '; Isolated installs are runtime/package probes only and must not create system integration.',
+  '; Production registration is intentionally skipped for isolated dev/CI installs.',
+  'Isolated install complete: production registry, uninstaller, file associations, and shortcuts were skipped.',
+  'Isolated install: shortcut creation suppressed.',
+  'ReadRegStr $R0 SHCTX "${UNINSTKEY}" "DisplayName"',
+  'ReadRegStr $R1 SHCTX "${UNINSTKEY}" "Publisher"',
+  'ReadRegStr $R2 SHCTX "${UNINSTKEY}" "InstallLocation"',
+  'ReadRegStr $R3 SHCTX "${UNINSTKEY}" "UninstallString"',
+  'Saved install location is incomplete or inconsistent; using the canonical default.',
+  'Current uninstall registration has no matching manufacturer install root; treating it as stale.',
+  '${If} $StaleCurrentInstallState = 1',
+  '${AndIf} $WixMode != 1',
+  '${AndIf} $StaleCurrentInstallState != 1',
+  '; A rejected/incomplete NSIS identity must never be offered as a maintenance target.',
+  '${StrLoc} $R6 $R4 ".marketing-install" ">"',
+  'Saved install location points at a marketing/dev root; using the canonical default:',
+  'Saved install location points inside TEMP; using the canonical default:',
   'ReadRegStr $5 SHCTX "${LEGACY_UNINSTKEY}" "DisplayName"',
   'ReadRegStr $6 SHCTX "${LEGACY_UNINSTKEY}" "Publisher"',
   '${AndIf} $6 == "${MANUFACTURER}"',
@@ -86,6 +108,54 @@ for (const fragment of requiredFragments) {
   if (!template.includes(fragment)) {
     throw new Error(`custom NSIS template lost required Tauri contract: ${fragment}`)
   }
+}
+
+const isolatedParse = template.indexOf('${GetOptions} $CMDLINE "/ISOLATED" $IsolatedInstall')
+const isolatedPrecondition = template.indexOf('Isolated install requires an explicit /D=<path>')
+const isolatedRegistryGuard = template.indexOf(
+  '; Production registration is intentionally skipped for isolated dev/CI installs.',
+)
+const productionUninstaller = template.indexOf('WriteUninstaller "$INSTDIR\\uninstall.exe"')
+const currentRegistrationRead = template.indexOf(
+  'ReadRegStr $R0 SHCTX "${UNINSTKEY}" "DisplayName"',
+)
+const currentConsistencyReject = template.indexOf(
+  'Saved install location is incomplete or inconsistent; using the canonical default.',
+)
+const marketingRootReject = template.indexOf(
+  'Saved install location points at a marketing/dev root; using the canonical default:',
+)
+const restoreCurrentRoot = template.indexOf('StrCpy $INSTDIR $4')
+const staleMaintenanceGuard = template.indexOf('${If} $StaleCurrentInstallState = 1')
+const currentMaintenanceRead = template.indexOf(
+  'ReadRegStr $R0 SHCTX "${UNINSTKEY}" ""',
+)
+const staleLegacyReuseGuard = template.indexOf('${AndIf} $StaleCurrentInstallState != 1')
+const legacyRootReuse = template.indexOf('StrCpy $INSTDIR $LegacyInstallDir')
+
+if (isolatedParse < 0 || isolatedPrecondition <= isolatedParse) {
+  throw new Error('isolated installer mode must be parsed and validated before install work begins')
+}
+if (
+  isolatedRegistryGuard < 0 ||
+  productionUninstaller <= isolatedRegistryGuard
+) {
+  throw new Error('production registration/uninstaller must remain behind the isolated-install guard')
+}
+if (
+  currentRegistrationRead < 0 ||
+  currentConsistencyReject <= currentRegistrationRead ||
+  marketingRootReject <= currentConsistencyReject ||
+  restoreCurrentRoot <= marketingRootReject
+) {
+  throw new Error('saved current install root must be validated and ephemeral roots rejected before restoring $INSTDIR')
+}
+if (staleMaintenanceGuard < 0 || currentMaintenanceRead <= staleMaintenanceGuard) {
+  throw new Error('rejected current NSIS identity must be skipped before the reinstall/maintenance registration is read')
+}
+
+if (staleLegacyReuseGuard < 0 || legacyRootReuse <= staleLegacyReuseGuard) {
+  throw new Error('stale current product identity must block reusing the legacy-brand install root')
 }
 
 const productKeyRead = template.indexOf(
@@ -137,5 +207,5 @@ if (installPage < 0 || finishPage <= installPage) {
 }
 
 console.log(
-  'installer template contract passed: currentUser + native headers + installer sidebar + uninstaller icon + uninstall registry preserved; 桌面课表 migration requires matching publisher/root/uninstall command, prefers manufacturer product root, normalizes quoted registration fallback, stages the trusted distinct-root uninstaller and waits with NSIS _?= before verifying retirement; finish page auto-advance enabled',
+  'installer template contract passed: currentUser + native headers + isolated /ISOLATED dev/CI mode without production identity + stale current-root validation/recovery + installer sidebar + uninstaller icon + uninstall registry preserved; 桌面课表 migration requires matching publisher/root/uninstall command, prefers manufacturer product root, normalizes quoted registration fallback, stages the trusted distinct-root uninstaller and waits with NSIS _?= before verifying retirement; finish page auto-advance enabled',
 )

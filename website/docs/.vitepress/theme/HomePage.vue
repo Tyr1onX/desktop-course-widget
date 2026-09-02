@@ -7,7 +7,8 @@ const guideLink = withBase('/guide/getting-started')
 const experienceLink = withBase('/experience/')
 const markLink = withBase('/app-icon-v2.svg')
 const repositoryLink = 'https://github.com/Tyr1onX/desktop-course-widget'
-const releaseLink = `${repositoryLink}/releases/latest`
+const stableReleaseLink = `${repositoryLink}/releases/latest`
+const betaReleaseLink = `${repositoryLink}/releases/tag/v0.5.0-beta.5`
 const licenseLink = `${repositoryLink}/blob/main/LICENSE`
 const privacyLink = `${repositoryLink}/blob/main/PRIVACY.md`
 
@@ -47,7 +48,7 @@ onMounted(() => {
           <a :href="repositoryLink" target="_blank" rel="noreferrer">GitHub</a>
         </nav>
 
-        <a class="course-nav__download" :href="releaseLink">下载 Windows 版</a>
+        <a class="course-nav__download" :href="stableReleaseLink">下载稳定版</a>
       </div>
     </header>
 
@@ -62,19 +63,20 @@ onMounted(() => {
               <span>静静流过桌面。</span>
             </h1>
 
-            <p class="orbit-hero__lead">看见正在发生的课程，也能随时整理整个学期。</p>
+            <p class="orbit-hero__lead">看见正在发生的课程，也能随时整理整个学期；Beta 版还支持本地截图识别与导入前复核。</p>
 
             <div class="course-actions orbit-hero__actions">
-              <a class="course-button course-button--primary" :href="releaseLink">
-                下载 Windows 版
+              <a class="course-button course-button--primary" :href="stableReleaseLink">
+                下载稳定版 v0.4.0
                 <svg viewBox="0 0 16 16" aria-hidden="true">
                   <path d="M5.25 3.5 9.75 8l-4.5 4.5" />
                 </svg>
               </a>
               <a class="course-button course-button--text" :href="experienceLink">深入了解课刻</a>
+              <a class="course-button course-button--text" :href="betaReleaseLink">体验 Beta</a>
             </div>
 
-            <p class="course-hero__meta orbit-hero__meta">Windows 10 / 11 · 免费 · 课表只保存在本机</p>
+            <p class="course-hero__meta orbit-hero__meta">稳定版 v0.4.0 · Beta v0.5.0-beta.5 · Windows 10 / 11 · 数据仅保存在本机</p>
           </div>
 
           <div class="orbit-scene" aria-label="课刻主图标、桌面组件与课表编辑窗口概览">

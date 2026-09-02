@@ -1,4 +1,4 @@
-param(
+﻿param(
   [Parameter(Mandatory = $true)]
   [string]$Installer,
   [Parameter(Mandatory = $true)]
@@ -53,7 +53,22 @@ Get-ChildItem -LiteralPath $OutputDir -Filter '*.png' -File -ErrorAction Silentl
 $productName = '课刻'
 $installRoot = Join-Path $env:LOCALAPPDATA $productName
 $uninstallerPath = Join-Path $installRoot 'uninstall.exe'
+$manufacturerStatePath = 'HKCU:\Software\Tyr1onX\课刻'
+$uninstallRegistrationPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\课刻'
+$startShortcutPath = Join-Path ([Environment]::GetFolderPath('Programs')) '课刻.lnk'
+$desktopShortcutPath = Join-Path ([Environment]::GetFolderPath('Desktop')) '课刻.lnk'
 $reviewUninstaller = $null
+
+$preexistingProductionState = @(
+  (Test-Path -LiteralPath $installRoot -PathType Container),
+  (Test-Path -LiteralPath $manufacturerStatePath),
+  (Test-Path -LiteralPath $uninstallRegistrationPath),
+  (Test-Path -LiteralPath $startShortcutPath -PathType Leaf),
+  (Test-Path -LiteralPath $desktopShortcutPath -PathType Leaf)
+) | Where-Object { $_ }
+if ($preexistingProductionState.Count -ne 0) {
+  throw 'Installer review capture requires a clean disposable Windows identity and refuses to modify an existing production 课刻 installation/state.'
+}
 
 function Wait-MainWindow([Diagnostics.Process]$Process, [int]$Seconds = 20) {
   $deadline = (Get-Date).AddSeconds($Seconds)
@@ -310,4 +325,9 @@ finally {
   if (Test-Path -LiteralPath $installRoot) {
     Remove-Item -LiteralPath $installRoot -Recurse -Force -ErrorAction SilentlyContinue
   }
+  # This script starts only from a clean disposable identity, so retire every production-state artifact it created.
+  Remove-Item -LiteralPath $manufacturerStatePath -Recurse -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $uninstallRegistrationPath -Recurse -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $startShortcutPath -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $desktopShortcutPath -Force -ErrorAction SilentlyContinue
 }
