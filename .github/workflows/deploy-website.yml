@@ -5,6 +5,17 @@ on:
     branches: [main]
     paths:
       - 'website/**'
+      - 'src/widget.ts'
+      - 'src/duration.ts'
+      - 'src/data/schedule.json'
+      - 'src/time-flow.ts'
+      - 'src/time-flow.css'
+      - 'src/course-handoff.ts'
+      - 'src/course-handoff.css'
+      - 'src/course-handoff-dom.ts'
+      - 'src/course-handoff-session.ts'
+      - 'src/course-handoff-shared.ts'
+      - 'src/course-handoff-types.ts'
       - '.github/workflows/deploy-website.yml'
   workflow_dispatch:
 

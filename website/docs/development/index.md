@@ -1,6 +1,6 @@
 # 本地开发
 
-桌面课表由 Tauri、Rust、Vite 和 Vanilla TypeScript 构建。网站文档使用 VitePress，并放在独立的 `website/` 目录中。
+课刻由 Tauri、Rust、Vite 和 Vanilla TypeScript 构建。网站文档使用 VitePress，并放在独立的 `website/` 目录中。
 
 ## 运行桌面应用
 

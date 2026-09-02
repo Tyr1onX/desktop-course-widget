@@ -8,7 +8,8 @@
   <p><sub>Windows 10 / 11 · 免费开源 · 无需账号 · 数据只保存在本机</sub></p>
 
   <p>
-    <a href="https://github.com/Tyr1onX/desktop-course-widget/releases/latest"><strong>下载 Windows 版</strong></a>
+    <a href="https://github.com/Tyr1onX/desktop-course-widget/releases/latest"><strong>下载稳定版 v0.4.0</strong></a>
+    · <a href="https://github.com/Tyr1onX/desktop-course-widget/releases/tag/v0.5.0-beta.5"><strong>体验 Beta v0.5.0-beta.5</strong></a>
     · <a href="https://tyr1onx.github.io/desktop-course-widget/experience/">产品体验</a>
     · <a href="https://tyr1onx.github.io/desktop-course-widget/guide/getting-started">使用指南</a>
     · <a href="https://github.com/Tyr1onX/desktop-course-widget/issues">反馈问题</a>
@@ -16,6 +17,8 @@
 </div>
 
 ---
+
+当前稳定版是 **v0.4.0**，适合日常使用；**v0.5.0-beta.5** 是预发布版本，可体验本地课表截图识别（Beta）与导入复核。GitHub 的 `releases/latest` 只指向最新稳定版，不会自动选择 prerelease。
 
 ## 课刻在做什么
 
@@ -40,10 +43,10 @@
 
 ## 快速开始
 
-1. 前往 [最新 Release](https://github.com/Tyr1onX/desktop-course-widget/releases/latest)，下载名称以 `_x64-setup.exe` 结尾的安装程序。
+1. 日常使用可前往 [稳定版 v0.4.0](https://github.com/Tyr1onX/desktop-course-widget/releases/latest)；想体验截图识别可前往 [Beta v0.5.0-beta.5](https://github.com/Tyr1onX/desktop-course-widget/releases/tag/v0.5.0-beta.5)。下载名称以 `_x64-setup.exe` 结尾的安装程序。
 2. 安装并启动“课刻”，打开“课表与设置”。
-3. 从学校教务系统导出 `.xlsx` 课表并导入，确认第一教学周星期一。
-4. 检查导入预览，应用后即可在桌面查看当天课程。
+3. 从当前课表选择器进入“导入新课表”。稳定版可导入教务系统导出的 `.xlsx`；Beta 还可选择完整的 PNG/JPG 课表截图。
+4. 检查导入复核结果，按需修正课程、节次、周次等信息，再创建并应用课表。
 
 > 当前安装包尚未进行商业代码签名。Windows 可能显示“Windows 已保护你的电脑”或“未知发布者”。确认安装包来自本仓库 Release 后，可选择“更多信息”→“仍要运行”。
 

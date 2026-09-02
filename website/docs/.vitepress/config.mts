@@ -14,7 +14,7 @@ export default defineConfig({
   lang: 'zh-CN',
   title: '课刻',
   description:
-    '课刻是一款免费的 Windows 桌面课表工具，支持从教务系统 Excel 导入课表，显示当前课程、下一节和完整周课表，所有数据仅保存在本机。',
+    '课刻是一款免费的 Windows 桌面课表工具，支持 Excel 导入；Beta 版可在本机识别课表截图并复核后导入，所有课表数据仅保存在本机。',
   base: siteBase,
   cleanUrls: true,
   lastUpdated: true,
@@ -28,7 +28,7 @@ export default defineConfig({
       'meta',
       {
         name: 'keywords',
-        content: 'Windows课表,桌面课表,大学生课表,课程表,课表组件,Excel课表导入,Tauri,Rust',
+        content: 'Windows课表,桌面课表,大学生课表,课程表,课表组件,Excel课表导入,课表截图识别,Tauri,Rust',
       },
     ],
     [
@@ -88,7 +88,7 @@ export default defineConfig({
       { text: '常见问题', link: '/help/faq' },
       { text: '开发', link: '/development/' },
       {
-        text: '下载课刻',
+        text: '下载稳定版',
         link: 'https://github.com/Tyr1onX/desktop-course-widget/releases/latest',
       },
     ],
