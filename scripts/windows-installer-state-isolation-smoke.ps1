@@ -7,6 +7,8 @@
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $true
 
+. (Join-Path $PSScriptRoot 'windows-migration-smoke-helpers.ps1')
+
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $config = Get-Content -LiteralPath (Join-Path $repoRoot 'src-tauri/tauri.conf.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 $productName = [string]$config.productName
@@ -37,22 +39,6 @@ $pollutedRoot = Join-Path $root 'historical\.marketing-install'
 function Normalize-RegistryPath([string]$Value) {
   if ([string]::IsNullOrWhiteSpace($Value)) { return '' }
   return [Environment]::ExpandEnvironmentVariables($Value.Trim().Trim('"'))
-}
-
-function Get-ShortcutTarget([string]$Path) {
-  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return '' }
-  $shell = New-Object -ComObject WScript.Shell
-  return [string]$shell.CreateShortcut($Path).TargetPath
-}
-
-function New-TestShortcut([string]$Path, [string]$Target) {
-  $parent = Split-Path -Parent $Path
-  New-Item -ItemType Directory -Force -Path $parent | Out-Null
-  $shell = New-Object -ComObject WScript.Shell
-  $shortcut = $shell.CreateShortcut($Path)
-  $shortcut.TargetPath = $Target
-  $shortcut.WorkingDirectory = Split-Path -Parent $Target
-  $shortcut.Save()
 }
 
 function Assert-NoProductionIdentity([string]$Phase) {
@@ -129,25 +115,32 @@ try {
 
   Remove-Item -LiteralPath $isolatedRoot -Recurse -Force
 
-  Write-Host 'installer identity smoke: simulate historical coherent .marketing-install pollution'
+  Write-Host 'installer identity smoke: reproduce historical production-identity .marketing-install pollution with a real custom-root install'
   New-Item -ItemType Directory -Force -Path $pollutedRoot | Out-Null
+  Invoke-Installer @('/S', "/D=$pollutedRoot")
+
   $pollutedExe = Join-Path $pollutedRoot 'desktop-course-widget.exe'
   $pollutedUninstaller = Join-Path $pollutedRoot 'uninstall.exe'
-  Set-Content -LiteralPath $pollutedExe -Value 'historical dev binary sentinel' -NoNewline -Encoding ascii
-  Set-Content -LiteralPath $pollutedUninstaller -Value 'historical dev uninstaller sentinel' -NoNewline -Encoding ascii
+  foreach ($path in @($pollutedExe, $pollutedUninstaller)) {
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+      throw "Historical pollution fixture did not create expected installed file: $path"
+    }
+  }
 
-  New-Item -Path $manufacturerKey -Force | Out-Null
-  Set-Item -LiteralPath $manufacturerKey -Value $pollutedRoot
-  New-Item -Path $uninstallKey -Force | Out-Null
-  Set-Item -LiteralPath $uninstallKey -Value $productName
-  New-ItemProperty -LiteralPath $uninstallKey -Name 'DisplayName' -Value $productName -PropertyType String -Force | Out-Null
-  New-ItemProperty -LiteralPath $uninstallKey -Name 'DisplayVersion' -Value $expectedVersion -PropertyType String -Force | Out-Null
-  New-ItemProperty -LiteralPath $uninstallKey -Name 'Publisher' -Value $publisher -PropertyType String -Force | Out-Null
-  New-ItemProperty -LiteralPath $uninstallKey -Name 'InstallLocation' -Value ('"' + $pollutedRoot + '"') -PropertyType String -Force | Out-Null
-  New-ItemProperty -LiteralPath $uninstallKey -Name 'UninstallString' -Value ('"' + $pollutedUninstaller + '"') -PropertyType String -Force | Out-Null
-  New-ItemProperty -LiteralPath $uninstallKey -Name 'MainBinaryName' -Value 'desktop-course-widget.exe' -PropertyType String -Force | Out-Null
-  New-TestShortcut -Path $startShortcut -Target $pollutedExe
-  New-TestShortcut -Path $desktopShortcut -Target $pollutedExe
+  $pollutedSavedRoot = Normalize-RegistryPath ([string](Get-Item -LiteralPath $manufacturerKey).GetValue(''))
+  if (-not $pollutedSavedRoot.Equals([IO.Path]::GetFullPath($pollutedRoot), [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Historical pollution fixture did not register the custom root: '$pollutedSavedRoot'"
+  }
+  $pollutedRegistration = Get-ItemProperty -LiteralPath $uninstallKey -ErrorAction Stop
+  $pollutedRegisteredRoot = Normalize-RegistryPath ([string]$pollutedRegistration.InstallLocation)
+  if (-not $pollutedRegisteredRoot.Equals([IO.Path]::GetFullPath($pollutedRoot), [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Historical pollution fixture uninstall registration did not use the custom root: '$pollutedRegisteredRoot'"
+  }
+  Assert-MigrationShortcutTarget -ShortcutPath $startShortcut -ExpectedTarget $pollutedExe -Label 'Historical polluted Start Menu'
+  Assert-MigrationShortcutTarget -ShortcutPath $desktopShortcut -ExpectedTarget $pollutedExe -Label 'Historical polluted Desktop'
+  if ((Get-Content -LiteralPath $sentinelPath -Raw) -ne $sentinelValue) {
+    throw 'Historical pollution fixture changed shared AppData.'
+  }
 
   Write-Host 'installer identity smoke: normal production install must reject stale dev root and converge to canonical root'
   Invoke-Installer @('/S')
@@ -169,15 +162,8 @@ try {
     throw "Production DisplayVersion is '$($registration.DisplayVersion)', expected '$expectedVersion'."
   }
 
-  foreach ($shortcut in @($startShortcut, $desktopShortcut)) {
-    $target = Get-ShortcutTarget $shortcut
-    if ([string]::IsNullOrWhiteSpace($target)) {
-      throw "Production shortcut target could not be resolved: $shortcut"
-    }
-    if (-not ([IO.Path]::GetFullPath($target)).Equals([IO.Path]::GetFullPath($canonicalExe), [StringComparison]::OrdinalIgnoreCase)) {
-      throw "Production shortcut still targets stale dev binary: $shortcut -> $target"
-    }
-  }
+  Assert-MigrationShortcutTarget -ShortcutPath $startShortcut -ExpectedTarget $canonicalExe -Label 'Recovered production Start Menu'
+  Assert-MigrationShortcutTarget -ShortcutPath $desktopShortcut -ExpectedTarget $canonicalExe -Label 'Recovered production Desktop'
 
   $startAppsReady = Wait-Until {
     @(Get-StartApps -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq $productName }).Count -gt 0
