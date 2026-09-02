@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## v0.5.0-beta.5 - 2026-08-27
+
+- Unified the About surface on the 课刻 brand and read the real application version from the Tauri runtime instead of showing a hard-coded old version.
+- Hardened the Windows NSIS migration from the historical “桌面课表” identity: migration now requires matching product name, publisher, install root, and uninstall command before any legacy installation is touched.
+- Fixed distinct legacy-root retirement by staging the validated old uninstaller in a safe temporary directory, waiting for the real NSIS uninstall with `_?=`, and verifying the old executable is gone without recursively deleting shared application data.
+- Consolidated the empty-week hint styling and tightened packaged OCR verification so release checks resolve resources from the same root used by the application runtime.
+- Revalidated the exact PR #108 head through Validate, the complete Windows Release workflow, public v0.3.0 direct migration, current 课刻 plus historical-residue migration, and a real public v0.3.0 + public beta.4 dual-install migration.
+
+### Known limitations
+
+- Screenshot recognition remains a Beta feature and unfamiliar timetable layouts may still require manual correction.
+- The Windows installer is not commercially code-signed yet, so Windows may show an unknown-publisher or SmartScreen warning.
+
 ## v0.5.0-beta.4 - 2026-08-26
 
 - Reused OCR course-card seed analysis after ownership filtering, avoiding a duplicated expensive parser pass without changing OCR heuristics or output rules; the synthetic Debug benchmark improved from 63.238s/iter to 39.235s/iter (about 38% lower time, 1.61× faster).

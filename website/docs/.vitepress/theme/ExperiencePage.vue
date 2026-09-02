@@ -6,7 +6,8 @@ const homeLink = withBase('/')
 const guideLink = withBase('/guide/getting-started')
 const faqLink = withBase('/help/faq')
 const markLink = withBase('/app-icon-v2.svg')
-const releaseLink = 'https://github.com/Tyr1onX/desktop-course-widget/releases/latest'
+const stableReleaseLink = 'https://github.com/Tyr1onX/desktop-course-widget/releases/latest'
+const betaReleaseLink = 'https://github.com/Tyr1onX/desktop-course-widget/releases/tag/v0.5.0-beta.5'
 const repositoryLink = 'https://github.com/Tyr1onX/desktop-course-widget'
 
 const easeOut = [0.22, 1, 0.36, 1]
@@ -28,7 +29,7 @@ const easeOut = [0.22, 1, 0.36, 1]
             <a :href="faqLink">常见问题</a>
           </nav>
 
-          <a class="course-nav__download" :href="releaseLink">下载 Windows 版</a>
+          <a class="course-nav__download" :href="stableReleaseLink">下载稳定版</a>
         </div>
       </header>
 
@@ -50,8 +51,9 @@ const easeOut = [0.22, 1, 0.36, 1]
               <span>下一节也会在需要时来到眼前。</span>
             </p>
             <div class="course-actions course-actions--center">
-              <a class="course-button course-button--primary" :href="releaseLink">下载 Windows 版</a>
+              <a class="course-button course-button--primary" :href="stableReleaseLink">下载稳定版 v0.4.0</a>
               <a class="course-button course-button--text" :href="guideLink">查看使用指南</a>
+              <a class="course-button course-button--text" :href="betaReleaseLink">体验 Beta v0.5.0-beta.5</a>
             </div>
           </motion.div>
 
@@ -81,8 +83,9 @@ const easeOut = [0.22, 1, 0.36, 1]
           <div class="experience-capabilities" aria-label="产品能力与运行要求">
             <p class="experience-capabilities__line">
               <a class="experience-capabilities__item" :href="guideLink">Excel 导入</a>
+              <a class="experience-capabilities__item" :href="betaReleaseLink">截图识别（Beta）</a>
+              <span class="experience-capabilities__item">导入前人工复核</span>
               <span class="experience-capabilities__item">可自由编辑</span>
-              <span class="experience-capabilities__item">可收回系统托盘</span>
             </p>
             <p class="experience-capabilities__line">
               <span class="experience-capabilities__item">Windows 10 / 11</span>
