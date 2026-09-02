@@ -1,4 +1,4 @@
-param(
+﻿param(
   [Parameter(Mandatory = $true)][string]$Installer,
   [string]$WorkingRoot = (Join-Path $env:RUNNER_TEMP "course-widget-native-ocr-package-$PID")
 )
@@ -19,20 +19,21 @@ New-Item -ItemType Directory -Force -Path $installRoot | Out-Null
 
 try {
   $installerPath = [IO.Path]::GetFullPath($Installer)
-  $process = Start-Process -FilePath $installerPath -ArgumentList @('/S', "/D=$installRoot") -Wait -PassThru
+  $process = Start-Process -FilePath $installerPath -ArgumentList @('/S', '/ISOLATED', "/D=$installRoot") -Wait -PassThru
   if ($process.ExitCode -ne 0) {
     throw "Installer exited with code $($process.ExitCode)."
   }
 
-  $registrationPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\课刻'
-  $registration = Get-ItemProperty -LiteralPath $registrationPath -ErrorAction Stop
-  $mainBinaryName = [string]$registration.MainBinaryName
-  if ([string]::IsNullOrWhiteSpace($mainBinaryName)) {
-    $mainBinaryName = 'desktop-course-widget.exe'
+  $mainCandidates = @(
+    Get-ChildItem -LiteralPath $installRoot -Filter '*.exe' -File -ErrorAction Stop |
+      Where-Object { $_.Name -notmatch '(?i)^(uninstall|unins)' }
+  )
+  if ($mainCandidates.Count -ne 1) {
+    throw "Isolated package probe expected exactly one top-level application executable, found $($mainCandidates.Count)."
   }
-  $mainExe = Join-Path $installRoot $mainBinaryName
-  if (-not (Test-Path -LiteralPath $mainExe -PathType Leaf)) {
-    throw "Installed main executable is missing: $mainExe"
+  $mainExe = $mainCandidates[0].FullName
+  if (Test-Path -LiteralPath (Join-Path $installRoot 'uninstall.exe') -PathType Leaf) {
+    throw 'Isolated package probe unexpectedly created a production-identity uninstaller.'
   }
 
   $exeDir = Split-Path -Parent $mainExe
@@ -93,11 +94,6 @@ try {
   "python_runtime_files=0" >> $env:GITHUB_STEP_SUMMARY
 }
 finally {
-  $uninstaller = Get-ChildItem -LiteralPath $installRoot -Recurse -File -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -match '(?i)(uninstall|unins).*\.exe$' } |
-    Select-Object -First 1
-  if ($uninstaller) {
-    Start-Process -FilePath $uninstaller.FullName -ArgumentList '/S' -Wait -ErrorAction SilentlyContinue
-  }
+  # /ISOLATED deliberately creates no uninstaller or persistent product identity.
   Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
 }
